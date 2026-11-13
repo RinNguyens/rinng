@@ -25,6 +25,7 @@ Dự án chỉ làm crypto. Các phần về cổ phiếu trong file 05 (nguồn
 | [06-llm-multi-agent.md](06-llm-multi-agent.md) | Các hệ LLM cho tài chính, bằng chứng phản biện, framework agent, Claude API, MCP, kiến trúc đề xuất | Viết lớp LLM |
 | [07-ke-hoach-trien-khai.md](07-ke-hoach-trien-khai.md) | Kế hoạch từng bước, giới hạn và chặn của hai sàn, dữ liệu cần cho từng indicator | Trước khi bắt đầu code |
 | [08-kien-truc.md](08-kien-truc.md) | Kiến trúc: các lớp, tiến trình, module, mô hình dữ liệu, giao diện | Trước khi dựng khung |
+| [09-lo-trinh-phase.md](09-lo-trinh-phase.md) | Lộ trình 12 phase: việc, phụ thuộc, tiêu chí xong, rủi ro | Khi bắt đầu mỗi phase |
 
 ## Kết luận xuyên suốt
 
