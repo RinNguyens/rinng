@@ -1,0 +1,13 @@
+# Mặc định theo docs/07-ke-hoach-trien-khai.md mục 1.
+data_dir: data
+base_timeframe: 1m
+timeframes: [15m, 1h, 4h, 1d, 1w]
+instruments:
+  - id: BTC-USDT-PERP
+    kind: perp
+    binance: BTCUSDT
+    okx: BTC-USDT-SWAP
+  - id: ETH-USDT-PERP
+    kind: perp
+    binance: ETHUSDT
+    okx: ETH-USDT-SWAP
