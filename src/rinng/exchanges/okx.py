@@ -47,6 +47,7 @@ FUNDING = "/api/v5/public/funding-rate-history"
 OPEN_INTEREST = "/api/v5/rubik/stat/contracts/open-interest-history"
 LONG_SHORT = "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract"
 TAKER_VOLUME = "/api/v5/rubik/stat/taker-volume-contract"
+INSTRUMENTS = "/api/v5/public/instruments"
 
 # Số request mỗi 2 giây theo tài liệu của sàn.
 _LIMITS = {
@@ -56,6 +57,7 @@ _LIMITS = {
     OPEN_INTEREST: 10,
     LONG_SHORT: 5,
     TAKER_VOLUME: 5,
+    INSTRUMENTS: 20,
 }
 
 
@@ -78,10 +80,26 @@ class Okx:
         max_retries: int = 3,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._client = client or httpx.Client(base_url=BASE_URL, timeout=20.0)
+        # IPv4: đường IPv6 tới host OKX có thể treo tới ~80 giây trước khi rơi về IPv4.
+        self._client = client or httpx.Client(
+            base_url=BASE_URL,
+            timeout=20.0,
+            transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+        )
         self._max_retries = max_retries
         self._sleep = sleep
         self._limiters = {path: WindowLimiter(n, 2.0, sleep=sleep) for path, n in _LIMITS.items()}
+
+    def contract_value(self, symbol: str) -> float:
+        """Số đồng base trong một hợp đồng (ctVal), ví dụ 0.01 BTC với BTC-USDT-SWAP.
+
+        Trades và liquidation qua WebSocket của OKX tính bằng số hợp đồng; nhân với số này
+        để ra khối lượng theo đồng base như Binance.
+        """
+        data = self._get(INSTRUMENTS, {"instType": "SWAP", "instId": symbol})
+        if not data:
+            raise ExchangeError(f"OKX không có instrument {symbol}")
+        return float(data[0]["ctVal"]) * float(data[0].get("ctMult") or 1)
 
     # --- phương thức của giao diện Exchange ---
 
@@ -215,7 +233,14 @@ class Okx:
         limiter = self._limiters[path]
         for attempt in range(self._max_retries + 1):
             limiter.acquire()
-            response = self._client.get(path, params=params)
+            try:
+                response = self._client.get(path, params=params)
+            except httpx.TransportError:
+                # Lỗi mạng thoáng qua (connection reset, timeout): chờ rồi thử lại.
+                if attempt == self._max_retries:
+                    raise
+                self._sleep(2.0 * (attempt + 1))
+                continue
             try:
                 body = response.json()
             except ValueError:

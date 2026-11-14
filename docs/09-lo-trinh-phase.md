@@ -2,6 +2,21 @@
 
 Lập ngày 2026-11-13. Chi tiết hóa [07-ke-hoach-trien-khai.md](07-ke-hoach-trien-khai.md) thành các phase làm được độc lập, theo kiến trúc ở [08-kien-truc.md](08-kien-truc.md). Phase 0 đã xong (commit `c6ae912`); các phase còn lại chưa bắt đầu.
 
+## Trạng thái (cập nhật 2026-11-13)
+
+| Phase | Code | Tiêu chí "xong khi" | Còn lại |
+|---|---|---|---|
+| 0–2 | xong | đạt | — |
+| 3 Bộ thu | xong | một phần: test với server WebSocket giả qua; chạy thật 90 giây | chạy liên tục 72 giờ chưa làm; file dịch vụ trong `deploy/` chưa cài |
+| 4 Lịch sử | xong | xem kết quả chạy thật trong báo cáo phiên | aggTrades và bookDepth chưa tải (nặng; lệnh có sẵn) |
+| 5 Lõi phân tích | xong | test + chống nhìn trước qua | chưa so bằng mắt với TradingView |
+| 6 SMC, thanh khoản | xong | test + chống nhìn trước qua | chưa so với TradingView; chưa có MSS, inverse FVG |
+| 7 Volume profile, order flow | xong | test qua | chưa so VPOC với TradingView; chưa so bản nến với bản trades trên dữ liệu thật |
+| 8 Phái sinh, Wyckoff, Elliott | xong | test + chống nhìn trước qua | liquidation chỉ có từ lúc collector chạy |
+| 9 Backtest | xong | test khớp phép tính tay | không mô phỏng thanh lý; chưa có chiến lược nào đã kiểm định có lợi thế |
+| 10 Dashboard | xong | dashboard chạy được (test headless) | chưa đối chiếu với chart mẫu |
+| 11 Pine Script | `pine/rinng_overlay.pine` (SMC, thanh khoản, VP tuần, Wyckoff climax) và `pine/rinng_oscillators.pine` (RSI, MACD, delta/CVD ước lượng) | qua trình kiểm lỗi của Pine Editor, không còn lỗi hay cảnh báo | chưa chạy trên chart (TradingView đòi đăng nhập để Add to chart) |
+
 Quy ước:
 
 - **Cỡ:** S (một module nhỏ), M (vài module), L (nhiều module hoặc phải chạy thử dài ngày). Đây là độ lớn tương đối, không phải ước lượng thời gian.
@@ -29,7 +44,10 @@ Thứ tự làm đề xuất: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 
 
 ## Phase 0 — Khung dự án (đã xong)
 
-Còn một việc treo: tải một file `metrics` và một file `bookDepth` từ data.binance.vision để xem cột. Việc này phải xong trước phase 2, vì nó quyết định schema bảng `open_interest` và `long_short`.
+Việc treo đã xong (2026-11-13): đã tải file ngày 2026-11-10 của BTCUSDT, checksum khớp.
+
+- `metrics` (288 dòng, mỗi 5 phút, không xếp theo thời gian): `create_time, symbol, sum_open_interest, sum_open_interest_value, count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, count_long_short_ratio, sum_taker_long_short_vol_ratio`. Đối chiếu với API cùng thời điểm: `count_toptrader…` ≈ top trader theo tài khoản, `sum_toptrader…` ≈ top trader theo vị thế, `count_long_short_ratio` ≈ toàn bộ tài khoản. Số gần khớp nhưng không bằng hẳn (OI 98691.69 so với 98690.01), nên lưu riêng với `source="dump"`. Cột taker không khớp rõ với API; coi như chưa xác minh. Không có tỷ lệ % long/short.
+- `bookDepth` (mỗi 30 giây, 12 mức ±0.2/1/2/3/4/5 %): `timestamp, percentage, depth, notional`, độ sâu lũy kế.
 
 ## Phase 1 — Bộ chuyển đổi sàn
 

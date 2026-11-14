@@ -14,10 +14,15 @@ def test_raw_partition():
 
 
 def test_curated_partition():
-    got = P.curated_partition("ohlcv", "binance", "BTC-USDT-PERP", "1h", 2026)
+    got = P.curated_partition("ohlcv", "binance", "BTC-USDT-PERP", 2026, timeframe="1h")
     assert got == Path(
         "data/curated/ohlcv/exchange=binance/symbol=BTC-USDT-PERP/timeframe=1h/year=2026"
     )
+
+
+def test_curated_partition_without_timeframe():
+    got = P.curated_partition("funding", "okx", "BTC-USDT-PERP", 2025)
+    assert got == Path("data/curated/funding/exchange=okx/symbol=BTC-USDT-PERP/year=2025")
 
 
 def test_derived():

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Chạy `rinng collect` liên tục trên macOS và tự khởi động lại khi chết.
+  Cài (chưa cài sẵn):
+    cp deploy/com.rinng.collector.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.rinng.collector.plist
+  Gỡ:
+    launchctl unload ~/Library/LaunchAgents/com.rinng.collector.plist
+  Máy ngủ thì collector cũng dừng; khoảng đó được ghi vào data/meta/gaps khi nối lại.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.rinng.collector</string>
+  <key>WorkingDirectory</key><string>/Users/Rin/Rinchans/rinng</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/uv</string><string>run</string><string>rinng</string><string>collect</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/Rin/Rinchans/rinng/data/collector.log</string>
+  <key>StandardErrorPath</key><string>/Users/Rin/Rinchans/rinng/data/collector.log</string>
+</dict>
+</plist>
