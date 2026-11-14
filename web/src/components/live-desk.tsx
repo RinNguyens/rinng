@@ -271,7 +271,7 @@ function DeskChart({
       const t = bar?.time ?? closed.current.time
       const p = bar ? (shown.current ?? bar.close) : closed.current.close
       const x = t ? chart.timeScale().timeToCoordinate(t as Time) : null
-      const y = p == null ? null : candles.priceToCoordinate(p)
+      const y = candles.priceToCoordinate(p)
       if (!d) return
       if (x == null || y == null) {
         d.style.opacity = "0"
@@ -279,7 +279,7 @@ function DeskChart({
       }
       d.style.opacity = "1"
       d.style.transform = `translate(${x}px, ${y}px)`
-      d.dataset.dir = bar && p != null && p < bar.open ? "down" : "up"
+      d.dataset.dir = bar && p < bar.open ? "down" : "up"
       d.dataset.live = bar ? "1" : "0"
     }
 
