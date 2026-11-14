@@ -1,10 +1,10 @@
-"""Điều tiết tốc độ gọi API và các lỗi chung của lớp sàn.
+"""API rate throttling and common errors of the exchange layer.
 
-Hai sàn giới hạn theo hai cách khác nhau:
-- Binance tính theo weight mỗi phút và báo lượng đã dùng qua header.
-- OKX tính số request trong một cửa sổ thời gian cho từng endpoint, không báo gì.
+The two exchanges limit differently:
+- Binance counts weight per minute and reports usage via headers.
+- OKX counts requests per time window per endpoint, and reports nothing.
 
-Cả hai bộ điều tiết mặc định chỉ dùng một nửa mức sàn cho phép.
+Both throttlers default to using half of the allowed limit.
 """
 
 import time
@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 
 class ExchangeError(Exception):
-    """Sàn trả lỗi. `code` là mã lỗi của sàn nếu có."""
+    """Exchange returned an error. `code` is the exchange error code, if any."""
 
     def __init__(self, message: str, *, status: int | None = None, code: str | None = None):
         super().__init__(message)
@@ -22,11 +22,11 @@ class ExchangeError(Exception):
 
 
 class RateLimited(ExchangeError):
-    """Vẫn bị giới hạn tốc độ sau khi đã chờ và thử lại hết số lần cho phép."""
+    """Still rate limited after waiting and exhausting the allowed retries."""
 
 
 class IpBanned(ExchangeError):
-    """Binance trả HTTP 418: IP đã bị ban. Không được thử lại."""
+    """Binance returned HTTP 418: the IP is banned. Do not retry."""
 
     def __init__(self, message: str, *, retry_after: float | None = None):
         super().__init__(message, status=418)
@@ -34,9 +34,9 @@ class IpBanned(ExchangeError):
 
 
 class WeightLimiter:
-    """Giữ lượng weight đã dùng trong phút dưới `fraction` của `limit`.
+    """Keep the weight used this minute below `fraction` of `limit`.
 
-    Lượng đã dùng lấy từ header của sàn qua `update`, không tự cộng.
+    Usage comes from the exchange headers via `update`, not counted locally.
     """
 
     def __init__(
@@ -54,7 +54,7 @@ class WeightLimiter:
 
     def acquire(self) -> None:
         if self.used >= self.budget:
-            # Bộ đếm của sàn về 0 ở đầu mỗi phút.
+            # The exchange counter resets at the start of each minute.
             self._sleep(60 - self._clock() % 60 + 0.5)
             self.used = 0
 
@@ -63,7 +63,7 @@ class WeightLimiter:
 
 
 class WindowLimiter:
-    """Không quá `max_requests * fraction` request trong mỗi `window` giây (cửa sổ trượt)."""
+    """At most `max_requests * fraction` requests per `window` seconds (sliding window)."""
 
     def __init__(
         self,

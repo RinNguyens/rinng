@@ -1,13 +1,14 @@
-"""LiveHub: trạng thái realtime trong bộ nhớ và phát sự kiện cho các client WebSocket.
+"""LiveHub: in-memory realtime state and event broadcast to WebSocket clients.
 
-Nhận bản ghi từ collector (cùng event loop), giữ:
-- giá khớp cuối, mark price/funding, nến 1m đang chạy của từng (sàn, symbol);
-- "nền" của nến đang chạy ở mỗi khung = gộp các nến 1m đã đóng trong nến đó (do updater cập
-  nhật sau mỗi lần ghi curated), để ghép với nến 1m đang chạy thành nến khung lớn đang chạy;
-- mốc mở của nến đã đóng gần nhất mỗi khung (dùng làm khóa cache cho lens).
+Receives records from the collector (same event loop) and keeps:
+- last trade price, mark price/funding, running 1m candle per (exchange, symbol);
+- the "base" of each timeframe's running candle = aggregate of closed 1m candles in it (updated by
+  the updater after each curated write), merged with the running 1m candle into the running
+  higher-TF candle;
+- open time of the latest closed candle per timeframe (used as the lens cache key).
 
-Sự kiện gửi đi là dict JSON-được; mỗi client có một hàng đợi riêng, đầy thì bỏ bớt sự kiện cũ
-thay vì làm chậm collector.
+Events are JSON-serializable dicts; each client has its own queue, when full, old events are
+dropped rather than slowing the collector.
 """
 
 import asyncio
@@ -19,10 +20,10 @@ from rinng.ingest.collector.messages import Record
 from rinng.timeframes import bucket_start_ms, timeframe_ms
 
 Key = tuple[str, str]  # (exchange, symbol)
-THROTTLE = 0.25  # giây giữa hai lần gửi tick/nến của cùng một khóa
+THROTTLE = 0.25  # seconds between two tick/candle sends for the same key
 
 
-@dataclass(eq=False)  # so sánh theo danh tính để bỏ vào set
+@dataclass(eq=False)  # compare by identity so it can go in a set
 class Client:
     queue: asyncio.Queue
     exchange: str | None = None
@@ -40,14 +41,16 @@ class LiveHub:
         self.price: dict[Key, dict] = {}
         self.mark: dict[Key, dict] = {}
         self.forming_1m: dict[Key, dict] = {}
-        self.base: dict[tuple[str, str, str], dict] = {}  # (ex, sym, tf) → nền nến đang chạy
-        self.last_closed: dict[tuple[str, str, str], int] = {}  # → open_time (ms) nến đã đóng
-        self.last_message: dict[str, float] = {}  # exchange → time.time() lần nhận cuối
+        self.base: dict[tuple[str, str, str], dict] = {}  # (ex, sym, tf) → running candle base
+        self.last_closed: dict[
+            tuple[str, str, str], int
+        ] = {}  # → open_time (ms) of the closed candle
+        self.last_message: dict[str, float] = {}  # exchange → time.time() of the last message
         self.clients: set[Client] = set()
         self.closed_queue: asyncio.Queue[tuple[str, str, dict]] = asyncio.Queue()
         self._sent: dict[tuple, float] = {}
-        # Coin trong cấu hình: nến đóng đi qua updater (ghi curated). Coin mở thêm khi tìm kiếm
-        # (adhoc): hub tự gộp nến 1m thành nến khung lớn và tự báo nến đóng.
+        # Configured coins: closed candles go through the updater (curated write). Coins opened
+        # from search (adhoc): the hub builds higher-TF candles from 1m and reports closes.
         self.tracked: set[Key] = set()
         self.adhoc: set[Key] = set()
         self.on_new_key: Callable[[Key], Awaitable[None]] | None = None
@@ -66,7 +69,7 @@ class LiveHub:
         self.clients.discard(c)
 
     def snapshot(self, key: Key, timeframes: set[str]) -> list[dict]:
-        """Sự kiện gửi ngay khi client đăng ký để màn hình có số liệu không cần chờ tick."""
+        """Events sent on subscribe so the screen has data without waiting for a tick."""
         ex, sym = key
         out = [self.status()]
         if key in self.price:
@@ -106,10 +109,10 @@ class LiveHub:
             "feeds": {ex: round(now - t, 1) for ex, t in self.last_message.items()},
         }
 
-    # ------------------------------------------------------------------ dữ liệu vào
+    # ------------------------------------------------------------------ input
 
     def ingest(self, exchange: str, records: list[Record]) -> None:
-        """Callback của collector cho mọi bản ghi WebSocket."""
+        """Collector callback for every WebSocket record."""
         self.last_message[exchange] = time.time()
         for r in records:
             key = (exchange, r.symbol)
@@ -159,7 +162,7 @@ class LiveHub:
                 self.closed_queue.put_nowait((key[0], key[1], row))
         else:
             self.forming_1m[key] = row
-        # Giá cũng lấy từ nến nếu sàn đó không gửi trade (an toàn khi feed trade bị trễ).
+        # Price also comes from candles if the exchange sends no trades (e.g. trade feed lags).
         self.price.setdefault(key, {"price": row["close"], "time": row["open_time"]})
         if not self._due(("bar", key)):
             return
@@ -172,10 +175,10 @@ class LiveHub:
                     tf,
                 )
 
-    # ------------------------------------------------------------------ nến đang chạy
+    # ------------------------------------------------------------------ running candles
 
     def forming(self, key: Key, tf: str, latest: dict | None = None) -> dict | None:
-        """Nến `tf` đang chạy = nền (1m đã đóng trong nến) + nến 1m mới nhất. Thời gian: giây."""
+        """Running `tf` candle = base (closed 1m within it) + latest 1m candle. Times in seconds."""
         m = latest or self.forming_1m.get(key)
         base = self.base.get((*key, tf))
         start = None
@@ -186,7 +189,7 @@ class LiveHub:
         if start is None:
             return None
         if base is not None and base["open_time"] != start:
-            base = None  # nền thuộc nến trước: nến mới vừa bắt đầu
+            base = None  # base belongs to the previous candle: a new candle just started
         parts = [p for p in (base, m) if p is not None and not (p is m and p["is_closed"])]
         if not parts:
             return None
@@ -200,7 +203,7 @@ class LiveHub:
         }
 
     def set_tail(self, exchange: str, symbol: str, tf: str, bars: list[dict]) -> bool:
-        """Updater báo đuôi vừa resample (open_time ms, is_closed). Trả True nếu có nến mới đóng."""
+        """Updater reports a resampled tail (open_time ms, is_closed). True if a candle closed."""
         k = (exchange, symbol, tf)
         closed = [b for b in bars if b["is_closed"]]
         forming = [b for b in bars if not b["is_closed"]]
@@ -227,11 +230,11 @@ class LiveHub:
             return True
         return False
 
-    # ------------------------------------------------------------------ coin mở thêm
+    # ------------------------------------------------------------------ ad-hoc coins
 
     def seed_adhoc(self, key: Key, closed_1m: list[dict]) -> None:
-        """Bắt đầu theo dõi một coin ngoài cấu hình: nền mỗi khung = nến 1m đã đóng (REST) từ
-        đầu nến hiện tại của khung đó."""
+        """Start tracking an unconfigured coin: each timeframe's base = closed 1m candles (REST)
+        since the start of that timeframe's current candle."""
         self.adhoc.add(key)
         rows = sorted(closed_1m, key=lambda r: r["open_time"])
         if not rows:
@@ -266,7 +269,7 @@ class LiveHub:
             b["volume"] += row["volume"]
 
     def _finish_if_complete(self, key: Key, tf: str, row: dict) -> bool:
-        """Nến 1m cuối cùng của một nến khung lớn vừa đóng → nến khung lớn đóng."""
+        """Last 1m candle of a higher-TF candle that just closed → the higher-TF candle closes."""
         k = (*key, tf)
         b = self.base.get(k)
         if b is None or row["open_time"] + 60_000 != b["open_time"] + timeframe_ms(tf):

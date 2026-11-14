@@ -1,7 +1,7 @@
-"""Binance USDⓈ-M Futures: dữ liệu thị trường công khai, không cần API key.
+"""Binance USDⓈ-M Futures: public market data, no API key needed.
 
-Định dạng phản hồi đã đối chiếu với lời gọi thật ngày 2026-11-13.
-Nhóm /futures/data/* chỉ giữ khoảng 30 ngày; hỏi xa hơn sàn trả lỗi -1130.
+Response format checked against real calls on 2026-11-13.
+The /futures/data/* group keeps only about 30 days; older queries return error -1130.
 """
 
 import time
@@ -44,19 +44,19 @@ class Binance:
         self._now_ms = now_ms
         self._sleep = sleep
         self._weight = WeightLimiter(weight_limit, sleep=sleep)
-        # Hai nhóm endpoint này có giới hạn riêng và không trả header weight.
+        # These two endpoint groups have their own limits and return no weight header.
         self._funding_limiter = WindowLimiter(500, 300, sleep=sleep)
         self._stats_limiter = WindowLimiter(1000, 300, sleep=sleep)
 
     def sync_limits(self) -> None:
-        """Đọc giới hạn weight hiện hành từ sàn thay cho giá trị mặc định."""
+        """Read the current weight limit from the exchange instead of the default."""
         info = self._get("/fapi/v1/exchangeInfo", {}, self._weight)
         for limit in info.get("rateLimits", []):
             if limit.get("rateLimitType") == "REQUEST_WEIGHT" and limit.get("interval") == "MINUTE":
                 per_minute = limit["limit"] / limit.get("intervalNum", 1)
                 self._weight.budget = per_minute * 0.5
 
-    # --- phương thức của giao diện Exchange ---
+    # --- Exchange interface methods ---
 
     def klines(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> Pages:
         timeframe_ms(timeframe)
@@ -127,17 +127,17 @@ class Binance:
                 for x in page
             ]
 
-    # --- nội bộ ---
+    # --- internals ---
 
     def _stats(self, endpoint: str, symbol: str, period: str, start: datetime, end: datetime):
-        """Phân trang lùi theo thời gian.
+        """Backward pagination in time.
 
-        Khác klines và funding: khi khoảng hỏi có nhiều hơn `limit` điểm, nhóm /futures/data/*
-        trả `limit` điểm MỚI NHẤT trong khoảng (vẫn xếp tăng dần), không phải cũ nhất.
-        Đã kiểm trên sàn thật ngày 2026-11-13. Vì vậy lùi `endTime` về trước điểm cũ nhất.
+        Unlike klines and funding: when the range has more than `limit` points, /futures/data/*
+        returns the NEWEST `limit` points in the range (still ascending), not the oldest.
+        Verified live on 2026-11-13. So `endTime` steps back before the oldest point.
         """
         if period not in PERIODS:
-            raise ValueError(f"period không hợp lệ: {period!r}; dùng một trong {PERIODS}")
+            raise ValueError(f"invalid period: {period!r}; use one of {PERIODS}")
         path = f"/futures/data/{endpoint}"
         start_ms, cursor = to_ms(start), to_ms(end)
         while cursor > start_ms:
@@ -167,7 +167,7 @@ class Binance:
         limit: int,
         time_key: str | int = 0,
     ):
-        """Phân trang tiến theo thời gian: sàn trả từ cũ đến mới kể từ `startTime`."""
+        """Forward pagination in time: the exchange returns oldest to newest from `startTime`."""
         cursor, end_ms = to_ms(start), to_ms(end)
         while cursor < end_ms:
             query = {**params, "startTime": cursor, "endTime": end_ms - 1, "limit": limit}
@@ -186,7 +186,7 @@ class Binance:
             try:
                 response = self._client.get(path, params=params)
             except httpx.TransportError:
-                # Lỗi mạng thoáng qua (connection reset, timeout): chờ rồi thử lại.
+                # Transient network error (connection reset, timeout): wait and retry.
                 if attempt == self._max_retries:
                     raise
                 self._sleep(2.0 * (attempt + 1))
@@ -197,18 +197,18 @@ class Binance:
             if response.status_code == 418:
                 retry_after = _retry_after(response)
                 raise IpBanned(
-                    f"Binance đã ban IP này (HTTP 418), hết ban sau {retry_after} giây",
+                    f"Binance banned this IP (HTTP 418), ban lifts in {retry_after} seconds",
                     retry_after=retry_after,
                 )
             if response.status_code == 429:
                 if attempt == self._max_retries:
-                    raise RateLimited("Binance vẫn trả 429 sau khi đã chờ", status=429)
+                    raise RateLimited("Binance still returns 429 after waiting", status=429)
                 self._sleep(_retry_after(response) or 60.0)
                 continue
             if response.status_code >= 400:
                 raise _error(response)
             return response.json()
-        raise AssertionError("không tới được đây")
+        raise AssertionError("unreachable")
 
     def _kline(self, x: list) -> Row:
         return {

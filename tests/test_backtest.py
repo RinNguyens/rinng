@@ -1,4 +1,4 @@
-"""Test engine backtest, chi phí, metric và lưu kết quả bằng phép tính tay."""
+"""Tests for the backtest engine, costs, metrics and result saving, checked by hand calculation."""
 
 import json
 import math
@@ -34,7 +34,7 @@ def funding_frame(rows):
     )
 
 
-# ---------- EmaCross trên chuỗi dựng tay ----------
+# ---------- EmaCross on a hand-built series ----------
 
 CLOSES = [100.0, 100, 100, 100, 104, 106, 107, 103, 98, 95, 96, 97]
 OPENS = [100.0, 100, 100, 100, 100.5, 104.5, 106.2, 107.1, 102.4, 97.6, 95.3, 96.4]
@@ -50,11 +50,11 @@ def _ema(values, span):
 
 def test_ema_cross_signals_match_hand_ema():
     fast, slow = _ema(CLOSES, 2), _ema(CLOSES, 4)
-    # Bốn nến đầu phẳng (hai EMA bằng nhau); nến 4 fast > slow; nến 8 fast < slow.
+    # First four candles flat (EMAs equal); candle 4 fast > slow; candle 8 fast < slow.
     assert fast[3] == slow[3] and fast[4] > slow[4] and fast[7] > slow[7] and fast[8] < slow[8]
     sig = EmaCross(2, 4).signals(make_ohlcv(CLOSES, opens=OPENS), None, None)
     assert sig["side"].to_list() == ["long", "short"]
-    # time = lúc đóng nến 4 và nến 8.
+    # time = close of candles 4 and 8.
     assert sig["time"].to_list() == [T0 + 5 * H, T0 + 9 * H]
 
 
@@ -64,7 +64,7 @@ def test_ema_cross_each_trade_matches_hand_calculation():
     t = res.trades.to_dicts()
     assert len(t) == 2
 
-    # Lệnh 1: long, khớp ở giá mở nến 5 (104.5) + slippage; thoát ở giá mở nến 9 (97.6).
+    # Trade 1: long, fills at candle 5 open (104.5) + slippage; exits at candle 9 open (97.6).
     e1 = 104.5 * (1 + S)
     q1 = 10_000 / e1
     x1 = 97.6 * (1 - S)
@@ -79,7 +79,8 @@ def test_ema_cross_each_trade_matches_hand_calculation():
     assert t[0]["return"] == pytest.approx(pnl1 / 10_000)
     assert t[0]["exit_reason"] == "signal"
 
-    # Lệnh 2: short ở cùng giá mở nến 9 với vốn còn lại; đóng ở close nến cuối (97) khi hết dữ liệu.
+    # Trade 2: short at the same candle 9 open with remaining capital; closed at the last close
+    # (97) at end of data.
     eq1 = 10_000 + pnl1
     e2 = 97.6 * (1 - S)
     q2 = eq1 / e2
@@ -95,7 +96,7 @@ def test_ema_cross_each_trade_matches_hand_calculation():
     assert t[1]["exit_reason"] == "end"
 
     assert res.summary["final_equity"] == pytest.approx(10_000 + pnl1 + pnl2)
-    # Equity mark-to-market: nến 6 đóng 107 khi đang long lệnh 1.
+    # Mark-to-market equity: candle 6 closes at 107 while long in trade 1.
     eq6 = 10_000 - q1 * e1 * F + q1 * (107 - e1)
     assert res.equity["equity"][6] == pytest.approx(eq6)
     assert res.equity["position"][6] == pytest.approx(q1)
@@ -111,8 +112,8 @@ def test_buy_and_hold_return_is_price_change_minus_costs():
     opens = [100.0, 101, 102.5, 100.5, 105.5, 110.2]
     ohlcv = make_ohlcv(closes, opens=opens)
     res = run(BuyAndHold().signals(ohlcv, None, None), ohlcv, COSTS)
-    entry = 101 * (1 + S)  # giá mở nến 1
-    exit_ = 108 * (1 - S)  # close nến cuối
+    entry = 101 * (1 + S)  # candle 1 open
+    exit_ = 108 * (1 - S)  # last candle close
     expected = (exit_ / entry) - 1 - F - F * exit_ / entry
     assert res.summary["total_return"] == pytest.approx(expected)
     no_cost = run(BuyAndHold().signals(ohlcv, None, None), ohlcv, CostModel(0, 0, 0))
@@ -126,13 +127,13 @@ def _flat_bars(n=6, price=100.0):
 @pytest.mark.parametrize("side, sign", [("long", -1), ("short", 1)])
 def test_funding_sign(side, sign):
     ohlcv = _flat_bars()
-    sig = signals_frame([{"time": T0 + H, "side": side}])  # vào ở nến 1
+    sig = signals_frame([{"time": T0 + H, "side": side}])  # enter on candle 1
     rate, mark = 0.0001, 100.0
     funding = funding_frame(
         [
-            (T0, rate, mark),  # trước khi vào → không tính
+            (T0, rate, mark),  # before entry → not charged
             (T0 + 2 * H, rate, mark),
-            (T0 + 4 * H, -rate / 2, None),  # không có mark → dùng giá mở nến
+            (T0 + 4 * H, -rate / 2, None),  # no mark → use the candle open
         ]
     )
     nocost = CostModel(0, 0, 0)
@@ -149,7 +150,7 @@ def test_funding_after_exit_not_charged():
     sig = signals_frame([{"time": T0 + H, "side": "long"}, {"time": T0 + 3 * H, "side": "flat"}])
     funding = funding_frame([(T0 + 3 * H, 0.01, 100.0), (T0 + 2 * H, 0.001, 100.0)])
     res = run(sig, ohlcv, CostModel(0, 0, 0), funding=funding)
-    # Đóng ở giá mở nến 3 trước khi tính funding lúc T0+3h; chỉ khoản lúc T0+2h bị tính.
+    # Closed at candle 3 open before funding at T0+3h; only the T0+2h payment is charged.
     assert res.trades["funding"][0] == pytest.approx(-100 * 100 * 0.001)
 
 
@@ -167,7 +168,7 @@ def test_stop_and_take_profit_same_bar_stop_wins():
     assert t["exit_reason"] == "stop"
     assert t["exit_time"] == T0 + 2 * H
     assert t["exit_price"] == pytest.approx(95.0 * (1 - S))
-    assert res.trades.height == 1  # đứng ngoài sau stop
+    assert res.trades.height == 1  # flat after the stop
 
 
 def test_take_profit_only_and_short_stop():
@@ -188,7 +189,7 @@ def test_take_profit_only_and_short_stop():
 
 def test_gap_through_stop_fills_at_open():
     closes = [100.0, 100, 90, 91]
-    opens = [100.0, 100, 92, 90]  # nến 2 mở 92, dưới stop 95
+    opens = [100.0, 100, 92, 90]  # candle 2 opens at 92, below stop 95
     ohlcv = make_ohlcv(closes, opens=opens)
     sig = signals_frame([{"time": T0 + H, "side": "long", "stop": 95.0}])
     t = run(sig, ohlcv, COSTS).trades.row(0, named=True)
@@ -197,7 +198,7 @@ def test_gap_through_stop_fills_at_open():
     assert t["exit_price"] == pytest.approx(92.0 * (1 - S))
 
 
-# ---------- Chống nhìn trước ----------
+# ---------- No look-ahead ----------
 
 
 def test_signal_never_fills_on_its_own_bar():
@@ -207,7 +208,7 @@ def test_signal_never_fills_on_its_own_bar():
     assert res.trades.height > 3
     opens = dict(zip(ohlcv["open_time"].to_list(), ohlcv["open"].to_list(), strict=True))
     for t in res.trades.iter_rows(named=True):
-        # Nến sinh tín hiệu bắt đầu lúc signal_time − 1h; khớp ở nến bắt đầu lúc signal_time.
+        # The signal candle starts at signal_time − 1h; fills on the candle starting at signal_time.
         assert t["entry_time"] == t["signal_time"]
         assert t["entry_time"] > t["signal_time"] - H
         direction = 1 if t["side"] == "long" else -1
@@ -216,7 +217,7 @@ def test_signal_never_fills_on_its_own_bar():
 
 def test_signal_off_grid_fills_at_next_open():
     ohlcv = make_ohlcv([100.0, 101, 102, 103], opens=[100.0, 100.4, 101.3, 102.2])
-    # Tín hiệu lúc giữa nến 1 (chưa đóng) → không được khớp ở nến 1, mà ở nến 2.
+    # Signal mid-candle 1 (not closed) → must not fill on candle 1, but on candle 2.
     sig = signals_frame([{"time": T0 + 1.5 * H, "side": "long"}])
     res = run(sig, ohlcv, CostModel(0, 0, 0))
     assert res.trades["entry_time"][0] == T0 + 2 * H
@@ -228,8 +229,8 @@ def test_signal_after_last_bar_unfilled_and_same_side_ignored():
     sig = signals_frame(
         [
             {"time": T0 + H, "side": "long"},
-            {"time": T0 + 2 * H, "side": "long"},  # cùng chiều → bỏ qua
-            {"time": T0 + 4 * H, "side": "short"},  # sau nến cuối
+            {"time": T0 + 2 * H, "side": "long"},  # same direction → ignored
+            {"time": T0 + 4 * H, "side": "short"},  # after the last candle
         ]
     )
     res = run(sig, ohlcv, COSTS)
@@ -238,7 +239,7 @@ def test_signal_after_last_bar_unfilled_and_same_side_ignored():
 
 
 def test_random_walk_has_no_edge_without_costs():
-    # Engine không có bug lợi thế: trên random walk, LR không được lãi lớn có hệ thống.
+    # No engine edge bug: on a random walk, LR must not profit systematically.
     sharpes = []
     for seed in range(8):
         ohlcv = random_walk(1500, seed=seed)

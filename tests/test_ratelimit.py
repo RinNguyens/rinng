@@ -23,13 +23,13 @@ def test_weight_limiter_passes_under_budget():
 
 
 def test_weight_limiter_waits_for_next_minute_at_budget():
-    t = FakeTime(now=130.0)  # 10 giây sau đầu phút
+    t = FakeTime(now=130.0)  # 10 seconds past the minute
     limiter = WeightLimiter(2400, clock=t.clock, sleep=t.sleep)
     limiter.update(1200)
     limiter.acquire()
     assert t.slept == [50.5]
     limiter.acquire()
-    assert len(t.slept) == 1  # bộ đếm đã về 0, không chờ lần nữa
+    assert len(t.slept) == 1  # counter reset to 0, no further wait
 
 
 def test_window_limiter_allows_half_then_waits():

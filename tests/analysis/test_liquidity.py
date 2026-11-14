@@ -8,13 +8,13 @@ from tests.analysis.helpers import make_ohlcv, random_walk
 
 
 def bars(rows):
-    """Nến từ danh sách (open, high, low, close)."""
+    """Candles from a list of (open, high, low, close)."""
     o, h, lo, c = (list(x) for x in zip(*rows, strict=True))
     return make_ohlcv(c, opens=o, highs=h, lows=lo)
 
 
-# Swing length 2: swing high 12 ở nến 2 (biết lúc đóng nến 4), swing low 9.6 ở nến 4
-# (biết lúc đóng nến 6), swing high 11.95 ở nến 6 (biết lúc đóng nến 8).
+# Swing length 2: swing high 12 at candle 2 (known at close of candle 4), swing low 9.6 at candle 4
+# (known at close of candle 6), swing high 11.95 at candle 6 (known at close of candle 8).
 EQ = [
     (10.0, 10.5, 9.5, 10.0),  # 0
     (10.0, 11.0, 9.8, 10.8),  # 1
@@ -26,8 +26,8 @@ EQ = [
     (11.2, 11.5, 10.3, 10.4),  # 7
     (10.4, 10.6, 9.9, 10.1),  # 8
 ]
-SWEEP = (10.1, 12.2, 10.0, 11.5)  # wick qua 12 và 11.95, đóng lại bên dưới
-BREAKOUT = (10.1, 12.4, 10.0, 12.3)  # đóng trên cả hai mức
+SWEEP = (10.1, 12.2, 10.0, 11.5)  # wick through 12 and 11.95, closes back below
+BREAKOUT = (10.1, 12.4, 10.0, 12.3)  # closes above both levels
 
 
 def test_liquidity_levels_and_taken():
@@ -38,7 +38,7 @@ def test_liquidity_levels_and_taken():
     bsl = ev.filter(kind="liquidity_bsl").sort("event_time")
     assert bsl["price_low"].to_list() == [12.0, 11.95]
     assert bsl["known_at"].to_list() == [t[4] + hour, t[8] + hour]
-    # cả hai bị lấy bởi wick 12.2 ở nến 9
+    # both taken by the 12.2 wick at candle 9
     assert bsl["invalidated_at"].to_list() == [t[9] + hour] * 2
     ssl = ev.filter(kind="liquidity_ssl")
     assert ssl["price_low"].to_list() == [9.6]
@@ -68,10 +68,10 @@ def test_equal_highs():
 
 def test_equal_highs_rejected():
     o = bars(EQ)
-    # dung sai quá chặt: 0.01 × ATR (~1.2) < 0.05
+    # tolerance too tight: 0.01 × ATR (~1.2) < 0.05
     assert liquidity.equal_levels(o, swing_length=2, tolerance_atr=0.01, atr_length=3).is_empty()
-    # swing_length 1: nến 4 nằm giữa hai đỉnh và vượt 12 → mức đã bị lấy, không còn equal
-    # highs (đỉnh 12.5 ở nến 4 cách hai đỉnh kia quá dung sai).
+    # swing_length 1: candle 4 sits between the two highs and exceeds 12 → level taken, no longer
+    # equal highs (the 12.5 high at candle 4 is beyond tolerance from the other two).
     assert not liquidity.equal_levels(o, swing_length=1, atr_length=3).filter(kind="eqh").is_empty()
     broken = list(EQ)
     broken[4] = (10.2, 12.5, 9.6, 9.8)
@@ -105,7 +105,7 @@ def test_breakout_is_not_sweep_unless_back_within_n():
 
 
 def test_ssl_sweep():
-    o = bars(EQ[:7] + [(11.2, 11.5, 9.4, 10.0)])  # wick dưới 9.6, đóng trên
+    o = bars(EQ[:7] + [(11.2, 11.5, 9.4, 10.0)])  # wick below 9.6, closes above
     ev = liquidity.sweeps(o, swing_length=2)
     assert ev["kind"].to_list() == ["sweep_ssl"]
     assert (ev["price_low"][0], ev["price_high"][0]) == (9.4, 9.6)

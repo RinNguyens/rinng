@@ -1,23 +1,28 @@
-"""Dự báo xác suất cho đường đi của giá: hình nón phân vị + xác suất chạm mức giá.
+"""Probabilistic forecast of the price path: quantile cone + probability of touching a price level.
 
-Không vẽ một đường "giá sẽ đi thế này". Giá crypto ngắn hạn gần như ngẫu nhiên, nên kết quả
-là một phân phối, kèm số liệu kiểm chứng để biết phân phối đó có đáng tin hay không.
+Does not draw a single "price will go like this" line. Short-term crypto prices are close to random,
+so the output is a distribution, together with validation metrics showing whether that distribution
+can be trusted.
 
-Cách làm (analog / k-nearest-neighbour trên quỹ đạo đã chuẩn hóa theo biến động):
+Method (analog / k-nearest-neighbour on volatility-normalised trajectories):
 
-1. Biến động tức thời sigma_t: EWMA của log-return (lambda 0.94, RiskMetrics). Chỉ dùng dữ liệu
-   tới nến t.
-2. Trạng thái của mỗi nến = vector đặc trưng đã chuẩn hóa: lợi suất 1/5/20/60 nến chia theo
-   sigma, chế độ biến động (sigma ngắn / sigma dài), vị trí trong range 50 nến, RSI, volume.
-3. Với nến hiện tại, tìm K nến quá khứ có trạng thái gần nhất (chỉ những nến mà H nến sau đó
-   đã xảy ra trước hiện tại). Lấy quỹ đạo H nến sau mỗi nến đó, chia theo sigma của chính nó.
-4. Trộn phân phối có điều kiện (analog, có trọng số theo khoảng cách) với phân phối không điều
-   kiện (mọi quỹ đạo quá khứ) để không quá tin vào một nhóm nhỏ: weight = `blend`.
-5. Nhân lại với sigma hiện tại → phân vị giá cho từng bước 1..H; xác suất chạm một mức giá =
-   tỉ lệ (có trọng số) quỹ đạo có high/low chạm mức đó trong H nến.
+1. Instantaneous volatility sigma_t: EWMA of log-returns (lambda 0.94, RiskMetrics). Only uses data
+   up to candle t.
+2. Each candle's state = a normalised feature vector: 1/5/20/60-candle returns divided by
+   sigma, volatility regime (short sigma / long sigma), position within the 50-candle range, RSI,
+   volume.
+3. For the current candle, find the K past candles with the closest state (only candles whose next H
+   candles occurred before now). Take the H-candle trajectory after each of them, divided by its own
+   sigma.
+4. Blend the conditional distribution (analogs, weighted by distance) with the unconditional
+   distribution (all past trajectories) to avoid over-trusting a small group: weight = `blend`.
+5. Multiply back by the current sigma → price quantiles for each step 1..H; probability of touching
+   a price level = (weighted) share of trajectories whose high/low touches that level within H
+   candles.
 
-`walk_forward` chạy lại đúng quy trình trên lịch sử (mỗi điểm gốc chỉ thấy quá khứ) để đo:
-độ phủ thực tế của các dải, pinball loss so với phân phối không điều kiện, tỉ lệ đúng chiều.
+`walk_forward` reruns exactly this procedure over history (each origin only sees the past) to
+measure: actual band coverage, pinball loss versus the unconditional distribution, directional hit
+rate.
 """
 
 from dataclasses import dataclass
@@ -28,21 +33,22 @@ import talib
 
 QUANTILES = (0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95)
 EWMA_LAMBDA = 0.94
-WARMUP = 210  # đủ cho đặc trưng 200 nến
-MIN_POOL = 300  # cần ít nhất chừng này quỹ đạo quá khứ mới dự báo
+WARMUP = 210  # enough for the 200-candle features
+MIN_POOL = 300  # at least this many past trajectories are needed to forecast
 
 
-# ---------------------------------------------------------------------------- dữ liệu nền
+# ---------------------------------------------------------------------------- base data
 
 
 @dataclass(frozen=True)
 class Prepared:
-    """Mảng dùng chung cho dự báo; phần tử i chỉ phụ thuộc nến 0..i (trừ quỹ đạo tương lai)."""
+    """Arrays shared by the forecast; element i depends only on candles 0..i (except future
+    trajectories)."""
 
     close: np.ndarray
     logc: np.ndarray
-    sigma: np.ndarray  # EWMA sigma của log-return 1 nến, biết tại lúc đóng nến i
-    features: np.ndarray  # (n, d), NaN khi chưa đủ dữ liệu
+    sigma: np.ndarray  # EWMA sigma of 1-candle log-returns, known at the close of candle i
+    features: np.ndarray  # (n, d), NaN while data is insufficient
     high: np.ndarray
     low: np.ndarray
 
@@ -104,7 +110,8 @@ def prepare(ohlcv: pl.DataFrame) -> Prepared:
 
 
 def _paths(p: Prepared, idx: np.ndarray, horizon: int) -> tuple[np.ndarray, ...]:
-    """Quỹ đạo chuẩn hóa sau các nến idx: close, max high, min low (đơn vị sigma của nến gốc)."""
+    """Normalised trajectories after candles idx: close, max high, min low (in units of the origin
+    candle's sigma)."""
     steps = np.arange(1, horizon + 1)
     j = idx[:, None] + steps[None, :]
     s = p.sigma[idx][:, None]
@@ -116,38 +123,38 @@ def _paths(p: Prepared, idx: np.ndarray, horizon: int) -> tuple[np.ndarray, ...]
 
 
 def _wquantile(values: np.ndarray, weights: np.ndarray, qs) -> np.ndarray:
-    """Phân vị có trọng số cho từng cột của values (m, h); mọi cột dùng chung trọng số."""
+    """Weighted quantiles for each column of values (m, h); all columns share the weights."""
     wn = weights / weights.sum()
     order = np.argsort(values, axis=0)
     v = np.take_along_axis(values, order, axis=0)
     w = wn[order]
-    cdf = np.cumsum(w, axis=0) - 0.5 * w  # điểm giữa mỗi bước, giống nội suy Hazen
+    cdf = np.cumsum(w, axis=0) - 0.5 * w  # midpoint of each step, like Hazen interpolation
     out = np.empty((len(qs), values.shape[1]))
     for col in range(values.shape[1]):
         out[:, col] = np.interp(qs, cdf[:, col], v[:, col])
     return out
 
 
-# ---------------------------------------------------------------------------- dự báo
+# ---------------------------------------------------------------------------- forecast
 
 
 @dataclass(frozen=True)
 class Forecast:
-    origin: int  # chỉ số nến gốc
+    origin: int  # origin candle index
     horizon: int
     close: float
     sigma: float
-    quantiles: np.ndarray  # (len(QUANTILES), horizon) giá
-    z_quantiles: np.ndarray  # cùng hình, đơn vị sigma
-    analogs: int  # số quỹ đạo có điều kiện được dùng
-    pool: int  # tổng số quỹ đạo quá khứ
-    weights: np.ndarray  # trọng số cuối của mọi quỹ đạo trong pool
-    up: np.ndarray  # (pool,) max high chuẩn hóa trong H nến
-    down: np.ndarray  # (pool,) min low chuẩn hóa trong H nến
-    neighbours: np.ndarray  # chỉ số các nến analog (để vẽ / giải thích)
+    quantiles: np.ndarray  # (len(QUANTILES), horizon) prices
+    z_quantiles: np.ndarray  # same shape, in sigma units
+    analogs: int  # number of conditional trajectories used
+    pool: int  # total number of past trajectories
+    weights: np.ndarray  # final weights of every trajectory in the pool
+    up: np.ndarray  # (pool,) normalised max high within H candles
+    down: np.ndarray  # (pool,) normalised min low within H candles
+    neighbours: np.ndarray  # indices of the analog candles (for plotting / explanation)
 
     def touch_probability(self, level: float) -> float:
-        """Xác suất giá chạm `level` trong H nến tới (theo high/low)."""
+        """Probability that price touches `level` within the next H candles (by high/low)."""
         z = np.log(level / self.close) / self.sigma
         hit = self.up >= z if z >= 0 else self.down <= z
         return float(np.sum(self.weights * hit) / np.sum(self.weights))
@@ -159,8 +166,9 @@ class Forecast:
 def analog_weights(
     p: Prepared, origin: int, pool_idx: np.ndarray, k: int, blend: float
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Trọng số cho mọi quỹ đạo trong pool: blend × analog (kernel trên K gần nhất) +
-    (1 − blend) × đều nhau. Chuẩn hóa đặc trưng bằng độ lệch chuẩn trên chính pool."""
+    """Weights for every trajectory in the pool: blend × analog (kernel over the K nearest) +
+    (1 − blend) × uniform. Features are normalised by their standard deviation over the pool
+    itself."""
     f = p.features[pool_idx]
     sd = np.nanstd(f, axis=0)
     sd[sd == 0] = 1.0
@@ -177,7 +185,8 @@ def analog_weights(
 
 @dataclass(frozen=True)
 class Paths:
-    """Quỹ đạo H nến sau mọi nến i >= WARMUP (hàng i - WARMUP). Chỉ dùng hàng có i + H <= gốc."""
+    """H-candle trajectories after every candle i >= WARMUP (row i - WARMUP). Only rows with i + H
+    <= origin are used."""
 
     horizon: int
     z: np.ndarray
@@ -201,11 +210,12 @@ def forecast_at(
     paths: Paths | None = None,
     last_only: bool = False,
 ) -> Forecast | None:
-    """Dự báo từ nến `origin` chỉ dùng dữ liệu tới `origin`. None nếu lịch sử chưa đủ.
+    """Forecast from candle `origin` using only data up to `origin`. None if history is
+    insufficient.
 
-    `paths`: quỹ đạo tính sẵn (walk_forward dùng lại cho mọi gốc); chỉ các hàng kết thúc trước
-    hoặc tại `origin` được đọc."""
-    last_start = origin - horizon  # quỹ đạo [i, i+H] phải kết thúc trước hoặc tại origin
+    `paths`: precomputed trajectories (walk_forward reuses them for every origin); only rows ending
+    before or at `origin` are read."""
+    last_start = origin - horizon  # trajectory [i, i+H] must end before or at origin
     pool_idx = np.arange(WARMUP, last_start + 1)
     if len(pool_idx) < MIN_POOL or np.isnan(p.features[origin]).any():
         return None
@@ -220,7 +230,7 @@ def forecast_at(
     else:
         z, up, down = _paths(p, pool_idx, horizon)
         up, down = up[:, -1], down[:, -1]
-    # last_only: chỉ cần phân vị ở bước cuối (walk_forward) — nhanh hơn nhiều.
+    # last_only: only the last-step quantiles are needed (walk_forward), much faster.
     zq = _wquantile(z[:, -1:] if last_only else z, w, QUANTILES)
     s, c = p.sigma[origin], p.close[origin]
     return Forecast(
@@ -240,11 +250,11 @@ def forecast_at(
 
 
 def forecast(ohlcv: pl.DataFrame, horizon: int, **kw) -> Forecast | None:
-    """Dự báo từ nến cuối cùng của `ohlcv` (nến đã đóng)."""
+    """Forecast from the last (closed) candle of `ohlcv`."""
     return forecast_at(prepare(ohlcv), ohlcv.height - 1, horizon, **kw)
 
 
-# ---------------------------------------------------------------------------- kiểm chứng
+# ---------------------------------------------------------------------------- validation
 
 
 def _pinball(zq: np.ndarray, actual: float) -> float:
@@ -261,12 +271,13 @@ def walk_forward(
     blend: float = 0.7,
     prepared: Prepared | None = None,
 ) -> dict | None:
-    """Dự báo lại tại nhiều điểm gốc trong quá khứ (mỗi điểm chỉ thấy dữ liệu trước nó) và so
-    với giá thực tế sau H nến. Trả về độ phủ các dải, kỹ năng so với phân phối không điều kiện,
-    tỉ lệ đúng chiều của trung vị, Brier của xác suất chạm ±1 sigma·sqrt(H)."""
+    """Re-forecast at many past origins (each only sees data before it) and compare
+    with the actual price H candles later. Returns band coverage, skill versus the unconditional
+    distribution, directional hit rate of the median, and Brier score of the ±1 sigma·sqrt(H) touch
+    probabilities."""
     p = prepared or prepare(ohlcv)
     n = len(p.close)
-    last = n - 1 - horizon  # gốc phải có đủ H nến sau nó để chấm điểm
+    last = n - 1 - horizon  # an origin needs H candles after it to be scored
     first = WARMUP + MIN_POOL + horizon
     if last <= first:
         return None
@@ -284,7 +295,7 @@ def walk_forward(
         fc = forecast_at(p, int(o), horizon, blend=blend, paths=paths, last_only=True)
         if fc is None:
             continue
-        # Đối chứng: cùng quỹ đạo, trọng số đều (phân phối không điều kiện).
+        # Baseline: same trajectories, uniform weights (unconditional distribution).
         uniform = np.full(len(fc.weights), 1.0)
         rows = np.arange(fc.pool)
         uc_zq = _wquantile(paths.z[rows][:, -1:], uniform, QUANTILES)[:, -1]
@@ -298,7 +309,7 @@ def walk_forward(
         if abs(med) > 1e-9 and actual != 0:
             dir_n += 1
             dir_hit += int(np.sign(med) == np.sign(actual))
-        # Chạm ±1 sigma*sqrt(H) theo high/low trong H nến.
+        # Touch of ±1 sigma*sqrt(H) by high/low within H candles.
         thr = np.sqrt(horizon)
         j = np.arange(o + 1, o + horizon + 1)
         up_real = (np.log(p.high[j]).max() - p.logc[o]) / p.sigma[o] >= thr

@@ -1,4 +1,4 @@
-"""Tìm coin bất kỳ: danh mục sàn, phân giải id, LiveHub tự gộp nến cho coin ngoài cấu hình."""
+"""Any-coin lookup: exchange catalog, id resolution, LiveHub resampling for unconfigured coins."""
 
 import asyncio
 
@@ -23,7 +23,7 @@ def catalog():
 
 
 def test_resolve_prefers_config_then_listing(catalog):
-    assert catalog.resolve("BTC-USDT-PERP").name == "Bitcoin"  # từ cấu hình
+    assert catalog.resolve("BTC-USDT-PERP").name == "Bitcoin"  # from config
     xrp = catalog.resolve("XRP-USDT-PERP")
     assert (xrp.binance, xrp.okx) == ("XRPUSDT", "XRP-USDT-SWAP")
     assert catalog.resolve("1000PEPE-USDT-PERP").okx is None
@@ -54,7 +54,7 @@ def test_instruments_api(catalog, tmp_path):
     assert client.get("/api/instrument", params={"symbol": "NOPE-USDT-PERP"}).status_code == 404
 
 
-T = 1_794_621_600_000  # 02:00 UTC, đầu một nến 1h
+T = 1_794_621_600_000  # 02:00 UTC, start of a 1h candle
 
 
 def _bar(t: int, close: float, closed: bool = True) -> dict:
@@ -77,7 +77,8 @@ def test_adhoc_hub_aggregates_and_closes_bars():
         clock = iter(range(10_000))
         hub = LiveHub(["15m"], clock=lambda: float(next(clock)))
         key = ("binance", "XRP-USDT-PERP")
-        # 13 nến 1m đã đóng của nến 15m 02:00 (REST), rồi feed gửi phút 13 và 14.
+        # 13 closed 1m candles of the 02:00 15m candle (REST), then the feed sends minutes 13 and
+        # 14.
         hub.seed_adhoc(key, [_bar(T + i * 60_000, 10 + i) for i in range(13)])
         c = hub.connect()
         c.exchange, c.symbol, c.timeframes = key[0], key[1], {"15m"}
@@ -97,6 +98,6 @@ def test_adhoc_hub_aggregates_and_closes_bars():
             }
         ]
         assert hub.last_closed[(*key, "15m")] == T
-        assert hub.closed_queue.empty()  # coin ngoài cấu hình không đi qua updater
+        assert hub.closed_queue.empty()  # coins outside the config do not go through the updater
 
     asyncio.run(run())

@@ -1,6 +1,6 @@
-"""Kiểm tra kết nối tới API công khai của hai sàn và đọc giới hạn tốc độ đang áp dụng.
+"""Check connectivity to both exchanges' public APIs and read the rate limits in effect.
 
-Không cần API key. Dùng để thử một máy (nhất là VPS) trước khi chạy collector ở đó.
+No API key needed. Use it to test a machine (especially a VPS) before running the collector there.
 """
 
 import time
@@ -56,7 +56,7 @@ def check_binance(client: httpx.Client, name: str, url: str) -> CheckResult:
     result.rate_limits = [_format_limit(x) for x in response.json().get("rateLimits", [])]
     used = response.headers.get("x-mbx-used-weight-1m")
     if used is not None:
-        result.detail = f"weight đã dùng trong phút: {used}"
+        result.detail = f"weight used this minute: {used}"
     return result
 
 
@@ -67,7 +67,7 @@ def check_okx(client: httpx.Client, name: str, url: str) -> CheckResult:
     if not result.ok:
         result.detail = response.text[:200]
         return result
-    # OKX trả HTTP 200 cả khi lỗi; phải đọc `code` trong body.
+    # OKX returns HTTP 200 even on errors; the `code` in the body must be checked.
     code = response.json().get("code")
     if code != "0":
         result.ok = False

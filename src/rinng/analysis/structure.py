@@ -1,12 +1,12 @@
-"""Swing high/low và nhãn cấu trúc HH/HL/LH/LL.
+"""Swing high/low and HH/HL/LH/LL structure labels.
 
-Định nghĩa (tham số `length` = L):
-- Nến i là swing high nếu high[i] > mọi high trong L nến bên trái và high[i] >= mọi high
-  trong L nến bên phải. Trái nghiêm ngặt, phải không nghiêm ngặt: khi có đỉnh bằng nhau
-  liên tiếp, đỉnh đầu tiên được chọn. Swing low đối xứng với low.
-- Swing chỉ được biết sau khi nến i+L đóng: known_at = open_time[i+L] + độ dài nến.
-- Nhãn: so với swing cùng loại liền trước. Đỉnh cao hơn → HH, thấp hơn hoặc bằng → LH;
-  đáy cao hơn hoặc bằng → HL, thấp hơn → LL. Swing đầu tiên mỗi loại không có nhãn.
+Definition (parameter `length` = L):
+- Candle i is a swing high if high[i] > every high in the L candles to the left and high[i] >= every
+  high in the L candles to the right. Strict on the left, non-strict on the right: with consecutive
+  equal highs, the first one is chosen. Swing low is symmetric on low.
+- A swing is only known after candle i+L closes: known_at = open_time[i+L] + candle duration.
+- Labels: compared with the previous swing of the same kind. Higher high → HH, lower or equal → LH;
+  higher or equal low → HL, lower → LL. The first swing of each kind has no label.
 """
 
 import numpy as np
@@ -18,9 +18,9 @@ MODULE = "structure"
 
 
 def pivots(values: np.ndarray, length: int, *, high: bool) -> np.ndarray:
-    """Chỉ số các pivot. `high=True` tìm đỉnh, False tìm đáy."""
+    """Pivot indices. `high=True` finds highs, False finds lows."""
     if length < 1:
-        raise ValueError("length phải >= 1")
+        raise ValueError("length must be >= 1")
     v = values if high else -values
     n = len(v)
     out = []
@@ -33,7 +33,7 @@ def pivots(values: np.ndarray, length: int, *, high: bool) -> np.ndarray:
 
 
 def swings(ohlcv: pl.DataFrame, length: int = 5) -> pl.DataFrame:
-    """Events kind = swing_high | swing_low; price_low = price_high = giá swing.
+    """Events kind = swing_high | swing_low; price_low = price_high = swing price.
 
     attrs: {"label": "HH"|"LH"|"HL"|"LL"|null, "index": i}
     """
@@ -68,7 +68,7 @@ def swings(ohlcv: pl.DataFrame, length: int = 5) -> pl.DataFrame:
 
 
 def swing_table(events: pl.DataFrame) -> pl.DataFrame:
-    """Tiện ích: bảng swing gọn (kind, event_time, known_at, price, label, index)."""
+    """Helper: compact swing table (kind, event_time, known_at, price, label, index)."""
     swing = events.filter(pl.col("kind").is_in(["swing_high", "swing_low"]))
     decoded = swing["attrs"].str.json_decode(pl.Struct({"label": pl.String(), "index": pl.Int64()}))
     return swing.select(

@@ -1,7 +1,7 @@
-"""Gọi REST định kỳ cho các chuỗi sàn chỉ giữ ngắn hạn: OI, long/short, taker volume, funding.
+"""Periodic REST polling for short-retention series: OI, long/short, taker volume, funding.
 
-Mỗi vòng hỏi lại một cửa sổ trùng với vòng trước (mặc định 1 giờ) để lấp các điểm bị lỡ;
-dòng trùng được khử ở bước curate. Lỗi của một lời gọi chỉ được ghi log, không dừng vòng.
+Each round re-queries a window overlapping the previous one (default 1 hour) to fill missed points;
+duplicates are removed in curate. A failed call is only logged and does not stop the round.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from rinng.ingest.collector.sink import Sink
 log = logging.getLogger(__name__)
 
 PERIOD = "5m"
-# (phương thức của bộ chuyển đổi, bảng, cột cố định)
+# (adapter method, table, fixed columns)
 STATS = (
     ("open_interest", "open_interest", {"source": "api"}),
     ("long_short", "long_short", {"source": "api", "kind": "global_account"}),
@@ -30,7 +30,7 @@ STATS = (
 def poll_once(
     api: Exchange, settings: Settings, sink: Sink, now: datetime, lookback: timedelta
 ) -> int:
-    """Một vòng hỏi cho mọi instrument. Trả về số dòng nhận được."""
+    """One polling round for all instruments. Returns the number of rows received."""
     start = now - lookback
     received = 0
     for inst in settings.instruments:
@@ -63,7 +63,7 @@ async def run_poller(
     while not stop.is_set():
         now = datetime.now(UTC)
         received = await asyncio.to_thread(poll_once, api, settings, sink, now, lookback)
-        log.info("%s poller: %d dòng", api.name, received)
+        log.info("%s poller: %d rows", api.name, received)
         try:
             await asyncio.wait_for(stop.wait(), interval)
         except TimeoutError:

@@ -22,12 +22,12 @@ H = timedelta(hours=1)
 
 def _hand_bars():
     #      bin:     99  100  101  102  103  104
-    # nến 0 100-103:     10   10   10            (30 rải 3 bin)
-    # nến 1 101-102:          20                 (high đúng cạnh: không tràn sang 102)
-    # nến 2 101-103:           5    5
-    # nến 3 103-105:                     4    4
-    # nến 4  99-100:  6
-    # tổng:           6  10   35   15    4    4  = 74
+    # candle 0 100-103:     10   10   10            (30 spread over 3 bins)
+    # candle 1 101-102:          20                 (high exactly on an edge: no spill into 102)
+    # candle 2 101-103:           5    5
+    # candle 3 103-105:                     4    4
+    # candle 4  99-100:  6
+    # total:            6  10   35   15    4    4  = 74
     lows = [100, 101, 101, 103, 99]
     highs = [103, 102, 103, 105, 100]
     return make_ohlcv(
@@ -44,7 +44,7 @@ def test_profile_from_ohlcv_by_hand():
     assert prof["price_low"].to_list() == [99, 100, 101, 102, 103, 104]
     assert prof["price_high"].to_list() == [100, 101, 102, 103, 104, 105]
     assert prof["volume"].to_list() == pytest.approx([6, 10, 35, 15, 4, 4])
-    # buy: nến 0 15/3, nến 1 5, nến 2 10/2, nến 4 6
+    # buy: candle 0 15/3, candle 1 5, candle 2 10/2, candle 4 6
     assert prof["buy_volume"].to_list() == pytest.approx([6, 5, 15, 10, 0, 0])
     assert (prof["buy_volume"] + prof["sell_volume"]).to_list() == pytest.approx(
         prof["volume"].to_list()
@@ -53,8 +53,8 @@ def test_profile_from_ohlcv_by_hand():
 
 def test_value_area_by_hand():
     va = value_area(profile_from_ohlcv(_hand_bars(), bin_size=1.0))
-    # POC 101 (35). Đích 0.7*74 = 51.8. Bước 1: trên 15+4=19 > dưới 10+6=16 → nhận 102,103,
-    # cộng dồn 54 >= 51.8 → dừng.
+    # POC 101 (35). Target 0.7*74 = 51.8. Step 1: above 15+4=19 > below 10+6=16 → take 102,103,
+    # cumulative 54 >= 51.8 → stop.
     assert (va.poc_low, va.poc_high, va.poc) == (101, 102, 101.5)
     assert (va.val, va.vah) == (101, 104)
     assert va.va_volume == pytest.approx(54)
@@ -71,8 +71,9 @@ def test_value_area_tie_and_single_bin_edge():
         }
     )
     va = value_area(prof)
-    # POC idx3 (10), đích 26.6. dưới 8+1=9 > trên 3+2=5 → lo=1 (19).
-    # dưới còn một bin: 5 = trên 5 → hòa chọn trên → hi=5 (24). trên còn một bin 9 > 5 → hi=6.
+    # POC idx3 (10), target 26.6. below 8+1=9 > above 3+2=5 → lo=1 (19).
+    # one bin left below: 5 = above 5 → tie picks above → hi=5 (24). one bin left above 9 > 5 →
+    # hi=6.
     assert (va.val, va.vah) == (1.0, 7.0)
     assert va.va_volume == pytest.approx(33)
 
@@ -131,9 +132,9 @@ def test_volume_nodes():
     nodes = volume_nodes(prof, sigma_bins=0)
     assert nodes.filter(kind="hvn")["price_low"].to_list() == [2.0, 7.0]
     lvn = nodes.filter(kind="lvn")
-    assert lvn["price_low"].to_list() == [4.0]  # đáy bậc thang: lấy bin đầu
+    assert lvn["price_low"].to_list() == [4.0]  # plateau low: take the first bin
     assert lvn["prominence"].to_list() == [5.0]
-    # prominence quá cao thì không còn nút
+    # prominence too high leaves no nodes
     assert volume_nodes(prof, sigma_bins=0, min_prominence=0.9).filter(kind="hvn").height == 1
 
 
@@ -148,7 +149,7 @@ def test_only_closed_periods_emitted():
     assert vpoc["event_time"].to_list() == [T0, T0 + 24 * H, T0 + 48 * H]
     assert vpoc["known_at"].to_list() == [T0 + 24 * H, T0 + 48 * H, T0 + 72 * H]
     assert set(ev["kind"]) >= {"vpoc", "value_area", "naked_poc", "hvn", "lvn"}
-    # dữ liệu kết thúc đúng lúc đóng ngày 3: ngày 3 đã đóng
+    # data ends exactly at the close of day 3: day 3 is closed
     assert profile_events(_days(72), "day", bin_size=0.5).filter(kind="vpoc").height == 3
     assert profile_events(_days(71), "day", bin_size=0.5).filter(kind="vpoc").height == 2
 
@@ -163,12 +164,12 @@ def test_period_values_match_direct_profile():
 
 
 def test_week_and_month_boundaries():
-    o = random_walk(24 * 40, timeframe="1h")  # 2026-01-05 (thứ Hai) → 13/2
+    o = random_walk(24 * 40, timeframe="1h")  # 2026-01-05 (Monday) → Feb 13
     weeks = profile_events(o, "week", n_bins=30).filter(kind="vpoc")
     assert weeks["event_time"].dt.weekday().to_list() == [1] * 5
     assert weeks["event_time"][0] == T0
     months = profile_events(o, "month", n_bins=30).filter(kind="vpoc")
-    # tháng 1 đã đóng (dữ liệu bắt đầu giữa tháng), tháng 2 chưa
+    # January is closed (data starts mid-month), February is not
     assert months["event_time"].dt.month().to_list() == [1]
     assert json.loads(months["attrs"][0])["n_bars"] == 27 * 24
 
@@ -178,7 +179,7 @@ def test_anchored_ranges():
     ranges = [(T0 + 2 * H, T0 + 10 * H), (T0 + 2 * H, T0 + 30 * H)]
     ev = profile_events(o, ranges, n_bins=20)
     vpoc = ev.filter(kind="vpoc")
-    assert vpoc.height == 1  # khoảng thứ hai chưa đóng
+    assert vpoc.height == 1  # the second range is not closed yet
     assert vpoc["known_at"][0] == T0 + 10 * H
     va = value_area(profile_from_ohlcv(o.slice(2, 8), n_bins=20))
     assert vpoc["price_low"][0] == va.poc_low
@@ -194,9 +195,9 @@ def test_naked_poc_invalidated_on_right_bar():
     naked = profile_events(o, "day", bin_size=1.0).filter(kind="naked_poc").sort("event_time")
     assert naked["price_low"].to_list() == [100.5, 110.5, 110.5]
     times = o["open_time"]
-    # ngày 0: nến 53 là nến đầu tiên chạm 100.5; invalidated_at = lúc nến 53 đóng
+    # day 0: candle 53 is the first to touch 100.5; invalidated_at = close of candle 53
     assert naked["invalidated_at"][0] == times[53] + H
-    # ngày 1: nến đầu ngày 2 (48) chạm ngay
+    # day 1: the first candle of day 2 (48) touches immediately
     assert naked["invalidated_at"][1] == times[48] + H
     assert naked["invalidated_at"][2] is None
 
@@ -228,7 +229,7 @@ def test_week_of_1m_is_fast():
     assert np.isfinite(ev["price_low"].to_numpy()).all()
 
 
-# --- hình dạng profile ---
+# --- profile shape ---
 
 
 def _shape_profile(volumes):
@@ -263,5 +264,5 @@ def test_classify_shape_shallow_valley_is_not_dd():
     from rinng.analysis.volume_profile import classify_shape
 
     x = np.arange(50)
-    two = np.exp(-((x - 18) ** 2) / 50) + np.exp(-((x - 32) ** 2) / 50)  # đáy giữa còn cao
+    two = np.exp(-((x - 18) ** 2) / 50) + np.exp(-((x - 32) ** 2) / 50)  # high middle valley
     assert classify_shape(_shape_profile(two)) == "D"

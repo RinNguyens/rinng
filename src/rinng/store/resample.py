@@ -1,11 +1,11 @@
-"""Gộp nến 1 phút lên khung lớn hơn, theo UTC.
+"""Aggregate 1-minute bars into larger timeframes, in UTC.
 
-- Khung theo phút/giờ/ngày căn theo mốc epoch UTC (nến 4h mở lúc 00, 04, 08... UTC).
-- Khung tuần mở thứ Hai 00:00 UTC, giống Binance và OKX `1Wutc`.
-- Nến gộp được coi là đã đóng (is_closed) khi: mọi nến 1 phút bên trong đã đóng, dữ liệu
-  bắt đầu không muộn hơn lúc mở của nó, và lúc đóng của nó không muộn hơn lúc đóng của nến
-  1 phút cuối cùng. Nến đầu/cuối chỉ có một phần dữ liệu vì thế có is_closed = False.
-- trades, taker_buy_volume: null nếu bất kỳ nến 1 phút nào bên trong thiếu giá trị đó.
+- Minute/hour/day timeframes align to the UTC epoch (4h bars open at 00, 04, 08... UTC).
+- Weekly bars open Monday 00:00 UTC, like Binance and OKX `1Wutc`.
+- An aggregated bar is closed (is_closed) when: every 1-minute bar inside is closed, the data
+  starts no later than its open, and its close is no later than the close of the last
+  1-minute bar. Partial first/last bars therefore have is_closed = False.
+- trades, taker_buy_volume: null if any 1-minute bar inside is missing that value.
 """
 
 import polars as pl
@@ -18,7 +18,7 @@ def resample_ohlcv(ohlcv_1m: pl.DataFrame, timeframe: str) -> pl.DataFrame:
     if ohlcv_1m.is_empty():
         return pl.DataFrame(schema=OHLCV.schema)
     if set(ohlcv_1m["timeframe"].unique()) != {"1m"}:
-        raise ValueError("đầu vào phải là nến 1m")
+        raise ValueError("input must be 1m bars")
     duration = bar_duration(timeframe)
     every = {"m": "m", "h": "h", "d": "d", "w": "w"}[timeframe[-1]]
     window = f"{timeframe[:-1]}{every}"

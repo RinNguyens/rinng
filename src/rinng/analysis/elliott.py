@@ -1,36 +1,40 @@
-"""Thành phần đo được của Elliott Wave (docs/04-phuong-phap-phan-tich.md mục 5).
+"""Measurable components of Elliott Wave (docs/04-analysis-methods.md section 5).
 
-Không tự chọn một cách đếm sóng duy nhất: module chỉ dựng pivot, kiểm quy tắc cứng và liệt kê
-mọi ứng viên thỏa quy tắc để kiểm định như một feature mô tả.
+Does not pick a single wave count: the module only builds pivots, checks the hard rules and lists
+every candidate that satisfies them, to be tested as a descriptive feature.
 
-Zigzag (tham số `threshold`, `mode`):
-- mode "percent": đảo chiều xuống từ đỉnh ứng viên H khi low[i] <= H * (1 − threshold); đảo
-  chiều lên từ đáy ứng viên L khi high[i] >= L * (1 + threshold).
-- mode "atr": như trên nhưng khoảng cách là threshold * ATR(atr_length) của nến i (Wilder,
-  `rinng.analysis.wyckoff.atr`); chưa có ATR thì chưa xác nhận được pivot.
-- Đỉnh ứng viên là high lớn nhất kể từ pivot trước (bằng nhau thì lấy nến đầu tiên); đáy đối
-  xứng. Pivot phải nằm ở nến TRƯỚC nến xác nhận: nến vừa lập cực trị mới thì chưa đảo chiều
-  được trong chính nến đó (không biết high hay low đến trước).
-- Lúc đầu chưa có hướng: pivot đầu tiên là cực trị nào bị vượt ngưỡng đảo chiều trước; nếu
-  cùng một nến thì lấy cực trị xảy ra sớm hơn.
-- known_at = lúc đóng nến i mà ngưỡng đảo chiều bị vượt. Pivot cuối (đang chạy) không xuất.
+Zigzag (parameters `threshold`, `mode`):
+- mode "percent": reverse down from candidate high H when low[i] <= H * (1 − threshold); reverse
+  up from candidate low L when high[i] >= L * (1 + threshold).
+- mode "atr": as above but the distance is threshold * ATR(atr_length) of candle i (Wilder,
+  `rinng.analysis.wyckoff.atr`); no pivot can be confirmed before ATR exists.
+- The candidate high is the largest high since the previous pivot (ties take the first candle); lows
+  are symmetric. The pivot must lie on a candle BEFORE the confirming candle: a candle that just set
+  a new extreme cannot reverse within itself (we do not know whether the high or the low came
+  first).
+- Initially there is no direction: the first pivot is whichever extreme gets its reversal threshold
+  crossed first; if on the same candle, the earlier extreme wins.
+- known_at = close of candle i where the reversal threshold is crossed. The last (running) pivot is
+  not emitted.
 
-Quy tắc cứng cho impulse 6 pivot P0..P5 (đổi dấu khi sóng 1 đi xuống, `log=True` dùng log giá):
-1. `wave2_within_wave1`: P2 không vượt gốc sóng 1, tức P2 > P0 (chạm bằng là sai).
-2. `wave3_not_shortest`: |sóng 3| >= min(|sóng 1|, |sóng 5|).
-3. `wave4_no_overlap`: P4 > P1 (sóng 4 không vào vùng giá sóng 1; không xét diagonal).
-Quy tắc 1 và 3 không đổi theo thang giá; quy tắc 2 phụ thuộc thang log hay tuyến tính.
+Hard rules for a 6-pivot impulse P0..P5 (signs flipped when wave 1 goes down, `log=True` uses log
+price):
+1. `wave2_within_wave1`: P2 does not pass the origin of wave 1, i.e. P2 > P0 (touching fails).
+2. `wave3_not_shortest`: |wave 3| >= min(|wave 1|, |wave 5|).
+3. `wave4_no_overlap`: P4 > P1 (wave 4 does not enter wave 1's price range; diagonals not
+   considered).
+Rules 1 and 3 are scale-invariant; rule 2 depends on log vs linear scale.
 
-Tỷ lệ Fibonacci (độ dài sóng tuyệt đối): wave2/wave1, wave3/wave1, wave4/wave3, wave5/wave1,
-wave5/(P0→P3). Chỉ để mô tả, không chấm điểm.
+Fibonacci ratios (absolute wave lengths): wave2/wave1, wave3/wave1, wave4/wave3, wave5/wave1,
+wave5/(P0→P3). Descriptive only, not scored.
 
-`impulse_candidates`: mọi cửa sổ 6 pivot zigzag liên tiếp thỏa cả ba quy tắc, cả tăng và
-giảm, thành Events `impulse_candidate`; event_time = nến P5, known_at = known_at của P5 (lúc
-P5 được zigzag xác nhận). Các cửa sổ chồng nhau đều được giữ.
+`impulse_candidates`: every window of 6 consecutive zigzag pivots satisfying all three rules, both
+up and down, as `impulse_candidate` Events; event_time = candle P5, known_at = known_at of P5 (when
+P5 is confirmed by the zigzag). Overlapping windows are all kept.
 
-Giới hạn (docs/04 mục 5.7, 5.8): bằng chứng thực nghiệm về khả năng dự báo yếu; kết quả rất
-nhạy với ngưỡng zigzag và thang giá; ba quy tắc cứng lọc rất ít nên gần như chuỗi nào cũng có
-ứng viên. Không kiểm cấu trúc con (5-3-5-3-5) hay mẫu điều chỉnh.
+Limits (docs/04 sections 5.7, 5.8): empirical evidence of predictive power is weak; results are very
+sensitive to the zigzag threshold and price scale; the three hard rules filter very little, so
+almost any series has candidates. Sub-structure (5-3-5-3-5) and corrective patterns are not checked.
 """
 
 from collections.abc import Sequence
@@ -50,10 +54,10 @@ RULES = ("wave2_within_wave1", "wave3_not_shortest", "wave4_no_overlap")
 def zigzag_pivots(
     high: np.ndarray, low: np.ndarray, distance: np.ndarray | None = None, *, pct: float = 0.0
 ) -> list[tuple[int, str, float, int]]:
-    """Pivot xen kẽ (index, "H"|"L", giá, index xác nhận).
+    """Alternating pivots (index, "H"|"L", price, confirm index).
 
-    `distance` (mảng cùng độ dài, NaN = chưa xác nhận được) cho ngưỡng tuyệt đối theo nến;
-    nếu None thì dùng ngưỡng tương đối `pct`.
+    `distance` (array of the same length, NaN = cannot confirm yet) gives an absolute per-candle
+    threshold; if None the relative threshold `pct` is used.
     """
     n = len(high)
 
@@ -70,7 +74,7 @@ def zigzag_pivots(
         return not np.isnan(d) and high[i] - trough >= d
 
     out: list[tuple[int, str, float, int]] = []
-    direction = 0  # 1: pivot cuối là đáy, đang tìm đỉnh; -1: ngược lại
+    direction = 0  # 1: last pivot is a low, looking for a high; -1: the opposite
     hi_i = lo_i = 0
     for i in range(n):
         if direction >= 0 and high[i] > high[hi_i]:
@@ -98,9 +102,9 @@ def zigzag_pivots(
 
 def _zigzag_params(threshold: float, mode: str, atr_length: int) -> dict[str, Any]:
     if mode not in ("percent", "atr"):
-        raise ValueError("mode phải là percent hoặc atr")
+        raise ValueError("mode must be percent or atr")
     if threshold <= 0 or (mode == "percent" and threshold >= 1):
-        raise ValueError("threshold không hợp lệ")
+        raise ValueError("invalid threshold")
     return {"threshold": threshold, "mode": mode, "atr": atr_length if mode == "atr" else None}
 
 
@@ -116,7 +120,7 @@ def _pivots(ohlcv: pl.DataFrame, threshold: float, mode: str, atr_length: int):
 def zigzag(
     ohlcv: pl.DataFrame, *, threshold: float = 0.05, mode: str = "percent", atr_length: int = 14
 ) -> pl.DataFrame:
-    """Events kind = zigzag_high | zigzag_low; price_low = price_high = giá pivot.
+    """Events kind = zigzag_high | zigzag_low; price_low = price_high = pivot price.
 
     attrs: {"index", "confirm_index"}
     """
@@ -139,7 +143,7 @@ def zigzag(
 
 
 def zigzag_table(events: pl.DataFrame) -> pl.DataFrame:
-    """Tiện ích: bảng pivot gọn (kind, event_time, known_at, price, index) theo thứ tự thời gian."""
+    """Helper: compact pivot table (kind, event_time, known_at, price, index) in time order."""
     piv = events.filter(pl.col("kind").is_in(["zigzag_high", "zigzag_low"]))
     decoded = piv["attrs"].str.json_decode(pl.Struct({"index": pl.Int64()}))
     return (
@@ -152,20 +156,20 @@ def zigzag_table(events: pl.DataFrame) -> pl.DataFrame:
 def _signed(prices: Sequence[float], log: bool) -> np.ndarray:
     p = np.asarray(prices, dtype=float)
     if p.shape != (6,):
-        raise ValueError("cần đúng 6 pivot P0..P5")
+        raise ValueError("exactly 6 pivots P0..P5 required")
     if log:
         if (p <= 0).any():
-            raise ValueError("log cần giá dương")
+            raise ValueError("log requires positive prices")
         p = np.log(p)
     q = p if p[1] > p[0] else -p
     legs = np.diff(q)
     if not ((legs[0::2] > 0).all() and (legs[1::2] < 0).all()):
-        raise ValueError("6 pivot phải xen kẽ đỉnh/đáy")
+        raise ValueError("the 6 pivots must alternate high/low")
     return q
 
 
 def impulse_rules(prices: Sequence[float], *, log: bool = True) -> dict[str, bool]:
-    """Ba quy tắc cứng của impulse cho P0..P5; mỗi quy tắc đúng/sai riêng."""
+    """The three hard impulse rules for P0..P5; each rule true/false separately."""
     q = _signed(prices, log)
     w1, w3, w5 = q[1] - q[0], q[3] - q[2], q[5] - q[4]
     return {
@@ -176,7 +180,7 @@ def impulse_rules(prices: Sequence[float], *, log: bool = True) -> dict[str, boo
 
 
 def impulse_ratios(prices: Sequence[float], *, log: bool = False) -> dict[str, float]:
-    """Tỷ lệ giữa độ dài các sóng (giá trị tuyệt đối)."""
+    """Ratios between wave lengths (absolute values)."""
     q = _signed(prices, log)
     w = np.abs(np.diff(q))
     return {
@@ -196,10 +200,10 @@ def impulse_candidates(
     atr_length: int = 14,
     log: bool = True,
 ) -> pl.DataFrame:
-    """Events kind = impulse_candidate; price_low/high = min/max của 6 pivot.
+    """Events kind = impulse_candidate; price_low/high = min/max of the 6 pivots.
 
-    attrs: {"direction": "up"|"down", "indices", "prices", "ratios"} với ratios tính cùng thang
-    với quy tắc (`log`).
+    attrs: {"direction": "up"|"down", "indices", "prices", "ratios"} with ratios computed on the
+    same scale as the rules (`log`).
     """
     symbol, timeframe = check_ohlcv(ohlcv)
     params = {"kind": "impulse", **_zigzag_params(threshold, mode, atr_length), "log": log}

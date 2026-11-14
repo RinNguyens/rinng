@@ -1,7 +1,7 @@
-"""Kết nối WebSocket có tự nối lại và ghi nhận khoảng trống.
+"""WebSocket connections with auto-reconnect and gap recording.
 
-Mỗi lần mất kết nối, khoảng từ message cuối cùng nhận được tới message đầu tiên sau khi
-nối lại được ghi vào meta/gaps cho mọi (bảng, symbol) mà kết nối đó phụ trách.
+On each disconnect, the span from the last message received to the first message after
+reconnecting is recorded in meta/gaps for every (table, symbol) that connection covers.
 """
 
 import asyncio
@@ -32,30 +32,30 @@ from rinng.store.paths import DataPaths
 log = logging.getLogger(__name__)
 
 BINANCE_WS = "wss://fstream.binance.com/market/stream"
-OKX_WS = "wss://ws.okx.com/ws/v5/public"  # cổng 8443 sắp bị bỏ (thông báo 64010)
-OKX_BUSINESS_WS = "wss://ws.okx.com/ws/v5/business"  # kênh nến
+OKX_WS = "wss://ws.okx.com/ws/v5/public"  # port 8443 is being retired (notice 64010)
+OKX_BUSINESS_WS = "wss://ws.okx.com/ws/v5/business"  # candle channels
 DATASETS = ("trades", "mark_price", "liquidations")
 
 
 class Reconnect(Exception):
-    """Sàn báo sắp ngắt hoặc kết nối đã quá tuổi: đóng và nối lại."""
+    """Exchange announced a disconnect or the connection is too old: close and reconnect."""
 
 
 @dataclass
 class Feed:
-    """Một kết nối WebSocket của một sàn."""
+    """One WebSocket connection to one exchange."""
 
     exchange: str
     url: str
-    symbols: dict[str, str]  # tên trên sàn → tên chuẩn
+    symbols: dict[str, str]  # venue name → canonical name
     parse: Callable[[str], list[Record] | OkxControl | None]
     on_open: Callable[[websockets.ClientConnection], Awaitable[None]] | None = None
-    idle_ping: float | None = None  # gửi chuỗi "ping" khi im lặng quá số giây này
-    max_lifetime: float | None = None  # chủ động nối lại trước khi sàn tự ngắt
+    idle_ping: float | None = None  # send "ping" after this many seconds of silence
+    max_lifetime: float | None = None  # reconnect proactively before the exchange drops us
     datasets: tuple[str, ...] = DATASETS
     stats: dict[str, int] = field(default_factory=lambda: {"messages": 0, "reconnects": 0})
     last_message: datetime | None = None
-    # Gọi với mọi bản ghi vừa nhận (kể cả nến đang chạy), dùng cho dữ liệu realtime.
+    # Called with every received record (including running candles), for realtime data.
     on_records: Callable[[str, list[Record]], None] | None = None
 
 
@@ -66,7 +66,7 @@ def binance_feed(symbols: dict[str, str], url: str = BINANCE_WS) -> Feed:
         url=f"{url}?streams={streams}",
         symbols=symbols,
         parse=lambda raw: parse_binance(raw, symbols),
-        max_lifetime=23 * 3600,  # Binance ngắt sau 24 giờ
+        max_lifetime=23 * 3600,  # Binance disconnects after 24 hours
         datasets=(*DATASETS, "ohlcv"),
     )
 
@@ -81,7 +81,7 @@ def okx_feed(symbols: dict[str, str], contract_values: dict[str, float], url: st
         symbols=symbols,
         parse=lambda raw: parse_okx(raw, symbols, contract_values),
         on_open=subscribe,
-        idle_ping=20.0,  # OKX ngắt sau 30 giây im lặng
+        idle_ping=20.0,  # OKX disconnects after 30 seconds of silence
     )
 
 
@@ -101,13 +101,13 @@ def okx_candle_feed(symbols: dict[str, str], url: str = OKX_BUSINESS_WS) -> Feed
 
 
 def _ssl_for(url: str) -> ssl.SSLContext | None:
-    # Python cài từ python.org trên macOS không dùng kho chứng chỉ của hệ thống.
+    # Python installed from python.org on macOS does not use the system certificate store.
     return ssl.create_default_context(cafile=certifi.where()) if url.startswith("wss") else None
 
 
 def _family_for(url: str) -> int:
-    # OKX qua IPv6 treo ở bước bắt tay trên một số mạng (giống REST, xem exchanges/okx.py):
-    # ép IPv4 cho OKX, sàn khác để hệ thống tự chọn.
+    # OKX over IPv6 hangs at the handshake on some networks (same as REST, see exchanges/okx.py):
+    # force IPv4 for OKX, let the system choose for other exchanges.
     return socket.AF_INET if "okx.com" in url else socket.AF_UNSPEC
 
 
@@ -119,7 +119,7 @@ async def _receive(feed: Feed, ws, sink: Sink, on_first: Callable[[], None]) -> 
         if feed.max_lifetime is not None:
             remaining = feed.max_lifetime - (time.monotonic() - opened)
             if remaining <= 0:
-                raise Reconnect("kết nối đã quá tuổi tối đa")
+                raise Reconnect("connection exceeded max lifetime")
             timeout = remaining if timeout is None else min(timeout, remaining)
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout)
@@ -130,9 +130,11 @@ async def _receive(feed: Feed, ws, sink: Sink, on_first: Callable[[], None]) -> 
         result = feed.parse(raw)
         if isinstance(result, OkxControl):
             if result.event == "error":
-                raise RuntimeError(f"{feed.exchange} báo lỗi {result.code}: {result.message}")
+                raise RuntimeError(
+                    f"{feed.exchange} reported error {result.code}: {result.message}"
+                )
             if result.code == "64008":
-                raise Reconnect("sàn báo sắp ngắt để nâng cấp")
+                raise Reconnect("exchange announced disconnect for upgrade")
             continue
         if result is None:
             continue
@@ -154,7 +156,7 @@ async def run_feed(
     *,
     max_backoff: float = 60.0,
 ) -> None:
-    """Chạy tới khi `stop` được bật. Mất kết nối thì chờ giãn cách rồi nối lại."""
+    """Run until `stop` is set. On disconnect, back off and reconnect."""
     last_seen: datetime | None = None
     backoff = 1.0
 
@@ -194,12 +196,12 @@ async def run_feed(
                 for task in (receiver, stopper):
                     task.cancel()
                 if receiver in done and not receiver.cancelled():
-                    receiver.result()  # đẩy lỗi ra ngoài
+                    receiver.result()  # propagate the error
         except Reconnect as exc:
-            log.info("%s: nối lại (%s)", feed.exchange, exc)
+            log.info("%s: reconnecting (%s)", feed.exchange, exc)
             backoff = 0.0
         except (OSError, websockets.WebSocketException, RuntimeError, TimeoutError) as exc:
-            log.warning("%s: mất kết nối: %s", feed.exchange, exc)
+            log.warning("%s: connection lost: %s", feed.exchange, exc)
         if stop.is_set():
             break
         last_seen = feed.last_message or datetime.now(UTC)

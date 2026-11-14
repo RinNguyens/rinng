@@ -10,7 +10,7 @@ from tests.analysis.helpers import make_ohlcv, random_walk
 
 def test_pivots_basic_and_ties():
     v = np.array([1, 2, 5, 2, 1, 3, 3, 1, 0], dtype=float)
-    assert pivots(v, 2, high=True).tolist() == [2, 5]  # đỉnh bằng nhau: chọn cái đầu
+    assert pivots(v, 2, high=True).tolist() == [2, 5]  # equal highs: pick the first
     assert pivots(v, 1, high=False).tolist() == [4]
 
 
@@ -32,7 +32,7 @@ def test_swings_known_at_and_labels():
     first = ev.filter(kind="swing_high").row(0, named=True)
     times = o["open_time"].to_list()
     assert first["event_time"] == times[2]
-    assert first["known_at"] == times[5]  # đóng của nến 4 = mở của nến 5
+    assert first["known_at"] == times[5]  # close of candle 4 = open of candle 5
     assert json.loads(first["attrs"])["index"] == 2
 
 
@@ -45,7 +45,7 @@ def test_lookahead_checker_catches_cheating():
     from rinng.analysis.types import events_frame
 
     def cheat(x):
-        # gán known_at bằng event_time cho swing cần nến tương lai: phải bị bắt
+        # set known_at to event_time for swings that need future candles: must be caught
         ev = swings(x, 5)
         return ev.with_columns(known_at=ev["event_time"])
 

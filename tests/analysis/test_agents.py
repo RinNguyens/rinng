@@ -1,4 +1,4 @@
-"""Agent theo luật (rinng.analysis.agents) và payload desk 5m trên nến giả."""
+"""Rule-based agents (rinng.analysis.agents) and the 5m desk payload on synthetic candles."""
 
 import numpy as np
 import polars as pl
@@ -11,7 +11,7 @@ from tests.analysis.helpers import make_ohlcv, random_walk
 
 
 def trend(step: float, n: int = 900, buy_share: float = 0.5, noise: float = 0.02) -> pl.DataFrame:
-    """Nến 5m đi một chiều `step` mỗi nến, có nhiễu để ATR/RSI khác 0."""
+    """5m candles moving one way by `step` per candle, with noise so ATR/RSI are non-zero."""
     rng = np.random.default_rng(3)
     closes = (100 + step * np.arange(n) + rng.normal(0, noise, n)).tolist()
     vol = [10.0] * n
@@ -36,9 +36,10 @@ def test_verdict_weights_votes_by_confidence():
 
 
 def test_momentum_follows_the_trend():
-    # Nhiễu đủ lớn để RSI không chạm vùng quá mua/quá bán (khi đó agent trừ điểm ngược lại).
+    # Noise large enough that RSI stays out of overbought/oversold (where the agent scores the other
+    # way).
     up = agents.momentum_agent(agents.snapshot(trend(+0.05, noise=0.25)))
-    # Chuỗi giảm là ảnh gương của chuỗi tăng để nhiễu ở nến cuối không làm lệch MACD.
+    # The down series mirrors the up series so noise on the last candle does not skew MACD.
     mirror = [200 - c for c in trend(+0.05, noise=0.25)["close"].to_list()]
     down = agents.momentum_agent(agents.snapshot(make_ohlcv(mirror, timeframe="5m")))
     assert up.stance == "buy" and up.score > 0.3
@@ -51,7 +52,7 @@ def test_momentum_marks_a_stretched_rsi_against_the_trend():
 
 
 def test_profile_reads_acceptance_outside_yesterdays_value():
-    # Hôm qua đi ngang quanh 100, hôm nay đứng hẳn trên/dưới vùng giá trị đó.
+    # Yesterday ranged around 100, today sits fully above/below that value area.
     flat = [100 + 0.2 * np.sin(i / 5) for i in range(288 * 2)]
     for level, sign in ((103.0, 1), (97.0, -1)):
         o = make_ohlcv(flat + [level] * 100, timeframe="5m")
@@ -66,7 +67,7 @@ def test_flow_reads_taker_side_and_degrades_without_it():
     bought = agents.flow_agent(agents.snapshot(trend(0.0, buy_share=0.8)))
     sold = agents.flow_agent(agents.snapshot(trend(0.0, buy_share=0.2)))
     assert bought.score > 0.3 and sold.score < -0.3
-    # OKX: nến không có taker volume → không đọc delta, độ tin cậy thấp.
+    # OKX: candles have no taker volume → delta is not read, low confidence.
     blind = trend(0.0).with_columns(pl.lit(None, dtype=pl.Float64).alias("taker_buy_volume"))
     v = agents.flow_agent(agents.snapshot(blind))
     assert v.score == 0.0 and v.confidence == pytest.approx(0.1)

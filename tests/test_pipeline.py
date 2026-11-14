@@ -54,7 +54,7 @@ def test_cli_analyze_and_backtest(tmp_path):
     assert r.exit_code == 0, r.output
     assert "== in" in r.output and "== out" in r.output
     configs = list((paths.root / "results").glob("*/config.json"))
-    assert len(configs) == 8  # 4 chiến lược × 2 đoạn
+    assert len(configs) == 8  # 4 strategies × 2 segments
     assert {json.loads(c.read_text())["segment"] for c in configs} == {"in", "out"}
     for c in configs:
         assert pl.read_parquet(c.parent / "equity.parquet").height > 0

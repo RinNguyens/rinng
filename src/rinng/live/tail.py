@@ -1,8 +1,9 @@
-"""Cập nhật curated tăng dần khi có nến 1m mới đóng, thay cho curate + resample toàn bộ.
+"""Incremental curated update when a new 1m candle closes, instead of a full curate + resample.
 
-`curate_tail` gộp nến 1m mới vào curated rồi resample lại chỉ phần đuôi của mỗi khung: bắt đầu
-từ mốc mở của nến *trước* nến đang chạy, để nến vừa đóng cũng được ghi lại với is_closed đúng.
-Vì đầu vào luôn bắt đầu đúng mốc mở của một nến, kết quả trùng với resample toàn bộ (có test).
+`curate_tail` merges new 1m candles into curated and resamples only the tail of each timeframe,
+starting at the open of the candle *before* the running one, so the just-closed candle is
+rewritten with correct is_closed.
+Since the input always starts on a candle open, the result matches a full resample (tested).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -18,14 +19,14 @@ from rinng.timeframes import bucket_start_ms, timeframe_ms
 
 
 def tail_start(last_open: datetime, timeframe: str) -> datetime:
-    """Mốc mở của nến liền trước nến `timeframe` chứa `last_open`."""
+    """Open time of the candle just before the `timeframe` candle containing `last_open`."""
     ms = int(last_open.timestamp() * 1000)
     start = bucket_start_ms(ms, timeframe) - timeframe_ms(timeframe)
     return datetime.fromtimestamp(start / 1000, UTC)
 
 
 def latest_1m_open(paths: DataPaths, exchange: str, symbol: str) -> datetime | None:
-    """Mốc mở của nến 1m cuối cùng trong curated (đọc 10 ngày gần nhất trước cho nhanh)."""
+    """Open time of the last 1m candle in curated (reads the last 10 days first for speed)."""
     for start in (datetime.now(UTC) - timedelta(days=10), None):
         f = read_curated(
             paths, OHLCV, exchange=exchange, symbol=symbol, timeframe="1m", start=start
@@ -42,10 +43,10 @@ def resample_tail(
     timeframe: str,
     since: datetime | None = None,
 ) -> pl.DataFrame:
-    """Resample lại từ nến chứa `since` (mặc định: nến 1m cuối) tới hết, ghi đè và trả về.
+    """Resample from the candle containing `since` (default: last 1m) to the end; overwrite, return.
 
-    `since` là nến 1m sớm nhất vừa thay đổi; bắt đầu từ nến liền trước nến chứa nó để nến vừa
-    đóng cũng được ghi lại với is_closed đúng.
+    `since` is the earliest changed 1m candle; start from the candle before the one containing
+    it so the just-closed candle is rewritten with correct is_closed.
     """
     since = since or latest_1m_open(paths, exchange, symbol)
     if since is None:
@@ -70,7 +71,7 @@ def curate_tail(
     bars_1m: list[dict],
     timeframes: list[str],
 ) -> dict[str, pl.DataFrame]:
-    """Ghi nến 1m đã đóng (dòng dạng collector, open_time tính bằng ms) rồi resample đuôi."""
+    """Write closed 1m candles (collector-style rows, open_time in ms) then resample the tail."""
     since = None
     if bars_1m:
         frame = rows_to_frame(OHLCV, bars_1m, exchange=exchange, symbol=symbol, timeframe="1m")

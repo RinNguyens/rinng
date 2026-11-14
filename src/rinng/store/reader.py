@@ -1,4 +1,4 @@
-"""Đọc dữ liệu curated theo instrument và khoảng thời gian."""
+"""Read curated data by instrument and time range."""
 
 from datetime import datetime
 
@@ -19,12 +19,12 @@ def read_curated(
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> pl.DataFrame:
-    """Đọc bảng trong khoảng [start, end). Không có dữ liệu thì trả frame rỗng đúng schema."""
+    """Read a table over [start, end). With no data, return an empty frame with the right schema."""
     if tbl.has_timeframe and timeframe is None:
-        raise ValueError(f"bảng {tbl.name} cần timeframe")
+        raise ValueError(f"table {tbl.name} requires timeframe")
     for moment in (start, end):
         if moment is not None and moment.tzinfo is None:
-            raise ValueError("datetime phải có múi giờ (dùng timezone UTC)")
+            raise ValueError("datetime must be timezone-aware (use UTC)")
 
     base = paths.curated_dataset(tbl.name) / f"exchange={exchange}" / f"symbol={symbol}"
     if tbl.has_timeframe:

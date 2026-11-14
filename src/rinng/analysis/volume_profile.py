@@ -1,49 +1,51 @@
-"""Volume profile: histogram volume theo mức giá, POC, value area, HVN/LVN, naked POC.
+"""Volume profile: volume histogram by price level, POC, value area, HVN/LVN, naked POC.
 
-Lưới bin giá (chọn đúng một trong hai tham số):
-- `bin_size`: kích thước bin tuyệt đối, lưới neo tại 0, bin k = [k*bin_size, (k+1)*bin_size).
-  Mọi kỳ dùng chung lưới nên POC giữa các kỳ so sánh được.
-- `n_bins`: số bin cố định, chia đều [low nhỏ nhất, high lớn nhất] của dữ liệu đưa vào.
-  Mỗi kỳ có lưới riêng.
+Price bin grid (choose exactly one of the two parameters):
+- `bin_size`: absolute bin size, grid anchored at 0, bin k = [k*bin_size, (k+1)*bin_size).
+  All periods share the grid, so POCs are comparable across periods.
+- `n_bins`: fixed number of bins, evenly splitting [min low, max high] of the input data.
+  Each period has its own grid.
 
-Hai cách dựng profile:
-- `profile_from_ohlcv` (gần đúng): volume mỗi nến rải đều cho các bin mà [low, high] của nến
-  chạm tới. Bin chứa low luôn được tính; high nằm đúng trên cạnh bin thì không tràn sang bin
-  trên. `taker_buy_volume` (nếu có) được rải cùng cách thành `buy_volume`, phần còn lại là
-  `sell_volume`. Profile tính trên đúng nến được đưa vào (1m hay khung lớn hơn); nến càng lớn
-  thì càng thô (docs/04 mục 1.3).
-- `profile_from_trades` (chính xác): cộng `qty` của từng trade vào bin chứa `price`.
-  `is_buyer_maker=True` nghĩa là taker BÁN.
-Cả hai trả bảng liền mạch (kể cả bin volume 0) tăng dần theo giá:
+Two ways to build a profile:
+- `profile_from_ohlcv` (approximate): each candle's volume is spread evenly over the bins its [low,
+  high] touches. The bin containing low is always counted; a high exactly on a bin edge does not
+  spill into the bin above. `taker_buy_volume` (if present) is spread the same way as `buy_volume`,
+  the rest is `sell_volume`. The profile uses exactly the candles given (1m or a higher timeframe);
+  larger candles give a coarser profile (docs/04 section 1.3).
+- `profile_from_trades` (exact): add each trade's `qty` to the bin containing `price`.
+  `is_buyer_maker=True` means the taker SOLD.
+Both return a contiguous table (including zero-volume bins) ascending by price:
 `price_low, price_high, volume[, buy_volume, sell_volume]`.
 
-POC (VPOC): bin volume lớn nhất; hòa thì chọn bin gần giữa dải giá nhất, vẫn hòa thì bin thấp
-hơn. Giá POC = giữa bin.
+POC (VPOC): the bin with the largest volume; ties pick the bin nearest the middle of the price
+range, then the lower bin. POC price = bin middle.
 
-Value area (mặc định 70%): bắt đầu từ bin POC, mỗi bước so tổng HAI bin kế tiếp phía trên với
-tổng HAI bin kế tiếp phía dưới, nhận cả hai bin của bên lớn hơn (kiểu CBOT cổ điển); bằng nhau
-thì chọn phía trên; một phía chỉ còn một bin thì so một bin đó; hết một phía thì lấy phía kia.
-Dừng khi volume cộng dồn >= pct * tổng, nên VA có thể vượt 70% đôi chút. VAL = cạnh dưới bin
-thấp nhất, VAH = cạnh trên bin cao nhất. Chỗ có thể khác TradingView (mã nguồn đóng, biến thể
-**chưa xác minh**): mở rộng từng bin một thay vì hai, cách phá hòa ở POC và ở mỗi bước, cách
-rải volume nến (TradingView có thể dùng nến khung nhỏ hơn), và việc VAH/VAL là cạnh bin hay
-giữa bin.
+Value area (default 70%): start from the POC bin; each step compares the sum of the TWO next bins
+above with the sum of the TWO next bins below and takes both bins of the larger side (classic CBOT
+style); ties pick the upper side; if one side has a single bin left compare that bin; if a side is
+exhausted take the other. Stop when cumulative volume >= pct * total, so VA may slightly exceed 70%.
+VAL = lower edge of the lowest bin, VAH = upper edge of the highest bin. Possible differences from
+TradingView (closed source, **unverified** variant): expanding one bin at a time instead of two,
+tie-breaking at the POC and at each step, how candle volume is spread (TradingView may use
+lower-timeframe candles), and whether VAH/VAL are bin edges or bin middles.
 
-HVN/LVN: làm mượt volume bằng kernel Gauss `sigma_bins` (đệm 0 ngoài dải, vì ngoài dải không
-có volume), rồi lấy cực đại (HVN) / cực tiểu (LVN) cục bộ ở bin bên trong (không lấy hai bin
-biên). Cực trị dạng bậc thang lấy bin đầu tiên. Chỉ giữ cực trị có prominence (định nghĩa như
-`scipy.signal.peak_prominences`) >= `min_prominence` * max(volume đã làm mượt).
+HVN/LVN: smooth volume with a Gaussian kernel `sigma_bins` (zero padding outside the range, since
+there is no volume outside it), then take local maxima (HVN) / minima (LVN) at interior bins
+(excluding the two edge bins). Plateau extrema take the first bin. Only extrema with prominence
+(defined as `scipy.signal.peak_prominences`) >= `min_prominence` * max(smoothed volume) are kept.
 
-Profile theo kỳ (`profile_events`): `period` là "day" (ngày UTC), "week" (thứ Hai 00:00 UTC),
-"month" (tháng lịch UTC), hoặc danh sách khoảng neo [start, end). Nến thuộc kỳ chứa
-`open_time` của nó. Kỳ chỉ được xuất khi đã đóng, tức dữ liệu đã có nến đóng lúc >= end.
-- `event_time` = mở kỳ, `known_at` = max(đóng kỳ, lúc đóng nến cuối của kỳ).
-- Kind: `vpoc` (price_low/high = cạnh bin POC), `value_area` (VAL, VAH), `hvn`, `lvn`
-  (cạnh bin của nút), `naked_poc` (price_low = price_high = giá POC).
-- `naked_poc.invalidated_at` = lúc ĐÓNG của nến đầu tiên mở từ `known_at` trở đi thỏa
-  low <= POC <= high (đóng chứ không phải mở, vì chỉ khi nến đóng mới biết chắc nó đã chạm;
-  điều này giữ `assert_no_lookahead`). Null nghĩa là POC vẫn "naked" đến cuối dữ liệu.
-Kỳ đầu có thể thiếu nến (dữ liệu bắt đầu giữa kỳ); `attrs.n_bars` cho biết số nến đã dùng.
+Per-period profiles (`profile_events`): `period` is "day" (UTC day), "week" (Monday 00:00 UTC),
+"month" (UTC calendar month), or a list of anchored ranges [start, end). A candle belongs to the
+period containing its `open_time`. A period is only emitted once closed, i.e. the data has a candle
+closing at >= end.
+- `event_time` = period open, `known_at` = max(period close, close of the period's last candle).
+- Kind: `vpoc` (price_low/high = POC bin edges), `value_area` (VAL, VAH), `hvn`, `lvn`
+  (node bin edges), `naked_poc` (price_low = price_high = POC price).
+- `naked_poc.invalidated_at` = CLOSE time of the first candle opening at or after `known_at` with
+  low <= POC <= high (close rather than open, since a touch is only certain once the candle closes;
+  this keeps `assert_no_lookahead`). Null means the POC is still "naked" at the end of the data.
+The first period may be missing candles (data starts mid-period); `attrs.n_bars` gives the number of
+candles used.
 """
 
 from collections.abc import Sequence
@@ -59,26 +61,26 @@ MODULE = "volume_profile"
 
 PERIODS = {"day": "1d", "week": "1w", "month": "1mo"}
 
-_EPS = 1e-7  # dung sai khi đổi giá ra chỉ số bin (giá nằm đúng cạnh bin)
+_EPS = 1e-7  # tolerance when converting a price to a bin index (price exactly on a bin edge)
 
 
-# ---------------------------------------------------------------- lưới bin và dựng profile
+# ---------------------------------------------------------------- bin grid and profile building
 
 
 def _grid(
     low_min: float, high_max: float, bin_size: float | None, n_bins: int | None
 ) -> tuple[float, float, int | None]:
-    """Trả (origin, bin_size, n_bins hoặc None nếu lưới tuyệt đối)."""
+    """Return (origin, bin_size, n_bins or None for an absolute grid)."""
     if (bin_size is None) == (n_bins is None):
-        raise ValueError("cần đúng một trong hai tham số bin_size, n_bins")
+        raise ValueError("exactly one of bin_size, n_bins is required")
     if bin_size is not None:
         if not bin_size > 0:
-            raise ValueError("bin_size phải > 0")
+            raise ValueError("bin_size must be > 0")
         return 0.0, float(bin_size), None
     if n_bins is None or n_bins < 1:
-        raise ValueError("n_bins phải >= 1")
+        raise ValueError("n_bins must be >= 1")
     span = high_max - low_min
-    if span <= 0:  # mọi giá như nhau: một bin duy nhất
+    if span <= 0:  # all prices equal: a single bin
         return low_min, 1.0, 1
     return low_min, span / n_bins, int(n_bins)
 
@@ -104,9 +106,10 @@ def _has_buy(frame: pl.DataFrame, col: str) -> bool:
 def profile_from_ohlcv(
     ohlcv: pl.DataFrame, *, bin_size: float | None = None, n_bins: int | None = None
 ) -> pl.DataFrame:
-    """Profile gần đúng từ nến: rải đều volume mỗi nến theo các bin trong [low, high]."""
+    """Approximate profile from candles: spread each candle's volume evenly over the bins in [low,
+    high]."""
     if ohlcv.is_empty():
-        raise ValueError("frame nến rỗng")
+        raise ValueError("empty candle frame")
     low = ohlcv["low"].to_numpy().astype(np.float64)
     high = ohlcv["high"].to_numpy().astype(np.float64)
     origin, size, fixed = _grid(float(low.min()), float(high.max()), bin_size, n_bins)
@@ -120,7 +123,7 @@ def profile_from_ohlcv(
     lo, hi = k_lo - k0, k_hi - k0
     nb = fixed if fixed is not None else int(hi.max()) + 1
     count = (hi - lo + 1).astype(np.float64)
-    # Mảng hiệu: cộng mật độ tại lo, trừ tại hi+1, rồi cộng dồn. O(số nến + số bin).
+    # Difference array: add density at lo, subtract at hi+1, then cumulative sum. O(candles + bins).
     cover = np.cumsum(np.bincount(lo, minlength=nb + 1) - np.bincount(hi + 1, minlength=nb + 1))
     empty = cover[:nb] == 0
 
@@ -130,7 +133,7 @@ def profile_from_ohlcv(
             np.bincount(lo, weights=d, minlength=nb + 1)
             - np.bincount(hi + 1, weights=d, minlength=nb + 1)
         )[:nb]
-        x[empty] = 0.0  # bin không nến nào phủ: đúng 0, không để sai số cộng dồn
+        x[empty] = 0.0  # bins covered by no candle: exactly 0, no cumulative rounding error
         return x
 
     volume = ohlcv["volume"].to_numpy().astype(np.float64)
@@ -145,9 +148,10 @@ def profile_from_ohlcv(
 def profile_from_trades(
     trades: pl.DataFrame, *, bin_size: float | None = None, n_bins: int | None = None
 ) -> pl.DataFrame:
-    """Profile chính xác từ trades: cộng qty vào bin chứa price. Có buy/sell theo taker."""
+    """Exact profile from trades: add qty to the bin containing price. Buy/sell split by taker
+    side."""
     if trades.is_empty():
-        raise ValueError("frame trades rỗng")
+        raise ValueError("trades frame is empty")
     price = trades["price"].to_numpy().astype(np.float64)
     qty = trades["qty"].to_numpy().astype(np.float64)
     origin, size, fixed = _grid(float(price.min()), float(price.max()), bin_size, n_bins)
@@ -165,12 +169,12 @@ def profile_from_trades(
     )
 
 
-# ---------------------------------------------------------------- POC, value area, nút
+# ---------------------------------------------------------------- POC, value area, nodes
 
 
 @dataclass(frozen=True)
 class ValueArea:
-    poc: float  # giá giữa bin POC
+    poc: float  # middle price of the POC bin
     poc_low: float
     poc_high: float
     poc_volume: float
@@ -181,19 +185,19 @@ class ValueArea:
 
 
 def poc_index(volume: np.ndarray) -> int:
-    """Chỉ số bin POC; hòa thì gần giữa dải nhất, vẫn hòa thì bin thấp hơn."""
+    """POC bin index; ties pick the one nearest the middle of the range, then the lower bin."""
     cands = np.flatnonzero(volume == volume.max())
     return int(cands[np.abs(cands - (len(volume) - 1) / 2).argmin()])
 
 
 def value_area(profile: pl.DataFrame, pct: float = 0.70) -> ValueArea:
-    """POC và value area theo biến thể hai bin mỗi bước (xem docstring module)."""
+    """POC and value area using the two-bins-per-step variant (see module docstring)."""
     if not 0 < pct <= 1:
-        raise ValueError("pct phải trong (0, 1]")
+        raise ValueError("pct must be in (0, 1]")
     v = profile["volume"].to_numpy().astype(np.float64)
     total = float(v.sum())
     if len(v) == 0 or total <= 0:
-        raise ValueError("profile rỗng hoặc tổng volume bằng 0")
+        raise ValueError("empty profile or zero total volume")
     n = len(v)
     poc = poc_index(v)
     lo = hi = poc
@@ -233,7 +237,8 @@ def _smooth(v: np.ndarray, sigma_bins: float) -> np.ndarray:
 
 
 def _peaks(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Cực đại cục bộ bên trong (trái nghiêm ngặt, phải không) và prominence kiểu scipy."""
+    """Interior local maxima (strict on the left, non-strict on the right) and scipy-style
+    prominence."""
     if len(x) < 3:
         return np.empty(0, np.int64), np.empty(0)
     mid = x[1:-1]
@@ -251,7 +256,7 @@ def _peaks(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def volume_nodes(
     profile: pl.DataFrame, *, sigma_bins: float = 2.0, min_prominence: float = 0.10
 ) -> pl.DataFrame:
-    """HVN/LVN. Bảng: kind, price_low, price_high, volume, smoothed, prominence."""
+    """HVN/LVN. Table: kind, price_low, price_high, volume, smoothed, prominence."""
     v = profile["volume"].to_numpy().astype(np.float64)
     sm = _smooth(v, sigma_bins)
     scale = float(sm.max()) if len(sm) else 0.0
@@ -283,7 +288,7 @@ def volume_nodes(
     return pl.concat(parts).sort("price_low")
 
 
-# ---------------------------------------------------------------- profile theo kỳ
+# ---------------------------------------------------------------- period profiles
 
 
 def _epoch_ms(values: pl.Series) -> np.ndarray:
@@ -295,7 +300,7 @@ def _period_bounds(
 ) -> list[tuple[datetime, datetime]]:
     if isinstance(period, str):
         if period not in PERIODS:
-            raise ValueError(f"period phải là một trong {list(PERIODS)} hoặc danh sách khoảng")
+            raise ValueError(f"period must be one of {list(PERIODS)} or a list of ranges")
         every = PERIODS[period]
         starts = ohlcv["open_time"].dt.truncate(every).unique().sort()
         ends = starts.dt.offset_by(every)
@@ -303,9 +308,9 @@ def _period_bounds(
     out = []
     for start, end in period:
         if start.tzinfo is None or end.tzinfo is None:
-            raise ValueError("mốc khoảng neo phải có múi giờ (UTC)")
+            raise ValueError("anchored range bounds must be timezone-aware (UTC)")
         if not start < end:
-            raise ValueError(f"khoảng neo không hợp lệ: {start} -> {end}")
+            raise ValueError(f"invalid anchored range: {start} -> {end}")
         out.append((start, end))
     return sorted(out)
 
@@ -320,13 +325,13 @@ def profile_events(
     sigma_bins: float = 2.0,
     min_prominence: float = 0.10,
 ) -> pl.DataFrame:
-    """Events vpoc, value_area, hvn, lvn, naked_poc cho mỗi kỳ ĐÃ ĐÓNG (xem docstring module).
+    """Events vpoc, value_area, hvn, lvn, naked_poc for each CLOSED period (see module docstring).
 
-    attrs chung: period_start, period_end, n_bars, bin_size; vpoc/value_area/naked_poc thêm
-    poc, poc_volume, total_volume, va_volume, va_pct; hvn/lvn thêm volume, prominence.
+    Common attrs: period_start, period_end, n_bars, bin_size; vpoc/value_area/naked_poc add
+    poc, poc_volume, total_volume, va_volume, va_pct; hvn/lvn add volume, prominence.
     """
     symbol, timeframe = check_ohlcv(ohlcv)
-    _grid(0.0, 1.0, bin_size, n_bins)  # kiểm tham số sớm
+    _grid(0.0, 1.0, bin_size, n_bins)  # validate parameters early
     phash = params_hash(
         MODULE,
         {
@@ -349,7 +354,7 @@ def profile_events(
     for start, end in _period_bounds(ohlcv, period):
         start_ms, end_ms = _epoch_ms(pl.Series([start, end]))
         if data_end_ms < end_ms:
-            continue  # kỳ chưa đóng: không xuất
+            continue  # period not closed yet: do not emit
         i0, i1 = np.searchsorted(open_ms, [start_ms, end_ms], side="left")
         if i1 <= i0:
             continue
@@ -374,7 +379,7 @@ def profile_events(
             "va_volume": va.va_volume,
             "va_pct": va_pct,
         }
-        # id chứa end để hai khoảng neo cùng start không trùng event_id
+        # the id includes end so two anchored ranges with the same start do not share an event_id
         common = {"event_time": start, "known_at": known_at, "id": str(end)}
         rows.append(
             {
@@ -394,7 +399,7 @@ def profile_events(
                 "attrs": poc_attrs,
             }
         )
-        # naked POC: nến đầu tiên mở từ known_at trở đi chạm giá POC
+        # naked POC: first candle opening at or after known_at that touches the POC price
         known_ms = int(_epoch_ms(pl.Series([known_at]))[0])
         j0 = int(np.searchsorted(open_ms, known_ms, side="left"))
         hit = np.flatnonzero((low[j0:] <= va.poc) & (high[j0:] >= va.poc))
@@ -429,13 +434,13 @@ def profile_events(
 
 
 # ---------------------------------------------------------------------------
-# Hình dạng profile (anatomy): D, P, b, DD. Khớp với pine/rinng_overlay.pine.
+# Profile shape (anatomy): D, P, b, DD. Matches pine/rinng_overlay.pine.
 #
-# - Làm mượt volume bằng trung bình 5 bin (cửa sổ bị cắt ở hai đầu).
-# - DD (double distribution): có đỉnh cục bộ thứ hai cách đỉnh lớn nhất >= 1/5 số bin, và đáy
-#   thấp nhất giữa hai đỉnh <= `dd_valley` × đỉnh nhỏ hơn.
-# - Nếu không phải DD, xét vị trí POC trong biên độ: >= 65% là P, <= 35% là b, còn lại D.
-# Ngưỡng do dự án chọn, không phải chuẩn chung; cách đọc theo Market Profile chưa có kiểm định.
+# - Smooth volume with a 5-bin moving average (window truncated at both ends).
+# - DD (double distribution): a second local peak at least 1/5 of the bins away from the largest
+#   peak, and the lowest valley between the two peaks <= `dd_valley` × the smaller peak.
+# - If not DD, look at the POC position within the range: >= 65% is P, <= 35% is b, otherwise D.
+# Thresholds chosen by the project, not a common standard; the Market Profile reading is untested.
 # ---------------------------------------------------------------------------
 
 SHAPES = ("D", "P", "b", "DD")
@@ -444,11 +449,11 @@ SHAPES = ("D", "P", "b", "DD")
 def classify_shape(
     profile: pl.DataFrame, *, dd_valley: float = 0.30, p_level: float = 0.65, b_level: float = 0.35
 ) -> str:
-    """Nhãn hình dạng của một profile (frame có cột volume, sắp từ giá thấp lên cao)."""
+    """Shape label of a profile (frame with a volume column, sorted from low to high price)."""
     v = profile["volume"].to_numpy().astype(np.float64)
     n = len(v)
     if n == 0 or v.sum() <= 0:
-        raise ValueError("profile rỗng")
+        raise ValueError("profile is empty")
     csum = np.concatenate([[0.0], np.cumsum(v)])
     lo = np.maximum(np.arange(n) - 2, 0)
     hi = np.minimum(np.arange(n) + 2, n - 1)

@@ -1,39 +1,39 @@
-"""Order flow: delta, CVD, footprint, imbalance chéo, stacked imbalance, absorption.
+"""Order flow: delta, CVD, footprint, diagonal imbalance, stacked imbalance, absorption.
 
-Quy ước phía taker: `taker_buy_volume` của nến là volume taker MUA; ở trades,
-`is_buyer_maker=True` nghĩa là người mua là maker, tức taker BÁN (docs/04 mục 2.2).
+Taker side convention: a candle's `taker_buy_volume` is taker BUY volume; in trades,
+`is_buyer_maker=True` means the buyer is the maker, i.e. the taker SOLD (docs/04 section 2.2).
 
-Từ nến (`delta_features`, Features, known_at = đóng nến):
+From candles (`delta_features`, Features, known_at = candle close):
 - `delta` = taker buy − taker sell = 2 * taker_buy_volume − volume.
-- `cvd` = tổng cộng dồn của delta từ đầu dữ liệu (`cvd_reset=None`), hoặc khởi động lại
-  mỗi ngày UTC (`"day"`) / mỗi tuần từ thứ Hai 00:00 UTC (`"week"`). Mức tuyệt đối của CVD
-  phụ thuộc điểm bắt đầu cộng dồn, chỉ nên dùng thay đổi hoặc độ dốc.
+- `cvd` = cumulative sum of delta from the start of the data (`cvd_reset=None`), or restarted
+  every UTC day (`"day"`) / every week from Monday 00:00 UTC (`"week"`). The absolute CVD level
+  depends on where accumulation starts; only use changes or slope.
 - `delta_pct` = delta / volume (null khi volume = 0), trong [-1, 1].
 
-Từ trades:
-- `trade_bars`: gộp trades theo `open_time` của khung (trade thuộc nến chứa `time` của nó):
-  volume, buy_volume, sell_volume, delta, n_trades.
-- `footprint`: bảng (open_time, price_bin, buy_volume, sell_volume, delta), chỉ gồm mức có
-  giao dịch; price_bin = cạnh dưới bin, lưới neo tại 0 với `bin_size` tuyệt đối.
-- `diagonal_imbalances`: imbalance chéo. Tại mức p của một nến, buy imbalance khi
+From trades:
+- `trade_bars`: group trades by the timeframe's `open_time` (a trade belongs to the candle
+  containing its `time`): volume, buy_volume, sell_volume, delta, n_trades.
+- `footprint`: table (open_time, price_bin, buy_volume, sell_volume, delta), only levels with
+  trades; price_bin = lower bin edge, grid anchored at 0 with absolute `bin_size`.
+- `diagonal_imbalances`: diagonal imbalance. At level p of a candle, buy imbalance when
   ask(p) >= ratio * bid(p − 1 bin); sell imbalance khi bid(p) >= ratio * ask(p + 1 bin).
-  ask = volume taker mua, bid = volume taker bán. Ngưỡng mặc định ratio = 3.0 (300%), là quy
-  ước của các nền tảng footprint, không có cơ sở thống kê. Mức đối diện không có giao dịch
-  được tính là 0 (nên mọi volume > 0 đều vượt ngưỡng), NHƯNG chỉ so khi mức đối diện nằm
-  trong biên giá có giao dịch của nến: mức thấp nhất không có buy imbalance, mức cao nhất
-  không có sell imbalance. Phía chủ động còn phải >= `min_volume` và > 0.
-- `stacked_imbalances` (Events kind `stacked_imbalance`): >= `min_stack` (mặc định 3) mức
-  liền nhau trong cùng một nến cùng loại imbalance. price_low/high = cạnh dưới mức thấp
-  nhất / cạnh trên mức cao nhất của chuỗi; attrs: side ("buy"/"sell"), levels.
-  event_time = mở nến, known_at = đóng nến.
+  ask = taker buy volume, bid = taker sell volume. Default ratio threshold = 3.0 (300%), a
+  convention of footprint platforms with no statistical basis. An opposite level with no trades
+  counts as 0 (so any volume > 0 passes the threshold), BUT only compared when the opposite level
+  lies within the candle's traded price range: the lowest level has no buy imbalance, the highest
+  level has no sell imbalance. The aggressive side must also be >= `min_volume` and > 0.
+- `stacked_imbalances` (Events kind `stacked_imbalance`): >= `min_stack` (default 3) adjacent
+  levels in the same candle with the same imbalance type. price_low/high = lower edge of the lowest
+  level / upper edge of the highest level of the run; attrs: side ("buy"/"sell"), levels.
+  event_time = candle open, known_at = candle close.
 
-Absorption (`absorption`, Events kind `absorption`): nến i là absorption khi
-- volume[i] >= `volume_mult` * trung bình volume của `window` nến TRƯỚC i, và
-- high[i] − low[i] <= `range_frac` * ATR của `window` nến TRƯỚC i (ATR = trung bình đơn giản
-  của true range), tức volume rất lớn mà giá gần như không đi.
-attrs.side theo dấu delta của nến: "buy" = taker mua mạnh bị lệnh bán thụ động hấp thụ,
-"sell" ngược lại, "flat" khi delta = 0. Delta lấy từ `trades` nếu truyền vào, không thì từ
-`taker_buy_volume`. known_at = đóng nến (chỉ dùng nến đã đóng tới i).
+Absorption (`absorption`, Events kind `absorption`): candle i is absorption when
+- volume[i] >= `volume_mult` * mean volume of the `window` candles BEFORE i, and
+- high[i] − low[i] <= `range_frac` * ATR of the `window` candles BEFORE i (ATR = simple mean
+  of true range), i.e. very large volume while price barely moves.
+attrs.side by the sign of the candle's delta: "buy" = aggressive taker buying absorbed by passive
+sell orders, "sell" the opposite, "flat" when delta = 0. Delta comes from `trades` if given,
+otherwise from `taker_buy_volume`. known_at = candle close (only uses candles closed up to i).
 """
 
 import polars as pl
@@ -52,8 +52,9 @@ _RESETS = {"day": "1d", "week": "1w"}
 
 
 def _bar_open(time: pl.Expr, timeframe: str) -> pl.Expr:
-    """open_time của nến chứa `time`. Khung m/h/d neo theo epoch (UTC), khung w neo thứ Hai."""
-    bar_duration(timeframe)  # kiểm định dạng khung
+    """open_time of the candle containing `time`. m/h/d timeframes anchor to the epoch (UTC), w
+    anchors to Monday."""
+    bar_duration(timeframe)  # validate the timeframe format
     return time.dt.truncate(timeframe).dt.cast_time_unit("ms")
 
 
@@ -61,14 +62,14 @@ def _taker_buy() -> pl.Expr:
     return pl.when(pl.col("is_buyer_maker")).then(0.0).otherwise(pl.col("qty"))
 
 
-# ---------------------------------------------------------------- từ nến
+# ---------------------------------------------------------------- from candles
 
 
 def delta_features(ohlcv: pl.DataFrame, *, cvd_reset: str | None = None) -> pl.DataFrame:
     """Features: delta, cvd, delta_pct (xem docstring module)."""
     check_ohlcv(ohlcv)
     if cvd_reset is not None and cvd_reset not in _RESETS:
-        raise ValueError(f"cvd_reset phải là None hoặc một trong {list(_RESETS)}")
+        raise ValueError(f"cvd_reset must be None or one of {list(_RESETS)}")
     phash = params_hash(f"{MODULE}.delta", {"cvd_reset": cvd_reset})
     delta = 2 * pl.col("taker_buy_volume") - pl.col("volume")
     cvd = delta.cum_sum()
@@ -78,11 +79,11 @@ def delta_features(ohlcv: pl.DataFrame, *, cvd_reset: str | None = None) -> pl.D
     return features_frame(ohlcv, {"delta": delta, "cvd": cvd, "delta_pct": pct}, phash)
 
 
-# ---------------------------------------------------------------- từ trades
+# ---------------------------------------------------------------- from trades
 
 
 def trade_bars(trades: pl.DataFrame, timeframe: str) -> pl.DataFrame:
-    """Gộp trades theo nến: open_time, volume, buy_volume, sell_volume, delta, n_trades."""
+    """Group trades by candle: open_time, volume, buy_volume, sell_volume, delta, n_trades."""
     buy = _taker_buy()
     return (
         trades.group_by(_bar_open(pl.col("time"), timeframe).alias("open_time"))
@@ -103,9 +104,9 @@ def _level(price: pl.Expr, bin_size: float) -> pl.Expr:
 
 
 def footprint(trades: pl.DataFrame, timeframe: str, bin_size: float) -> pl.DataFrame:
-    """Footprint: open_time, price_bin, buy_volume, sell_volume, delta (mức có giao dịch)."""
+    """Footprint: open_time, price_bin, buy_volume, sell_volume, delta (levels with trades)."""
     if not bin_size > 0:
-        raise ValueError("bin_size phải > 0")
+        raise ValueError("bin_size must be > 0")
     buy = _taker_buy()
     return (
         trades.group_by(
@@ -127,7 +128,7 @@ def footprint(trades: pl.DataFrame, timeframe: str, bin_size: float) -> pl.DataF
 def diagonal_imbalances(
     fp: pl.DataFrame, bin_size: float, *, ratio: float = 3.0, min_volume: float = 0.0
 ) -> pl.DataFrame:
-    """Thêm cột buy_imbalance, sell_imbalance (bool) vào footprint (xem docstring module)."""
+    """Add buy_imbalance, sell_imbalance (bool) columns to the footprint (see module docstring)."""
     keyed = fp.with_columns(_level(pl.col("price_bin") + bin_size / 2, bin_size).alias("_k"))
     below = keyed.select(
         "open_time", (pl.col("_k") + 1).alias("_k"), pl.col("sell_volume").alias("_bid_below")
@@ -163,7 +164,7 @@ def diagonal_imbalances(
 
 def _symbol(frame: pl.DataFrame) -> str:
     if frame.is_empty() or frame["symbol"].n_unique() != 1:
-        raise ValueError("frame phải không rỗng và chỉ có một symbol")
+        raise ValueError("frame must be non-empty and contain a single symbol")
     return frame["symbol"][0]
 
 
@@ -179,7 +180,7 @@ def stacked_imbalances(
     """Events kind `stacked_imbalance` (xem docstring module)."""
     symbol = _symbol(trades)
     if min_stack < 1:
-        raise ValueError("min_stack phải >= 1")
+        raise ValueError("min_stack must be >= 1")
     phash = params_hash(
         f"{MODULE}.stacked",
         {"bin_size": bin_size, "ratio": ratio, "min_volume": min_volume, "min_stack": min_stack},
@@ -191,7 +192,7 @@ def stacked_imbalances(
     rows = []
     for side in ("buy", "sell"):
         hits = flagged.filter(pl.col(f"{side}_imbalance")).sort("open_time", "k")
-        # mức liên tiếp: k − thứ tự trong nến không đổi trong một chuỗi
+        # consecutive levels: k − position within the candle is constant along a run
         runs = (
             hits.with_columns((pl.col("k") - pl.int_range(pl.len()).over("open_time")).alias("run"))
             .group_by("open_time", "run")
@@ -228,7 +229,7 @@ def absorption(
     range_atr."""
     symbol, timeframe = check_ohlcv(ohlcv)
     if window < 1:
-        raise ValueError("window phải >= 1")
+        raise ValueError("window must be >= 1")
     phash = params_hash(
         f"{MODULE}.absorption",
         {

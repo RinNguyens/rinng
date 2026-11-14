@@ -39,7 +39,7 @@ def _trades(times, prices, qtys, maker):
 
 
 def _synthetic(n_bars=300, per_bar=40, seed=3):
-    """Trades giả và nến 1m dựng từ chính các trades đó (nhất quán)."""
+    """Synthetic trades and 1m candles built from those same trades (consistent)."""
     rng = np.random.default_rng(seed)
     n = n_bars * per_bar
     offsets = np.sort(rng.integers(0, n_bars * 60_000, n))
@@ -60,7 +60,7 @@ def _synthetic(n_bars=300, per_bar=40, seed=3):
         )
         .sort("open_time")
     )
-    assert agg.height == n_bars  # mỗi phút đều có trade
+    assert agg.height == n_bars  # every minute has a trade
     ohlcv = make_ohlcv(
         agg["close"].to_list(),
         opens=agg["open"].to_list(),
@@ -87,7 +87,7 @@ def test_delta_features_by_hand():
 
 
 def test_cvd_reset_day():
-    o = make_ohlcv([1.0] * 30, volumes=[10.0] * 30, taker_buy=[6.0] * 30)  # delta = 2 mỗi nến
+    o = make_ohlcv([1.0] * 30, volumes=[10.0] * 30, taker_buy=[6.0] * 30)  # delta = 2 per candle
     f = delta_features(o, cvd_reset="day")
     assert f["cvd"][23] == 48 and f["cvd"][24] == 2 and f["cvd"][29] == 12
     assert delta_features(o)["cvd"][29] == 60
@@ -107,8 +107,9 @@ def test_delta_from_bars_matches_trades():
 
 
 def _hand_fp_trades():
-    # Nến 0 (bin 1): mức 100: mua 1 bán 2; 101: mua 9 bán 1; 102: mua 4 bán .5; 103: mua 6 bán 1
-    # Nến 1: mức 200: mua 9 bán 1; 201: mua 9 bán 1 (chỉ 1 mức buy imbalance → không stacked)
+    # Candle 0 (bin 1): level 100: buy 1 sell 2; 101: buy 9 sell 1; 102: buy 4 sell .5; 103: buy 6
+    # sell 1 Candle 1: level 200: buy 9 sell 1; 201: buy 9 sell 1 (only 1 buy imbalance level → not
+    # stacked)
     book = [
         (0, 100.5, 1, False), (0, 100.5, 2, True),
         (0, 101.5, 9, False), (0, 101.5, 1, True),
@@ -129,10 +130,10 @@ def test_footprint_and_diagonal_imbalance():
     assert bar0["delta"].to_list() == [-1, 8, 3.5, 5]
     imb = diagonal_imbalances(fp, 1.0)
     b0 = imb.filter(pl.col("open_time") == T0)
-    # ask(101)=9 >= 3*bid(100)=6; ask(102)=4 >= 3*1; ask(103)=6 >= 3*0.5; mức 100 thấp nhất
+    # ask(101)=9 >= 3*bid(100)=6; ask(102)=4 >= 3*1; ask(103)=6 >= 3*0.5; level 100 is the lowest
     assert b0["buy_imbalance"].to_list() == [False, True, True, True]
     assert not b0["sell_imbalance"].any()
-    # ratio 4.5: ask(102)=4 < 4.5*1 → không; ask(101)=9 >= 4.5*2 vẫn có (so sánh >=)
+    # ratio 4.5: ask(102)=4 < 4.5*1 → no; ask(101)=9 >= 4.5*2 still yes (>= comparison)
     strict = diagonal_imbalances(fp, 1.0, ratio=4.5).filter(pl.col("open_time") == T0)
     assert strict["buy_imbalance"].to_list() == [False, True, False, True]
 
@@ -144,7 +145,7 @@ def test_stacked_imbalance_events():
     assert (row["kind"], row["price_low"], row["price_high"]) == ("stacked_imbalance", 101, 104)
     assert row["event_time"] == T0 and row["known_at"] == T0 + M
     assert json.loads(row["attrs"]) == {"side": "buy", "levels": 3}
-    # nến 1 chỉ có một mức imbalance (mức 200 thấp nhất không được so)
+    # candle 1 has only one imbalance level (the lowest level 200 is not compared)
     assert stacked_imbalances(_hand_fp_trades(), "1m", 1.0, min_stack=1).height == 2
 
 
@@ -152,7 +153,7 @@ def test_absorption_by_hand():
     n = 8
     highs = [102.0] * n
     lows = [100.0] * n
-    highs[6], lows[6] = 101.2, 100.8  # biên 0.4 so với ATR 2
+    highs[6], lows[6] = 101.2, 100.8  # range 0.4 versus ATR 2
     vols = [10.0] * n
     vols[6] = 50.0
     buy = [5.0] * n

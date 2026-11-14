@@ -1,8 +1,8 @@
-"""Chart volume profile từng tuần kèm nhãn hình dạng D / P / b / DD (Plotly, xuất HTML).
+"""Weekly volume profile chart with D / P / b / DD shape labels (Plotly, HTML export).
 
-Cùng định nghĩa với pine/rinng_overlay.pine: tuần bắt đầu thứ Hai 00:00 UTC, profile rải
-volume nến đều theo bin, value area 70%, nhãn theo `volume_profile.classify_shape`.
-Chỉ tuần đã đóng mới được dựng profile; tuần hiện tại vẽ mờ và ghi "(chưa đóng)".
+Same definitions as pine/rinng_overlay.pine: weeks start Monday 00:00 UTC, the profile spreads
+bar volume evenly across bins, 70% value area, labels from `volume_profile.classify_shape`.
+Only closed weeks get a profile; the current week is drawn faded and marked "(open)".
 """
 
 from datetime import UTC, datetime, timedelta
@@ -16,7 +16,7 @@ SHAPE_COLORS = {"D": "#90a4ae", "P": "#26a69a", "b": "#ef5350", "DD": "#ab47bc"}
 
 
 def weekly_profiles(base: pl.DataFrame, n_bins: int = 100, rows: int = 30) -> list[dict]:
-    """Một dict mỗi tuần: start, end, closed, shape, poc, val, vah, high, hist."""
+    """One dict per week: start, end, closed, shape, poc, val, vah, high, hist."""
     start = base["open_time"].min()
     week0 = (start - timedelta(days=start.weekday())).replace(hour=0, minute=0, second=0)
     last_close = base["open_time"].max() + (base["open_time"][1] - base["open_time"][0])
@@ -62,7 +62,7 @@ def figure(display: pl.DataFrame, profiles: list[dict], title: str) -> go.Figure
             close=display["close"].to_list(),
             increasing_line_color="#26a69a",
             decreasing_line_color="#ef5350",
-            name="giá",
+            name="price",
         )
     )
     for p in profiles:
@@ -93,7 +93,7 @@ def figure(display: pl.DataFrame, profiles: list[dict], title: str) -> go.Figure
             y1=p["poc"],
             line={"color": "#ff9800", "width": 2 if p["closed"] else 1},
         )
-        label = p["shape"] + ("" if p["closed"] else " (chưa đóng)")
+        label = p["shape"] + ("" if p["closed"] else " (open)")
         fig.add_annotation(
             x=p["start"] + (p["end"] - p["start"]) / 2,
             y=p["high"],
@@ -116,7 +116,7 @@ def figure(display: pl.DataFrame, profiles: list[dict], title: str) -> go.Figure
 
 
 def fetch_live(venue_symbol: str, base_tf: str, display_tf: str, weeks: int):
-    """Lấy nến đã đóng thẳng từ Binance REST (không cần dữ liệu curated)."""
+    """Fetch closed bars directly from Binance REST (no curated data needed)."""
     from rinng.exchanges.binance import Binance
     from rinng.store.schemas import OHLCV, rows_to_frame
 

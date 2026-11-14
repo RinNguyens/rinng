@@ -1,22 +1,25 @@
-"""Giao diện chiến lược (docs/08-kien-truc.md mục 6).
+"""Strategy interface (docs/08-architecture.md section 6).
 
-Một chiến lược nhận nến, Features và Events (rinng.analysis.types) rồi trả frame tín hiệu:
+A strategy takes candles, Features and Events (rinng.analysis.types) and returns a signal frame:
 
-| Cột | Kiểu | Ý nghĩa |
+| Column | Type | Meaning |
 |---|---|---|
-| `time` | Datetime ms UTC | Lúc tín hiệu được biết (known_at), luôn là lúc đóng một nến |
+| `time` | Datetime ms UTC | When the signal is known (known_at), always a candle close |
 | `side` | String | "long" \\| "short" \\| "flat" |
-| `stop` | Float64, có thể rỗng | Giá stop-loss |
-| `take_profit` | Float64, có thể rỗng | Giá take-profit |
-| `size` | Float64 | Tỷ lệ vốn 0..1, mặc định 1 |
-| `reason` | String | Lý do, để đọc lại |
+| `stop` | Float64, nullable | Stop-loss price |
+| `take_profit` | Float64, nullable | Take-profit price |
+| `size` | Float64 | Capital fraction 0..1, default 1 |
+| `reason` | String | Reason, for later reading |
 
-Quy ước:
-- Một tín hiệu mới thay thế vị thế hiện tại: long→short = đóng long rồi mở short; "flat" = đóng.
-- Tín hiệu cùng chiều với vị thế đang mở bị engine bỏ qua (không đổi cỡ, không đổi stop/TP).
-  Vì vậy chiến lược nên chỉ phát tín hiệu khi trạng thái mong muốn đổi.
-- Tín hiệu tính từ nến đóng lúc T chỉ được khớp sớm nhất ở giá mở của nến bắt đầu lúc T
-  (xem rinng.backtest.engine).
+Conventions:
+- A new signal replaces the current position: long→short = close long then open short; "flat" =
+  close.
+- The engine ignores a signal in the same direction as the open position (no resize, no stop/TP
+  change).
+  So a strategy should only emit a signal when the desired state changes.
+- A signal computed from the candle closing at T fills at the earliest at the open of the candle
+  starting at T
+  (see rinng.backtest.engine).
 """
 
 from collections.abc import Mapping
@@ -47,7 +50,7 @@ class Strategy(Protocol):
     def signals(
         self, ohlcv: pl.DataFrame, features: pl.DataFrame | None, events: pl.DataFrame | None
     ) -> pl.DataFrame:
-        """Trả frame theo `SIGNAL_SCHEMA`, sắp tăng dần theo `time`."""
+        """Return a frame matching `SIGNAL_SCHEMA`, sorted ascending by `time`."""
         ...
 
 
@@ -56,7 +59,7 @@ def empty_signals() -> pl.DataFrame:
 
 
 def signals_frame(rows: list[Mapping[str, Any]]) -> pl.DataFrame:
-    """Dựng frame tín hiệu từ các dict; thiếu stop/take_profit thì rỗng, thiếu size thì 1."""
+    """Build a signal frame from dicts; missing stop/take_profit are null, missing size is 1."""
     if not rows:
         return empty_signals()
     data = [
@@ -74,16 +77,17 @@ def signals_frame(rows: list[Mapping[str, Any]]) -> pl.DataFrame:
 
 
 def validate_signals(signals: pl.DataFrame, ohlcv: pl.DataFrame | None = None) -> pl.DataFrame:
-    """Kiểm và chuẩn hóa frame tín hiệu; trả frame đúng `SIGNAL_SCHEMA`.
+    """Validate and normalize a signal frame; return a frame matching `SIGNAL_SCHEMA`.
 
-    Thêm cột thiếu (stop, take_profit rỗng; size = 1; reason = ""). Báo lỗi khi: thiếu
-    `time`/`side`, side lạ, size ngoài [0, 1], time rỗng hoặc không tăng dần, stop/TP sai phía
-    so với nhau (long cần stop < take_profit, short ngược lại).
-    Nếu có `ohlcv`, kiểm thêm mỗi `time` trùng một thời điểm đóng nến.
+    Adds missing columns (stop, take_profit null; size = 1; reason = ""). Raises when:
+    `time`/`side` is missing, side is unknown, size is outside [0, 1], time is null or not
+    ascending, stop/TP on the wrong side
+    of each other (long needs stop < take_profit, short the reverse).
+    If `ohlcv` is given, also checks that each `time` matches a candle close.
     """
     for col in ("time", "side"):
         if col not in signals.columns:
-            raise ValueError(f"frame tín hiệu thiếu cột {col!r}")
+            raise ValueError(f"signal frame is missing column {col!r}")
     frame = signals.with_columns(
         *[
             pl.lit(None, dtype=dtype).alias(name)
@@ -98,14 +102,14 @@ def validate_signals(signals: pl.DataFrame, ohlcv: pl.DataFrame | None = None) -
     ).with_columns(pl.col("size").fill_null(1.0), pl.col("reason").fill_null(""))
 
     if frame["time"].null_count():
-        raise ValueError("cột time có giá trị rỗng")
+        raise ValueError("time column has null values")
     if not frame["time"].is_sorted():
-        raise ValueError("tín hiệu phải sắp tăng dần theo time")
+        raise ValueError("signals must be sorted ascending by time")
     bad = frame.filter(~pl.col("side").is_in(SIDES) | pl.col("side").is_null())
     if bad.height:
-        raise ValueError(f"side không hợp lệ: {bad['side'].unique().to_list()}; cho phép {SIDES}")
+        raise ValueError(f"invalid side: {bad['side'].unique().to_list()}; allowed {SIDES}")
     if frame.filter((pl.col("size") < 0) | (pl.col("size") > 1)).height:
-        raise ValueError("size phải nằm trong [0, 1]")
+        raise ValueError("size must be within [0, 1]")
     wrong = frame.filter(
         pl.col("stop").is_not_null()
         & pl.col("take_profit").is_not_null()
@@ -115,19 +119,19 @@ def validate_signals(signals: pl.DataFrame, ohlcv: pl.DataFrame | None = None) -
         )
     )
     if wrong.height:
-        raise ValueError(f"stop/take_profit sai phía ở {wrong.height} tín hiệu")
+        raise ValueError(f"stop/take_profit on the wrong side in {wrong.height} signals")
 
     if ohlcv is not None and frame.height:
         duration = bar_duration(ohlcv["timeframe"][0])
         closes = ohlcv["open_time"] + duration
         off = frame.filter(~pl.col("time").is_in(closes.implode()))
         if off.height:
-            raise ValueError(f"{off.height} tín hiệu có time không trùng lúc đóng nến nào")
+            raise ValueError(f"{off.height} signals have a time that matches no candle close")
     return frame
 
 
 def dedupe_sides(times: list, sides: list[str], reasons: list[str]) -> pl.DataFrame:
-    """Giữ các tín hiệu mà side khác side liền trước (chỉ phát khi trạng thái đổi)."""
+    """Keep signals whose side differs from the previous one (emit only on state change)."""
     rows = []
     last = None
     for t, s, r in zip(times, sides, reasons, strict=True):

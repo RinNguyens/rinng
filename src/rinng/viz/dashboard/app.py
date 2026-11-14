@@ -1,7 +1,7 @@
-"""Dashboard Streamlit. Chạy: `uv run rinng dashboard`.
+"""Streamlit dashboard. Run: `uv run rinng dashboard`.
 
-Chỉ đọc dữ liệu: nến curated, events/features đã tính (hoặc tính tại chỗ nếu chưa có),
-kết quả backtest trong data/results. File cấu hình lấy từ biến môi trường RINNG_CONFIG.
+Read-only: curated bars, computed events/features (or computed on the fly if missing),
+backtest results in data/results. Config file comes from the RINNG_CONFIG env variable.
 """
 
 import json
@@ -25,7 +25,7 @@ paths = DataPaths(settings.data_dir)
 
 page = st.sidebar.radio("Trang", ["Chart", "Backtest"])
 symbol = st.sidebar.selectbox("Instrument", [i.id for i in settings.instruments])
-exchange = st.sidebar.selectbox("Sàn", ["binance", "okx"])
+exchange = st.sidebar.selectbox("Exchange", ["binance", "okx"])
 
 
 @st.cache_data(ttl=300)
@@ -44,12 +44,12 @@ def _events(module: str, timeframe: str, ohlcv: pl.DataFrame) -> pl.DataFrame | 
 if page == "Chart":
     tfs = settings.timeframes
     timeframe = st.sidebar.selectbox("Khung", tfs, index=tfs.index("4h") if "4h" in tfs else 0)
-    days = st.sidebar.slider("Số ngày", 7, 1500, 180)
-    modules = st.sidebar.multiselect("Lớp phủ", EVENT_MODULES, default=["structure", "smc"])
+    days = st.sidebar.slider("Days", 7, 1500, 180)
+    modules = st.sidebar.multiselect("Overlays", EVENT_MODULES, default=["structure", "smc"])
     ohlcv = _load(exchange, symbol, timeframe, days)
     if ohlcv.is_empty():
         st.warning(
-            f"Chưa có nến {exchange} {symbol} {timeframe}. Chạy `rinng backfill` rồi "
+            f"No bars for {exchange} {symbol} {timeframe}. Run `rinng backfill` then "
             "`rinng resample`."
         )
         st.stop()
@@ -59,7 +59,7 @@ if page == "Chart":
     if events is not None and not events.is_empty():
         all_kinds = sorted(events["kind"].unique().to_list())
         default = [k for k in all_kinds if not k.startswith(("fvg", "liquidity_", "hvn", "lvn"))]
-        kinds = st.sidebar.multiselect("Loại sự kiện", all_kinds, default=default)
+        kinds = st.sidebar.multiselect("Event kinds", all_kinds, default=default)
     panels = {}
     feats = read_derived(paths, "features", "indicators", symbol, timeframe)
     if feats is None:
@@ -79,7 +79,7 @@ if page == "Chart":
         use_container_width=True,
     )
     if events is not None and not events.is_empty():
-        with st.expander("Bảng sự kiện"):
+        with st.expander("Events table"):
             st.dataframe(
                 events.filter(pl.col("kind").is_in(kinds or []))
                 .sort("event_time", descending=True)
@@ -89,7 +89,7 @@ if page == "Chart":
 else:
     runs = sorted(paths.results.glob("*/summary.json")) if paths.results.exists() else []
     if not runs:
-        st.info("Chưa có kết quả. Chạy `rinng backtest`.")
+        st.info("No results yet. Run `rinng backtest`.")
         st.stop()
     rows = []
     for s in runs:
@@ -102,9 +102,7 @@ else:
             }
         )
     table = pl.DataFrame(rows, infer_schema_length=None)
-    st.caption(
-        f"{len(runs)} lần chạy đã lưu. Càng thử nhiều cấu hình, kết quả tốt nhất càng dễ là do may."
-    )
+    st.caption(f"{len(runs)} saved runs. The more configs you try, the likelier the best is luck.")
     st.dataframe(table)
     chosen = st.selectbox("Xem equity", table["run"].to_list())
     eq = pl.read_parquet(paths.results / chosen / "equity.parquet")

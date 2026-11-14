@@ -1,4 +1,4 @@
-"""Test gọi sàn thật. Mặc định bị bỏ qua; chạy bằng: uv run pytest -m network"""
+"""Tests against the real exchanges. Skipped by default; run with: uv run pytest -m network"""
 
 from datetime import UTC, datetime, timedelta
 
@@ -14,7 +14,7 @@ SYMBOLS = {"binance": "BTCUSDT", "okx": "BTC-USDT-SWAP"}
 
 
 def _window(hours: int) -> tuple[datetime, datetime]:
-    """Một khoảng gồm toàn nến 1h đã đóng, kết thúc ở đầu giờ hiện tại."""
+    """A range of closed 1h candles only, ending at the start of the current hour."""
     end = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     return end - timedelta(hours=hours), end
 
@@ -59,18 +59,18 @@ def test_mark_price_klines(api):
 def test_funding_last_week(api):
     start, end = _window(24 * 7)
     rows = _rows(api.funding(SYMBOLS[api.name], start, end))
-    assert len(rows) >= 14  # ít nhất hai lần mỗi ngày
+    assert len(rows) >= 14  # at least twice a day
     assert all(abs(r["rate"]) < 0.05 for r in rows)
 
 
 @pytest.mark.parametrize("method", ["open_interest", "long_short", "taker_volume"])
 def test_five_minute_stats_three_days(api, method):
-    # 864 điểm: nhiều hơn một trang của cả hai sàn (Binance 500, OKX 100).
+    # 864 points: more than one page on both exchanges (Binance 500, OKX 100).
     start, end = _window(72)
     rows = _rows(getattr(api, method)(SYMBOLS[api.name], "5m", start, end))
     times = [r["time"] for r in rows]
     assert len(set(times)) == len(times)
-    assert 850 <= len(times) <= 864  # cho phép sàn thiếu vài điểm cuối
+    assert 850 <= len(times) <= 864  # allow the exchange to miss a few trailing points
     assert all(int(start.timestamp() * 1000) <= t < int(end.timestamp() * 1000) for t in times)
 
 

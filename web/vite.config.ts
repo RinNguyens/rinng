@@ -3,8 +3,8 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite"
 import viteReact from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 
-// Backend phân tích là FastAPI (`uv run rinng web`, cổng 8000). Khi dev, Vite chuyển /api sang đó.
-// `pnpm build` ra bản SPA tĩnh trong dist/client để FastAPI phục vụ luôn.
+// The analysis backend is FastAPI (`uv run rinng web`, port 8000). In dev, Vite proxies /api to it.
+// `pnpm build` outputs a static SPA in dist/client that FastAPI serves directly.
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   server: {

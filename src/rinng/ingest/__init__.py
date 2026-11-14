@@ -1,1 +1,1 @@
-"""L1: tải lịch sử (backfill) và thu realtime (collector). Chỉ ghi vào data/raw."""
+"""L1: history download (backfill) and realtime capture (collector). Writes only to data/raw."""

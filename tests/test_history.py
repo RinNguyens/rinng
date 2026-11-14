@@ -36,7 +36,7 @@ def test_plan_prefers_months_then_days():
     periods = [f.period for f in files]
     assert periods[:16] == [f"2026-09-{d:02d}" for d in range(15, 31)]
     assert "2026-10" in periods
-    assert periods[-1] == "2026-11-12"  # hôm nay chưa có file
+    assert periods[-1] == "2026-11-12"  # no file for today yet
     assert len(periods) == 16 + 1 + 12
 
 
@@ -97,7 +97,7 @@ def test_downloader_verifies_checksum_and_skips_404(tmp_path):
     assert dl.fetch(F("c.zip"), paths) is None
 
 
-# --- parse: mẫu dòng lấy từ file thật ---
+# --- parse: sample rows from real files ---
 
 KLINES_NEW = (
     "open_time,open,high,low,close,volume,close_time,quote_volume,count,taker_buy_volume,"
@@ -201,7 +201,7 @@ def test_curate_dump_and_parquet_once(tmp_path):
     sink.flush()
 
     assert curate(paths, SETTINGS) == {"ohlcv": 2}
-    assert curate(paths, SETTINGS) == {}  # lần hai không làm gì
+    assert curate(paths, SETTINGS) == {}  # second run does nothing
     got = read_curated(paths, OHLCV, exchange="binance", symbol="BTC-USDT-PERP", timeframe="1m")
     assert got.height == 2
     assert catalog.read_meta(paths, "manifest").height == 2
@@ -215,7 +215,7 @@ def test_resample_hourly_and_weekly_alignment():
         [float(i) for i in range(1, 181)],
         timeframe="1m",
         start=datetime(2026, 1, 4, 23, 0, tzinfo=UTC),
-    )  # Chủ nhật 23:00
+    )  # Sunday 23:00
     h1 = resample_ohlcv(m1, "1h")
     assert h1["open_time"].to_list() == [
         datetime(2026, 1, 4, 23 + i, 0, tzinfo=UTC)

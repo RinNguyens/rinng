@@ -28,23 +28,23 @@ INSIDE = [(97.0, 98.3, 96.7, 98.0, 10.0), (98.0, 98.3, 96.7, 97.0, 10.0)]
 
 
 def _scenario():
-    """Selling climax ở nến 50, range [94, 101] xác nhận ở nến 65, spring nến 70-71,
-    upthrust nến 72, phá lên từ nến 75 và range bị phá ở nến 77."""
+    """Selling climax at candle 50, range [94, 101] confirmed at candle 65, spring at candles 70-71,
+    upthrust at candle 72, breakout from candle 75 and the range breaks at candle 77."""
     rows = _baseline()
     rows.append((100.0, 100.0, 94.0, 95.0, 100.0))  # 50: climax
     rows += [
         (95.0, 96.6, 94.8, 96.5, 12.0),  # 51
         (96.5, 98.0, 96.2, 97.8, 10.0),  # 52
-        (97.8, 101.0, 97.5, 98.8, 12.0),  # 53: AR, đỉnh range
+        (97.8, 101.0, 97.5, 98.8, 12.0),  # 53: AR, range top
         (98.8, 99.2, 97.9, 98.0, 10.0),  # 54
-        (98.0, 98.4, 97.0, 97.2, 12.0),  # 55: hết reaction
+        (98.0, 98.4, 97.0, 97.2, 12.0),  # 55: end of reaction
     ]
     rows += [INSIDE[i % 2] for i in range(14)]  # 56..69
-    rows.append((97.0, 97.5, 93.0, 93.5, 10.0))  # 70: phá đáy, đóng dưới
-    rows.append((93.5, 95.5, 93.2, 95.0, 10.0))  # 71: đóng lại trong range
-    rows.append((95.0, 101.5, 94.9, 98.0, 10.0))  # 72: upthrust một nến
+    rows.append((97.0, 97.5, 93.0, 93.5, 10.0))  # 70: breaks the low, closes below
+    rows.append((93.5, 95.5, 93.2, 95.0, 10.0))  # 71: closes back inside the range
+    rows.append((95.0, 101.5, 94.9, 98.0, 10.0))  # 72: single-candle upthrust
     rows += [INSIDE[i % 2] for i in range(2)]  # 73, 74
-    rows.append((97.5, 101.8, 97.4, 101.5, 10.0))  # 75: phá lên
+    rows.append((97.5, 101.8, 97.4, 101.5, 10.0))  # 75: breaks up
     rows += [(101.5, 101.9, 101.3, 101.6, 10.0), (101.6, 102.0, 101.4, 101.7, 10.0)]  # 76, 77
     rows += [(101.7, 102.0, 101.5, 101.8, 10.0)] * 3  # 78..80
     return rows
@@ -86,13 +86,13 @@ def test_no_climax_when_only_volume_or_only_range():
     assert climaxes(_bars(range_only)).is_empty()
     f = effort_result(_bars(vol_only))
     last = f.row(-1, named=True)
-    assert last["volume_z"] > 3 and last["effort_result_gap"] > 3  # effort lớn, result nhỏ
+    assert last["volume_z"] > 3 and last["effort_result_gap"] > 3  # large effort, small result
     assert last["spread_atr"] == pytest.approx(0.6 / 0.8)
     f2 = effort_result(_bars(range_only)).row(-1, named=True)
     assert f2["effort_result_gap"] < -3 and f2["clv"] == pytest.approx(1 / 6)
     assert (
         f["volume_z"][:49].null_count() == 49 and f["spread_z"][:63].null_count() == 63
-    )  # chưa đủ cửa sổ
+    )  # window not filled yet
 
 
 def test_trading_range_spring_upthrust_and_invalidation():
@@ -102,12 +102,12 @@ def test_trading_range_spring_upthrust_and_invalidation():
     tr = ev.row(0, named=True)
     assert (tr["price_low"], tr["price_high"]) == (94.0, 101.0)
     assert tr["event_time"] == T0 + 50 * H
-    assert tr["known_at"] == T0 + 66 * H  # đóng nến 65: nến thứ 10 trong range
-    assert tr["invalidated_at"] == T0 + 78 * H  # đóng nến 77: 3 nến ngoài range
+    assert tr["known_at"] == T0 + 66 * H  # close of candle 65: the 10th candle in the range
+    assert tr["invalidated_at"] == T0 + 78 * H  # close of candle 77: 3 candles outside the range
 
     spring = ev.row(1, named=True)
     assert spring["event_time"] == T0 + 70 * H
-    assert spring["known_at"] == T0 + 72 * H  # đóng nến 71
+    assert spring["known_at"] == T0 + 72 * H  # close of candle 71
     assert (spring["price_low"], spring["price_high"]) == (93.0, 94.0)
     sa = json.loads(spring["attrs"])
     assert sa["reclaim_bars"] == 2 and sa["penetration"] == pytest.approx(1.0)
@@ -119,15 +119,15 @@ def test_trading_range_spring_upthrust_and_invalidation():
 
 def test_no_range_when_close_leaves_before_confirmation():
     rows = _scenario()
-    rows[60] = (97.0, 102.0, 96.9, 101.5, 10.0)  # đóng ngoài trước khi đủ 10 nến
+    rows[60] = (97.0, 102.0, 96.9, 101.5, 10.0)  # closes outside before 10 candles
     ev = trading_ranges(_bars(rows), reaction_bars=5, min_bars=10, reclaim_bars=3)
     assert ev.is_empty()
-    assert trading_ranges(_bars(_baseline(80))).is_empty()  # không có climax
+    assert trading_ranges(_bars(_baseline(80))).is_empty()  # no climax
 
 
 def test_spring_needs_reclaim_within_m_bars():
     rows = _scenario()
-    # nến 71 vẫn đóng dưới đáy: với M = 2 thì range bị phá ở nến 71, không có spring
+    # candle 71 still closes below the low: with M = 2 the range breaks at candle 71, no spring
     rows[71] = (93.5, 93.9, 93.2, 93.6, 10.0)
     ev = trading_ranges(_bars(rows), reaction_bars=5, min_bars=10, reclaim_bars=2)
     assert ev["kind"].to_list() == ["trading_range"]

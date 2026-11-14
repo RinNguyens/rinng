@@ -1,7 +1,7 @@
 [project]
 name = "rinng"
 version = "0.1.0"
-description = "Phân tích quant cho crypto: dữ liệu sàn, indicator, SMC, volume profile, backtest"
+description = "Quant analysis for crypto: exchange data, indicators, SMC, volume profile, backtesting"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "certifi>=2026.10.23",
@@ -37,7 +37,7 @@ packages = ["src/rinng"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-markers = ["network: test cần mạng, mặc định không chạy"]
+markers = ["network: test needs network, skipped by default"]
 addopts = "-m 'not network'"
 
 [tool.ruff]
@@ -49,4 +49,4 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E731"]
-"src/rinng/cli.py" = ["B008"]  # typer.Option trong giá trị mặc định là cách dùng chuẩn
+"src/rinng/cli.py" = ["B008"]  # typer.Option in default values is the standard usage

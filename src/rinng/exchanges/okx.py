@@ -1,12 +1,12 @@
-"""OKX: dữ liệu thị trường công khai của hợp đồng SWAP, không cần API key.
+"""OKX: public market data for SWAP contracts, no API key needed.
 
-Khác Binance ở ba điểm mà mã dưới đây phải xử lý:
-- Dữ liệu trả từ mới về cũ, phân trang lùi bằng `after` (hoặc `end`).
-- Lỗi vẫn đi kèm HTTP 200; phải đọc `code` trong body.
-- Nến từ 6 giờ trở lên mặc định mở theo UTC+8; phải dùng biến thể `utc`.
+Differs from Binance in three ways the code below must handle:
+- Data is returned newest first, paginated backwards via `after` (or `end`).
+- Errors still come with HTTP 200; the `code` in the body must be checked.
+- Candles of 6h and above open on UTC+8 by default; the `utc` variant must be used.
 
-Định dạng phản hồi đã đối chiếu với lời gọi thật ngày 2026-11-13.
-Nhóm thống kê `rubik` chỉ giữ 1440 bản ghi mới nhất; funding qua REST chỉ 3 tháng.
+Response format checked against real calls on 2026-11-13.
+The `rubik` stats group keeps only the latest 1440 records; REST funding only 3 months.
 """
 
 import time
@@ -49,7 +49,7 @@ LONG_SHORT = "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract"
 TAKER_VOLUME = "/api/v5/rubik/stat/taker-volume-contract"
 INSTRUMENTS = "/api/v5/public/instruments"
 
-# Số request mỗi 2 giây theo tài liệu của sàn.
+# Requests per 2 seconds per the exchange docs.
 _LIMITS = {
     CANDLES: 20,
     MARK_CANDLES: 20,
@@ -66,7 +66,7 @@ def okx_bar(timeframe: str) -> str:
         return _BARS[timeframe]
     except KeyError:
         raise ValueError(
-            f"OKX không hỗ trợ khung {timeframe!r}; dùng một trong {list(_BARS)}"
+            f"OKX does not support timeframe {timeframe!r}; use one of {list(_BARS)}"
         ) from None
 
 
@@ -80,7 +80,7 @@ class Okx:
         max_retries: int = 3,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        # IPv4: đường IPv6 tới host OKX có thể treo tới ~80 giây trước khi rơi về IPv4.
+        # IPv4: the IPv6 route to OKX hosts can hang up to ~80 seconds before falling back to IPv4.
         self._client = client or httpx.Client(
             base_url=BASE_URL,
             timeout=20.0,
@@ -91,17 +91,17 @@ class Okx:
         self._limiters = {path: WindowLimiter(n, 2.0, sleep=sleep) for path, n in _LIMITS.items()}
 
     def contract_value(self, symbol: str) -> float:
-        """Số đồng base trong một hợp đồng (ctVal), ví dụ 0.01 BTC với BTC-USDT-SWAP.
+        """Base units per contract (ctVal), e.g. 0.01 BTC for BTC-USDT-SWAP.
 
-        Trades và liquidation qua WebSocket của OKX tính bằng số hợp đồng; nhân với số này
-        để ra khối lượng theo đồng base như Binance.
+        OKX WebSocket trades and liquidations are in contracts; multiply by this
+        to get base-currency volume like Binance.
         """
         data = self._get(INSTRUMENTS, {"instType": "SWAP", "instId": symbol})
         if not data:
-            raise ExchangeError(f"OKX không có instrument {symbol}")
+            raise ExchangeError(f"OKX has no instrument {symbol}")
         return float(data[0]["ctVal"]) * float(data[0].get("ctMult") or 1)
 
-    # --- phương thức của giao diện Exchange ---
+    # --- Exchange interface methods ---
 
     def klines(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> Pages:
         params = {"instId": symbol, "bar": okx_bar(timeframe)}
@@ -113,7 +113,7 @@ class Okx:
                     "high": float(x[2]),
                     "low": float(x[3]),
                     "close": float(x[4]),
-                    # x[5] là số hợp đồng; x[6] mới là khối lượng tính bằng đồng base.
+                    # x[5] is contracts; x[6] is volume in base currency.
                     "volume": float(x[6]),
                     "quote_volume": float(x[7]),
                     "trades": None,
@@ -168,7 +168,7 @@ class Okx:
             ]
 
     def taker_volume(self, symbol: str, period: str, start: datetime, end: datetime) -> Pages:
-        # unit=0: khối lượng tính bằng đồng base. Thứ tự cột là [ts, bán, mua].
+        # unit=0: volume in base currency. Column order is [ts, sell, buy].
         extra = {"unit": "0"}
         for page in self._pages_stats(TAKER_VOLUME, symbol, period, start, end, extra):
             yield [
@@ -176,7 +176,7 @@ class Okx:
                 for x in page
             ]
 
-    # --- nội bộ ---
+    # --- internals ---
 
     def _pages_after(
         self,
@@ -187,7 +187,7 @@ class Okx:
         limit: int,
         time_key: str | int = 0,
     ):
-        """Phân trang lùi: `after=T` trả các bản ghi cũ hơn T, mới nhất trước."""
+        """Backward pagination: `after=T` returns records older than T, newest first."""
         start_ms, cursor = to_ms(start), to_ms(end)
         while cursor > start_ms:
             raw = self._get(path, {**params, "after": cursor, "limit": limit})
@@ -211,7 +211,7 @@ class Okx:
         end: datetime,
         extra: dict[str, Any] | None = None,
     ):
-        """Phân trang lùi cho nhóm `rubik`, dùng `begin`/`end` thay cho `after`."""
+        """Backward pagination for the `rubik` group, using `begin`/`end` instead of `after`."""
         timeframe_ms(period)
         params = {"instId": symbol, "period": okx_bar(period), **(extra or {})}
         start_ms, cursor = to_ms(start), to_ms(end)
@@ -236,7 +236,7 @@ class Okx:
             try:
                 response = self._client.get(path, params=params)
             except httpx.TransportError:
-                # Lỗi mạng thoáng qua (connection reset, timeout): chờ rồi thử lại.
+                # Transient network error (connection reset, timeout): wait and retry.
                 if attempt == self._max_retries:
                     raise
                 self._sleep(2.0 * (attempt + 1))
@@ -249,7 +249,7 @@ class Okx:
             if code == RATE_LIMIT_CODE or response.status_code == 429:
                 if attempt == self._max_retries:
                     raise RateLimited(
-                        "OKX vẫn báo giới hạn tốc độ sau khi đã chờ",
+                        "OKX still rate limited after waiting",
                         status=response.status_code,
                         code=code or None,
                     )
@@ -262,4 +262,4 @@ class Okx:
                     code=code or None,
                 )
             return body["data"]
-        raise AssertionError("không tới được đây")
+        raise AssertionError("unreachable")

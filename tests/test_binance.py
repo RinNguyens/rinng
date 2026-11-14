@@ -29,7 +29,7 @@ def kline(open_ms: int, interval: int = H) -> list:
 
 
 class FakeBinance:
-    """Trả nến 1h từ T0 trở đi, tôn trọng startTime/endTime/limit như sàn thật."""
+    """Return 1h candles from T0 on, honouring startTime/endTime/limit like the real exchange."""
 
     def __init__(self, total_bars: int) -> None:
         self.total = total_bars
@@ -90,7 +90,7 @@ def test_kline_fields_and_types():
 
 
 def test_unclosed_candle_is_flagged():
-    now = T0_MS + H + 60_000  # đang ở phút đầu của nến thứ hai
+    now = T0_MS + H + 60_000  # in the first minute of the second candle
     api = make(FakeBinance(2), now_ms=lambda: now)
     rows = collect(api.klines("BTCUSDT", "1h", T0, T0 + timedelta(hours=2)))
     assert [r["is_closed"] for r in rows] == [True, False]
@@ -210,7 +210,7 @@ def test_stats_endpoints_rows():
 
 
 def test_invalid_period_rejected_before_any_request():
-    api = make(lambda r: pytest.fail("không được gọi mạng"))
+    api = make(lambda r: pytest.fail("must not hit the network"))
     with pytest.raises(ValueError):
         collect(api.open_interest("BTCUSDT", "7m", T0, T0 + timedelta(hours=1)))
 
@@ -233,7 +233,7 @@ def test_sync_limits_reads_exchange_info():
 
 
 def test_stats_paginate_backwards_because_binance_returns_newest():
-    """Sàn trả `limit` điểm mới nhất trong khoảng hỏi, xếp tăng dần."""
+    """The exchange returns the latest `limit` points in the range, ascending."""
     step = 300_000
     points = [T0_MS + i * step for i in range(1200)]
     requests = []

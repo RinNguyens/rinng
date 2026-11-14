@@ -1,10 +1,11 @@
-"""Chart nến có lớp phủ (Plotly). Chỉ đọc frame, không tính toán phân tích.
+"""Candlestick chart with overlays (Plotly). Only reads frames, does no analysis.
 
-Cách vẽ Events theo hình dạng, không theo tên module, để module mới vẽ được ngay:
-- Vùng (price_low < price_high): hình chữ nhật từ event_time tới invalidated_at (hoặc hết chart).
-- Mức (price_low == price_high): đường ngang ngắn từ event_time tới invalidated_at / hết chart,
-  riêng swing_high/swing_low vẽ thành điểm kèm nhãn HH/HL/LH/LL.
-Màu chọn theo từ khóa trong `kind` (bull/high/buy → xanh, bear/low/sell → đỏ, còn lại xám).
+Events are drawn by shape, not by module name, so new modules render right away:
+- Zone (price_low < price_high): rectangle from event_time to invalidated_at (or chart end).
+- Level (price_low == price_high): short horizontal line from event_time to invalidated_at
+  or chart end,
+  except swing_high/swing_low, drawn as points with HH/HL/LH/LL labels.
+Color is picked by keyword in `kind` (bull/high/buy → green, bear/low/sell → red, otherwise gray).
 """
 
 import json
@@ -41,11 +42,11 @@ def candles(
     title: str = "",
     max_events: int = 400,
 ) -> go.Figure:
-    """Vẽ nến.
+    """Draw candles.
 
-    - `events`: frame theo EVENT_SCHEMA; `kinds` lọc loại cần vẽ.
-    - `panels`: {tên panel: frame có cột open_time và các cột giá trị} vẽ bên dưới.
-    - `profile`: frame (price_low, price_high, volume) vẽ thành volume profile bên phải.
+    - `events`: frame per EVENT_SCHEMA; `kinds` filters which kinds to draw.
+    - `panels`: {panel name: frame with open_time and value columns} drawn below.
+    - `profile`: frame (price_low, price_high, volume) drawn as a volume profile on the right.
     """
     panels = panels or {}
     rows = 1 + len(panels)
@@ -67,7 +68,7 @@ def candles(
             high=ohlcv["high"].to_list(),
             low=ohlcv["low"].to_list(),
             close=ohlcv["close"].to_list(),
-            name="giá",
+            name="price",
             increasing_line_color=BULL.format(a=1),
             decreasing_line_color=BEAR.format(a=1),
         ),
@@ -186,9 +187,9 @@ def _draw_events(fig, ohlcv, events, kinds, max_events) -> None:
 def equity(
     equity_frame: pl.DataFrame, benchmarks: dict[str, pl.DataFrame] | None = None
 ) -> go.Figure:
-    """Đường equity của backtest, kèm các baseline nếu có. Frame cần cột time, equity."""
+    """Backtest equity curve, with baselines if any. Frames need time, equity columns."""
     fig = go.Figure()
-    for name, frame in {"chiến lược": equity_frame, **(benchmarks or {})}.items():
+    for name, frame in {"strategy": equity_frame, **(benchmarks or {})}.items():
         fig.add_trace(go.Scatter(x=frame["time"].to_list(), y=frame["equity"].to_list(), name=name))
     fig.update_layout(
         template="plotly_dark", height=380, margin={"l": 40, "r": 20, "t": 30, "b": 20}
