@@ -1,5 +1,5 @@
-// rinng web: nhiều tab (workspace), mỗi tab là một lưới chart; mỗi chart có một "lens" riêng
-// để không nhồi mọi thông số vào một màn hình.
+// rinng web (classic): several tabs (workspaces), each a grid of charts; each chart has its own
+// "lens" so no single screen is crammed with every parameter.
 import { RinngOverlay } from "./overlay.js";
 
 const LWC = window.LightweightCharts;
@@ -17,7 +17,7 @@ const DAYS = [14, 30, 90, 180, 365, 1000, 2000];
 
 const DEFAULT_WORKSPACES = [
   {
-    name: "Tổng quan",
+    name: "Overview",
     layout: "2x2",
     panels: [
       { lens: "structure", tf: "4h", days: 90 },
@@ -52,19 +52,19 @@ const state = {
   sync: true,
   workspaces: load(),
   active: 0,
-  panels: [], // Panel đang hiển thị
+  panels: [], // panels on screen
 };
 
 function load() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) { /* bộ nhớ trình duyệt bị chặn: dùng mặc định */ }
+  } catch (e) { /* browser storage blocked: use defaults */ }
   return structuredClone(DEFAULT_WORKSPACES);
 }
 
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(state.workspaces)); } catch (e) { /* bỏ qua */ }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state.workspaces)); } catch (e) { /* ignore */ }
 }
 
 function el(tag, attrs = {}, ...children) {
@@ -111,9 +111,9 @@ class Panel {
     this.header.replaceChildren(
       select(lenses, c.lens, (v) => { c.lens = v; this.changed(); }),
       select(state.meta.timeframes.map((t) => [t, t]), c.tf, (v) => { c.tf = v; this.changed(); }),
-      select(DAYS.map((d) => [d, `${d} ngày`]), c.days, (v) => { c.days = Number(v); this.changed(); }),
+      select(DAYS.map((d) => [d, `${d} days`]), c.days, (v) => { c.days = Number(v); this.changed(); }),
       ...(c.lens === "profile"
-        ? [select([["week", "profile tuần"], ["day", "profile ngày"]], c.period || "week",
+        ? [select([["week", "weekly profile"], ["day", "daily profile"]], c.period || "week",
             (v) => { c.period = v; this.changed(); })]
         : []),
       this.status,
@@ -128,7 +128,7 @@ class Panel {
 
   async load() {
     const c = this.cfg;
-    this.status.textContent = "đang tải…";
+    this.status.textContent = "loading…";
     const q = new URLSearchParams({
       lens: c.lens, tf: c.tf, days: c.days, period: c.period || "week",
       symbol: state.symbol, exchange: state.exchange,
@@ -139,11 +139,11 @@ class Panel {
       if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
       data = await r.json();
     } catch (e) {
-      this.status.textContent = `lỗi: ${e.message}`;
+      this.status.textContent = `error: ${e.message}`;
       return;
     }
     this.draw(data);
-    this.status.textContent = data.source === "live" ? "dữ liệu: REST trực tiếp" : "dữ liệu: curated";
+    this.status.textContent = data.source === "live" ? "data: live REST" : "data: curated";
   }
 
   draw(data) {
@@ -203,7 +203,7 @@ class Panel {
     chart.timeScale().subscribeVisibleTimeRangeChange((range) => syncRange(this, range));
   }
 
-  // Nến chứa thời điểm t (mốc mở lớn nhất <= t).
+  // The candle containing time t (largest open time <= t).
   barAt(t) {
     const ts = this.times;
     if (!ts || !ts.length || t < ts[0]) return -1;
@@ -221,7 +221,7 @@ class Panel {
   }
 }
 
-// ------------------------------------------------------------------ đồng bộ
+// ------------------------------------------------------------------ sync
 
 let syncing = false;
 
@@ -245,13 +245,13 @@ function syncRange(source, range) {
   syncing = true;
   for (const p of state.panels) {
     if (p === source || !p.chart || !p.times.length) continue;
-    if (p.cfg.tf !== source.cfg.tf) continue; // chỉ khóa thời gian giữa các chart cùng khung
-    try { p.chart.timeScale().setVisibleRange(range); } catch (e) { /* ngoài dữ liệu */ }
+    if (p.cfg.tf !== source.cfg.tf) continue; // only lock time between charts on the same timeframe
+    try { p.chart.timeScale().setVisibleRange(range); } catch (e) { /* outside the data */ }
   }
   syncing = false;
 }
 
-// ------------------------------------------------------------------ giao diện
+// ------------------------------------------------------------------ UI
 
 function renderTabs() {
   const bar = document.getElementById("tabs");
@@ -259,16 +259,16 @@ function renderTabs() {
   state.workspaces.forEach((ws, i) => {
     const tab = el("button", {
       class: "tab" + (i === state.active ? " active" : ""),
-      title: "Bấm đúp để đổi tên",
+      title: "Double-click to rename",
       onclick: () => { state.active = i; render(); },
       ondblclick: () => {
-        const name = prompt("Tên tab", ws.name);
+        const name = prompt("Tab name", ws.name);
         if (name) { ws.name = name; save(); renderTabs(); }
       },
     }, ws.name);
     if (state.workspaces.length > 1) {
       tab.append(el("span", {
-        class: "close", title: "Đóng tab",
+        class: "close", title: "Close tab",
         onclick: (e) => {
           e.stopPropagation();
           state.workspaces.splice(i, 1);
@@ -281,7 +281,7 @@ function renderTabs() {
     bar.append(tab);
   });
   bar.append(el("button", {
-    class: "tab add", title: "Thêm tab",
+    class: "tab add", title: "Add tab",
     onclick: () => {
       state.workspaces.push({ name: `Tab ${state.workspaces.length + 1}`, layout: "2",
         panels: [{ lens: "structure", tf: "4h", days: 90 }, { lens: "profile", tf: "1h", days: 30, period: "week" }] });
@@ -298,7 +298,7 @@ function renderControls() {
   box.replaceChildren(
     select(state.meta.instruments.map((s) => [s, s]), state.symbol, (v) => { state.symbol = v; render(); }),
     select(state.meta.exchanges.map((s) => [s, s]), state.exchange, (v) => { state.exchange = v; render(); }),
-    select(Object.keys(LAYOUTS).map((k) => [k, `bố cục ${k}`]), ws.layout, (v) => {
+    select(Object.keys(LAYOUTS).map((k) => [k, `layout ${k}`]), ws.layout, (v) => {
       ws.layout = v;
       const lenses = Object.keys(state.meta.lenses);
       while (ws.panels.length < LAYOUTS[v].n) {
@@ -310,14 +310,14 @@ function renderControls() {
     el("label", { class: "toggle" },
       Object.assign(el("input", { type: "checkbox", onchange: (e) => { state.sync = e.target.checked; } }),
         { checked: state.sync }),
-      " đồng bộ con trỏ"),
-    el("button", { class: "ghost", title: "Khôi phục các tab mặc định", onclick: () => {
-      if (!confirm("Khôi phục các tab mặc định? Bố cục hiện tại sẽ mất.")) return;
+      " sync crosshair"),
+    el("button", { class: "ghost", title: "Restore default tabs", onclick: () => {
+      if (!confirm("Restore the default tabs? Your current layout will be lost.")) return;
       state.workspaces = structuredClone(DEFAULT_WORKSPACES);
       state.active = 0;
       save();
       render();
-    } }, "mặc định"),
+    } }, "defaults"),
   );
 }
 

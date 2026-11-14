@@ -18,6 +18,18 @@ class Instrument(BaseModel):
     kind: Literal["perp", "spot"]
     binance: str | None = None
     okx: str | None = None
+    # Hiển thị: tài sản cơ sở (icon), tài sản định giá, tên đầy đủ. Bỏ trống thì suy từ id.
+    base: str | None = None
+    quote: str | None = None
+    name: str | None = None
+
+    @model_validator(mode="after")
+    def _fill_display(self) -> "Instrument":
+        parts = self.id.split("-")
+        self.base = self.base or parts[0]
+        self.quote = self.quote or (parts[1] if len(parts) > 1 else None)
+        self.name = self.name or self.base
+        return self
 
     def venue_symbol(self, exchange: str) -> str:
         symbol = getattr(self, exchange, None)

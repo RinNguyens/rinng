@@ -1,7 +1,7 @@
-"""Số liệu tóm tắt cho trang dashboard: mỗi mục là một con số hoặc một nhận định ngắn,
-lấy từ đúng các hàm phân tích mà chart dùng, để dashboard và chart không bao giờ lệch nhau.
+"""Summary figures for the dashboard page: each item is a number or a short reading, taken
+from the same analysis functions the charts use, so the dashboard and charts never disagree.
 
-Chỉ mô tả trạng thái thị trường; không phải tín hiệu hay khuyến nghị giao dịch.
+Describes market state only; not a trading signal or recommendation.
 """
 
 from datetime import timedelta
@@ -47,7 +47,7 @@ def derivatives_block(funding: pl.DataFrame, oi: pl.DataFrame, ls: pl.DataFrame)
         rate = float(f["rate"][-1])
         out["funding"] = {
             "rate_pct": rate * 100,
-            # 3 kỳ funding mỗi ngày (8h) trên Binance/OKX cho BTC/ETH perp.
+            # 3 funding periods per day (8h) on Binance/OKX for BTC/ETH perps.
             "annual_pct": rate * 3 * 365 * 100,
             "avg_7d_pct": float(f.tail(21)["rate"].mean()) * 100,
             "time": ts(f["funding_time"][-1]),
@@ -64,9 +64,12 @@ def derivatives_block(funding: pl.DataFrame, oi: pl.DataFrame, ls: pl.DataFrame)
         }
     if not ls.is_empty():
         f = ls.sort("time")
+        ratio = float(f["ratio"][-1])
+        # OKX gives the ratio only: long share = ratio / (1 + ratio).
+        long_pct = f["long_pct"][-1]
         out["ls"] = {
-            "ratio": float(f["ratio"][-1]),
-            "long_pct": float(f["long_pct"][-1]) * 100,
+            "ratio": ratio,
+            "long_pct": (float(long_pct) if long_pct is not None else ratio / (1 + ratio)) * 100,
             "time": ts(f["time"][-1]),
         }
     return out
@@ -114,7 +117,10 @@ def _week_profile(base: pl.DataFrame, start) -> dict | None:
         return None
     prof = volume_profile.profile_from_ohlcv(part, n_bins=48)
     va = volume_profile.value_area(prof)
-    buy, sell = float(prof["buy_volume"].sum()), float(prof["sell_volume"].sum())
+    # OKX candles carry no taker volume: the profile has no buy/sell split, delta is 0.
+    split = "buy_volume" in prof.columns
+    buy = float(prof["buy_volume"].sum()) if split else 0.0
+    sell = float(prof["sell_volume"].sum()) if split else 0.0
     return {
         "start": ts(start),
         "shape": volume_profile.classify_shape(prof),

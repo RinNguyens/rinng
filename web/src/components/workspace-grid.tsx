@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import type { DragEvent } from "react"
+import type { DragEvent, ReactNode } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Cancel01Icon,
@@ -8,6 +8,8 @@ import {
   Minimize01Icon,
 } from "@hugeicons/core-free-icons"
 import { ChartView } from "@/components/chart-view"
+import { applyCombo, comboById } from "@/lib/combos"
+import { CoinIcon } from "@/components/coin-icon"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -24,10 +26,17 @@ import type { PanelCfg, Workspace } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
 
 export const DND_TYPE = "application/x-rinng"
-export type DragPayload = { kind: "slot"; from: number } | { kind: "preset"; index: number }
+export type DragPayload =
+  | { kind: "slot"; from: number }
+  | { kind: "preset"; index: number }
+  | { kind: "combo"; id: string }
+
+// Drag data is unreadable until drop, but types are visible while dragging: mark combos.
+const COMBO_TYPE = "application/x-rinng-combo"
 
 export function setDrag(e: DragEvent, p: DragPayload) {
   e.dataTransfer.setData(DND_TYPE, JSON.stringify(p))
+  if (p.kind === "combo") e.dataTransfer.setData(COMBO_TYPE, p.id)
   e.dataTransfer.effectAllowed = p.kind === "slot" ? "move" : "copy"
 }
 
@@ -44,10 +53,11 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
   const layout = LAYOUTS[ws.layout]
   const [over, setOver] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [comboDrag, setComboDrag] = useState(false)
   const [max, setMax] = useState<string | null>(null)
 
   useEffect(() => {
-    // Kéo từ thư viện rồi thả ra ngoài lưới: dragend không tới lưới, nên nghe ở window.
+    // Dragging from the library and dropping outside the grid: dragend never reaches the grid, so listen on window.
     const reset = () => {
       setDragging(false)
       setOver(null)
@@ -60,7 +70,7 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
     }
   }, [])
 
-  // Thứ tự render cố định theo id để React không dựng lại chart khi chỉ đổi khung (grid-area).
+  // Render in a stable id order so React does not rebuild a chart when only its slot (grid-area) changes.
   const items = useMemo(() => {
     const out: Array<{ key: string; slot: number; cfg: PanelCfg | null }> = []
     ws.slots.slice(0, layout.n).forEach((cfg, slot) => {
@@ -80,6 +90,9 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
     const p = JSON.parse(raw) as DragPayload
     if (p.kind === "slot") {
       if (p.from !== slot) onChange((w) => swapSlots(w, p.from, slot))
+    } else if (p.kind === "combo") {
+      const combo = comboById(p.id)
+      if (combo) onChange((w) => applyCombo(w, combo))
     } else {
       onChange((w) => setSlot(w, slot, fromPreset(PRESETS[p.index])))
     }
@@ -97,7 +110,11 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
               gridTemplateAreas: layout.areas.map((a) => `"${a}"`).join(" "),
             }
       }
-      onDragEnter={(e) => e.dataTransfer.types.includes(DND_TYPE) && setDragging(true)}
+      onDragEnter={(e) => {
+        if (!e.dataTransfer.types.includes(DND_TYPE)) return
+        setDragging(true)
+        setComboDrag(e.dataTransfer.types.includes(COMBO_TYPE))
+      }}
       onDragEnd={() => {
         setDragging(false)
         setOver(null)
@@ -133,22 +150,25 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
                 sync={sync}
                 maximized={max === cfg.id}
                 onMax={() => setMax(max === cfg.id ? null : cfg.id)}
-                onDragStart={() => setDragging(true)}
+                onDragStart={() => {
+                  setDragging(true)
+                  setComboDrag(false)
+                }}
                 onChange={(next) => onChange((w) => setSlot(w, slot, next))}
               />
             ) : (
               <EmptySlot slot={slot} />
             )}
-            {dragging && cfg ? (
-              // Lớp phủ khi đang kéo: canvas của chart không nhận sự kiện kéo thả.
+            {dragging && (cfg || comboDrag) ? (
+              // Overlay while dragging: the chart canvas does not receive drag events.
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0 grid place-items-center bg-background/40 text-sm font-medium backdrop-blur-[1px] transition-opacity",
-                  over === slot ? "opacity-100" : "opacity-60",
+                  over === slot || comboDrag ? "opacity-100" : "opacity-60",
                 )}
               >
                 <span className="rounded-full bg-card px-3 py-1 ring-1 ring-foreground/10">
-                  Thả vào khung {slot + 1}
+                  {comboDrag ? "Drop to load this combo into the tab" : `Drop into slot ${slot + 1}`}
                 </span>
               </div>
             ) : null}
@@ -164,8 +184,8 @@ function EmptySlot({ slot }: { slot: number }) {
     <div className="m-3 grid flex-1 place-items-center rounded-xl border border-dashed border-foreground/15 text-center text-sm text-muted-foreground">
       <div className="space-y-1">
         <HugeiconsIcon icon={DragDropIcon} className="mx-auto size-6 opacity-60" />
-        <p>Khung {slot + 1} trống</p>
-        <p className="text-xs">Kéo một chart từ thư viện bên trái vào đây</p>
+        <p>Slot {slot + 1} is empty</p>
+        <p className="text-xs">Drag a chart from the library on the left</p>
       </div>
     </div>
   )
@@ -201,22 +221,27 @@ function Panel({
   })
   const lensItems = Object.entries(meta.lenses).map(([value, label]) => ({ value, label }))
   const tfItems = meta.timeframes.map((t) => ({ value: t, label: TF_LABEL[t] ?? t }))
-  const dayItems = DAYS.map((d) => ({ value: String(d), label: `${d} ngày` }))
+  const dayItems = DAYS.map((d) => ({ value: String(d), label: `${d} days` }))
   const periodItems = [
-    { value: "week", label: "Profile tuần" },
-    { value: "day", label: "Profile ngày" },
+    { value: "week", label: "Weekly profile" },
+    { value: "day", label: "Daily profile" },
   ]
 
   return (
     <>
       <header className="flex flex-wrap items-center gap-1.5 border-b border-foreground/10 px-2 py-1.5">
+        <CoinIcon
+          symbol={symbol.split("-")[0]}
+          size={16}
+          className="ml-1"
+        />
         <Tooltip>
           <TooltipTrigger
             render={
               <span
                 draggable
                 role="button"
-                aria-label={`Kéo khung ${slot + 1} sang khung khác`}
+                aria-label={`Drag slot ${slot + 1} to another slot`}
                 onDragStart={(e) => {
                   setDrag(e, { kind: "slot", from: slot })
                   onDragStart()
@@ -227,7 +252,7 @@ function Panel({
           >
             <HugeiconsIcon icon={DragDropIcon} className="size-4" />
           </TooltipTrigger>
-          <TooltipContent>Kéo để đổi chỗ sang khung khác</TooltipContent>
+          <TooltipContent>Drag to swap with another slot</TooltipContent>
         </Tooltip>
         <Pick
           items={lensItems}
@@ -240,20 +265,20 @@ function Panel({
           items={tfItems}
           value={cfg.tf}
           onChange={(v) => onChange({ ...cfg, tf: v })}
-          label="Khung thời gian"
+          label="Timeframe"
         />
         <Pick
           items={dayItems}
           value={String(cfg.days)}
           onChange={(v) => onChange({ ...cfg, days: Number(v) })}
-          label="Số ngày"
+          label="Days"
         />
         {cfg.lens === "profile" ? (
           <Pick
             items={periodItems}
             value={cfg.period}
             onChange={(v) => onChange({ ...cfg, period: v as PanelCfg["period"] })}
-            label="Kỳ profile"
+            label="Profile period"
           />
         ) : null}
         <span
@@ -263,11 +288,11 @@ function Panel({
           )}
         >
           {status.loading
-            ? "đang tải…"
+            ? "loading…"
             : status.error
-              ? "lỗi"
+              ? "error"
               : status.source === "live"
-                ? "REST trực tiếp"
+                ? "live REST"
                 : "curated"}
         </span>
         <Tooltip>
@@ -276,14 +301,14 @@ function Panel({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={maximized ? "Thu nhỏ" : "Phóng to"}
+                aria-label={maximized ? "Restore" : "Maximize"}
                 onClick={onMax}
               />
             }
           >
             <HugeiconsIcon icon={maximized ? Minimize01Icon : Maximize01Icon} />
           </TooltipTrigger>
-          <TooltipContent>{maximized ? "Thu nhỏ" : "Phóng to khung này"}</TooltipContent>
+          <TooltipContent>{maximized ? "Restore" : "Maximize this slot"}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -291,14 +316,14 @@ function Panel({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Bỏ chart khỏi khung"
+                aria-label="Remove chart from slot"
                 onClick={() => onChange(null)}
               />
             }
           >
             <HugeiconsIcon icon={Cancel01Icon} />
           </TooltipTrigger>
-          <TooltipContent>Bỏ chart khỏi khung</TooltipContent>
+          <TooltipContent>Remove chart from slot</TooltipContent>
         </Tooltip>
       </header>
       <ChartView cfg={cfg} symbol={symbol} exchange={exchange} sync={sync} onStatus={setStatus} />
@@ -313,20 +338,23 @@ export function Pick({
   className,
   label,
 }: {
-  items: Array<{ value: string; label: string }>
+  items: Array<{ value: string; label: string; icon?: ReactNode }>
   value: string
   onChange: (v: string) => void
   className?: string
   label?: string
 }) {
+  const current = items.find((i) => i.value === value)
   return (
     <Select items={items} value={value} onValueChange={(v) => v != null && onChange(String(v))}>
-      <SelectTrigger size="sm" aria-label={label} className={cn("h-7 gap-1 px-2.5 text-xs", className)}>
+      <SelectTrigger size="sm" aria-label={label} className={cn("h-7 gap-1.5 px-2.5 text-xs", className)}>
+        {current?.icon}
         <SelectValue />
       </SelectTrigger>
       <SelectContent alignItemWithTrigger={false} align="start">
         {items.map((i) => (
           <SelectItem key={i.value} value={i.value} className="text-xs">
+            {i.icon}
             {i.label}
           </SelectItem>
         ))}

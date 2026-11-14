@@ -1,6 +1,6 @@
-// Primitive vẽ lớp phủ của rinng lên series nến (Lightweight Charts 5.x plugin API):
-// vùng (zones), mức ngang (levels) và volume profile theo kỳ (profiles).
-// Thời gian tùy ý (không trùng mốc nến) được đổi sang chỉ số logical có phần lẻ rồi sang pixel.
+// Primitive that draws the rinng overlay on the candle series (Lightweight Charts 5.x plugin API):
+// zones, horizontal levels and per-period volume profiles.
+// Arbitrary times (not on a candle boundary) map to a fractional logical index, then to pixels.
 
 function hexA(hex, a) {
   const n = parseInt(hex.slice(1), 16);
@@ -15,7 +15,7 @@ function fmtVol(v) {
 
 export class RinngOverlay {
   constructor(times) {
-    this.times = times; // giây UTC, tăng dần, mốc mở nến
+    this.times = times; // UTC seconds, ascending, candle open times
     this.zones = [];
     this.levels = [];
     this.profiles = [];
@@ -44,7 +44,7 @@ export class RinngOverlay {
     return [this._view, this._top];
   }
 
-  // Thời gian → chỉ số logical (nội suy giữa hai mốc nến; ngoại suy sau nến cuối).
+  // Time → logical index (interpolated between candles; extrapolated past the last one).
   _logical(t) {
     const ts = this.times;
     if (!ts.length) return null;

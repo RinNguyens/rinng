@@ -1,6 +1,7 @@
-// Workspace = một tab gồm nhiều khung (slot) xếp theo một bố cục; mỗi khung chứa một chart
-// với lens riêng, hoặc để trống chờ kéo chart vào. Lưu trong localStorage của trình duyệt.
+// Workspace = one tab holding several slots arranged by a layout; each slot holds a chart with
+// its own lens, or stays empty until a chart is dropped in. Saved in the browser's localStorage.
 import { useCallback, useEffect, useState } from "react"
+import { COMBOS, comboWorkspace } from "./combos"
 
 export type PanelCfg = {
   id: string
@@ -17,26 +18,27 @@ export type Workspace = {
   name: string
   layout: LayoutKey
   slots: Array<PanelCfg | null>
+  guide?: string // combo id when the tab was built from a chart combo (shows its reading guide)
 }
 
 export const LAYOUTS: Record<
   LayoutKey,
   { label: string; cols: string; rows: string; areas: Array<string>; n: number }
 > = {
-  "1": { label: "1 khung", cols: "1fr", rows: "1fr", areas: ["s0"], n: 1 },
-  "2": { label: "2 cột", cols: "1fr 1fr", rows: "1fr", areas: ["s0 s1"], n: 2 },
-  "2v": { label: "2 hàng", cols: "1fr", rows: "1fr 1fr", areas: ["s0", "s1"], n: 2 },
+  "1": { label: "Single", cols: "1fr", rows: "1fr", areas: ["s0"], n: 1 },
+  "2": { label: "2 columns", cols: "1fr 1fr", rows: "1fr", areas: ["s0 s1"], n: 2 },
+  "2v": { label: "2 rows", cols: "1fr", rows: "1fr 1fr", areas: ["s0", "s1"], n: 2 },
   "1+2": {
-    label: "1 lớn + 2",
+    label: "1 large + 2",
     cols: "3fr 2fr",
     rows: "1fr 1fr",
     areas: ["s0 s1", "s0 s2"],
     n: 3,
   },
-  "3": { label: "3 cột", cols: "1fr 1fr 1fr", rows: "1fr", areas: ["s0 s1 s2"], n: 3 },
+  "3": { label: "3 columns", cols: "1fr 1fr 1fr", rows: "1fr", areas: ["s0 s1 s2"], n: 3 },
   "2x2": { label: "2×2", cols: "1fr 1fr", rows: "1fr 1fr", areas: ["s0 s1", "s2 s3"], n: 4 },
   "1+3": {
-    label: "1 trên + 3",
+    label: "1 top + 3",
     cols: "1fr 1fr 1fr",
     rows: "3fr 2fr",
     areas: ["s0 s0 s0", "s1 s2 s3"],
@@ -53,11 +55,11 @@ export const LAYOUTS: Record<
 
 export const DAYS = [14, 30, 90, 180, 365, 1000, 2000]
 
-// Mẫu chart để kéo từ thư viện vào khung.
+// Chart presets to drag from the library into a slot.
 export type Preset = Omit<PanelCfg, "id"> & { title: string; hint: string }
 export const PRESETS: Array<Preset> = [
   {
-    title: "Cấu trúc SMC",
+    title: "SMC structure",
     hint: "Swing, BOS/CHoCH, OB, FVG, premium/discount",
     lens: "structure",
     tf: "4h",
@@ -65,7 +67,7 @@ export const PRESETS: Array<Preset> = [
     period: "week",
   },
   {
-    title: "Thanh khoản",
+    title: "Liquidity",
     hint: "BSL/SSL, EQH/EQL, sweep",
     lens: "liquidity",
     tf: "1h",
@@ -73,16 +75,16 @@ export const PRESETS: Array<Preset> = [
     period: "week",
   },
   {
-    title: "Volume profile tuần",
-    hint: "Profile mua/bán, POC, D/P/b/DD, naked POC",
+    title: "Weekly volume profile",
+    hint: "Buy/sell profile, POC, D/P/b/DD, naked POC",
     lens: "profile",
     tf: "4h",
     days: 90,
     period: "week",
   },
   {
-    title: "Volume profile ngày",
-    hint: "Profile từng ngày trên khung 1h",
+    title: "Daily volume profile",
+    hint: "One profile per day on 1h candles",
     lens: "profile",
     tf: "1h",
     days: 14,
@@ -97,7 +99,7 @@ export const PRESETS: Array<Preset> = [
     period: "week",
   },
   {
-    title: "Phái sinh & CVD",
+    title: "Derivatives & CVD",
     hint: "Funding, OI, long/short, CVD",
     lens: "derivatives",
     tf: "1h",
@@ -105,7 +107,15 @@ export const PRESETS: Array<Preset> = [
     period: "week",
   },
   {
-    title: "Indicator",
+    title: "Projection",
+    hint: "Probability cone, median path, touch odds for key levels",
+    lens: "forecast",
+    tf: "4h",
+    days: 90,
+    period: "week",
+  },
+  {
+    title: "Indicators",
     hint: "EMA 21/50/200, RSI, MACD, delta",
     lens: "indicators",
     tf: "4h",
@@ -130,28 +140,27 @@ function defaults(): Array<Workspace> {
   return [
     {
       id: newId(),
-      name: "Tổng quan",
+      name: "Overview",
       layout: "2x2",
       slots: [P(0), P(2), P(1), P(5)],
     },
-    { id: newId(), name: "Volume profile", layout: "2", slots: [P(2), P(3)] },
-    {
-      id: newId(),
-      name: "Wyckoff / Elliott",
-      layout: "1+2",
-      slots: [P(4), { ...P(4), tf: "4h", days: 180 }, P(6)],
-    },
+    ...["top-down", "value-liquidity", "risk-map"].map((id) =>
+      comboWorkspace(COMBOS.find((x) => x.id === id)!),
+    ),
   ]
 }
 
 const KEY = "rinng.workspaces.v2"
+const OLD_OVERVIEW = "T\u1ed5ng quan"
 
 function load(): Array<Workspace> | null {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return null
     const ws = JSON.parse(raw) as Array<Workspace>
-    return Array.isArray(ws) && ws.length ? ws : null
+    if (!Array.isArray(ws) || !ws.length) return null
+    // Tabs saved before the UI switched to English keep their old default name.
+    return ws.map((w) => (w.name === OLD_OVERVIEW ? { ...w, name: "Overview" } : w))
   } catch {
     return null
   }
@@ -176,7 +185,7 @@ export function useWorkspaces() {
     try {
       localStorage.setItem(KEY, JSON.stringify(next))
     } catch {
-      /* trình duyệt chặn bộ nhớ: chỉ giữ trong phiên */
+      /* storage blocked by the browser: keep for this session only */
     }
   }, [])
 
@@ -187,7 +196,7 @@ export function useWorkspaces() {
         try {
           localStorage.setItem(KEY, JSON.stringify(next))
         } catch {
-          /* bỏ qua */
+          /* ignore */
         }
         return next
       }),
@@ -197,6 +206,10 @@ export function useWorkspaces() {
   return {
     workspaces,
     update,
+    insert: (w: Workspace) => {
+      set([...workspaces, w])
+      return w.id
+    },
     add: () => {
       const w: Workspace = {
         id: newId(),
@@ -216,7 +229,7 @@ export function useWorkspaces() {
   }
 }
 
-// Đổi chỗ hai khung (kéo chart từ khung này sang khung khác).
+// Swap two slots (drag a chart from one slot to another).
 export function swapSlots(w: Workspace, a: number, b: number): Workspace {
   const slots = [...w.slots]
   ;[slots[a], slots[b]] = [slots[b], slots[a]]

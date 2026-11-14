@@ -80,7 +80,12 @@ class Okx:
         max_retries: int = 3,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        self._client = client or httpx.Client(base_url=BASE_URL, timeout=20.0)
+        # IPv4: đường IPv6 tới host OKX có thể treo tới ~80 giây trước khi rơi về IPv4.
+        self._client = client or httpx.Client(
+            base_url=BASE_URL,
+            timeout=20.0,
+            transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+        )
         self._max_retries = max_retries
         self._sleep = sleep
         self._limiters = {path: WindowLimiter(n, 2.0, sleep=sleep) for path, n in _LIMITS.items()}

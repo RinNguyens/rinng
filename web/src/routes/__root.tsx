@@ -1,4 +1,4 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import { ClientOnly, HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router"
 import { TooltipProvider } from "@/components/ui/tooltip"
 
 import appCss from "../styles.css?url"
@@ -21,15 +21,22 @@ export const Route = createRootRoute({
   notFoundComponent: () => (
     <main className="container mx-auto p-4 pt-16">
       <h1>404</h1>
-      <p>Không có trang này.</p>
+      <p>Page not found.</p>
     </main>
   ),
   shellComponent: RootDocument,
+  // The SPA shell is prerendered without route content; rendering routes only after hydration
+  // keeps the first client render identical to the shell (no hydration mismatch).
+  component: () => (
+    <ClientOnly fallback={null}>
+      <Outlet />
+    </ClientOnly>
+  ),
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi" className="dark">
+    <html lang="en" className="dark">
       <head>
         <HeadContent />
       </head>

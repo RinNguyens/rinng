@@ -64,6 +64,9 @@ def backfill(
         ["klines_1m", "funding", "metrics"],
         help="Dump Binance: klines_1m, funding, metrics, agg_trades, book_depth",
     ),
+    symbol: list[str] = typer.Option(
+        [], help="Chỉ các instrument này (id, ví dụ SOL-USDT-PERP); bỏ trống = tất cả"
+    ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
     """Tải lịch sử vào data/raw rồi chạy curate."""
@@ -74,6 +77,10 @@ def backfill(
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = load_settings(path)
+    if symbol:
+        settings = settings.model_copy(
+            update={"instruments": [settings.instrument(s) for s in symbol]}
+        )
     reports = run(settings, _date(start), exchanges=tuple(exchange), datasets=tuple(dataset))
     for key, r in reports.items():
         missing = f", thiếu {len(r.missing)} file" if r.missing else ""
@@ -344,6 +351,26 @@ def vpchart(
     typer.echo(f"Đã ghi {target}")
     if open_browser:
         webbrowser.open(target.resolve().as_uri())
+
+
+@app.command()
+def live(
+    port: int = typer.Option(8000),
+    host: str = typer.Option(
+        "127.0.0.1", help="Chỉ mở cho máy này; đổi sang 0.0.0.0 để máy khác vào"
+    ),
+    path: Path = DEFAULT_CONFIG,
+) -> None:
+    """Chạy web với dữ liệu realtime: collector + cập nhật curated mỗi phút + WebSocket."""
+    import asyncio
+    import logging
+
+    from rinng.live.service import serve_live
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    typer.echo(f"rinng live: http://{host}:{port}  (Ctrl+C để dừng)")
+    asyncio.run(serve_live(load_settings(path), host, port))
 
 
 @app.command()

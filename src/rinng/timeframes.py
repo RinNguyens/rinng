@@ -15,3 +15,16 @@ def timeframe_ms(timeframe: str) -> int:
 
 def bar_duration(timeframe: str) -> timedelta:
     return timedelta(milliseconds=timeframe_ms(timeframe))
+
+
+_MONDAY_MS = 4 * 86_400_000  # 1970-01-05 00:00 UTC là thứ Hai
+
+
+def bucket_start_ms(t_ms: int, timeframe: str) -> int:
+    """Mốc mở của nến `timeframe` chứa thời điểm t (ms, UTC).
+
+    Khớp với resample: phút/giờ/ngày căn theo epoch, tuần mở thứ Hai 00:00 UTC.
+    """
+    size = timeframe_ms(timeframe)
+    offset = _MONDAY_MS if timeframe.endswith("w") else 0
+    return t_ms - ((t_ms - offset) % size)

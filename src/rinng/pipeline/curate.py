@@ -54,14 +54,17 @@ def _record(paths: DataPaths, file: Path, tbl_name: str, frame: pl.DataFrame, so
     )
 
 
-def curate(paths: DataPaths, settings: Settings) -> dict[str, int]:
-    """Xử lý mọi file thô chưa có trong manifest. Trả về số dòng đã gộp theo bảng."""
+def curate(paths: DataPaths, settings: Settings, *, only: set[str] | None = None) -> dict[str, int]:
+    """Xử lý mọi file thô chưa có trong manifest. Trả về số dòng đã gộp theo bảng.
+
+    `only`: chỉ xử lý file Parquet của các bảng này và bỏ qua dump (dùng khi chạy live).
+    """
     done = set(catalog.read_meta(paths, "manifest")["batch_id"].to_list())
     venue_to_id = {i.binance: i.id for i in settings.instruments if i.binance}
     totals: dict[str, int] = defaultdict(int)
 
     dump_root = paths.raw / "binance" / "dumps"
-    for file in sorted(dump_root.glob("*/*/*.zip")):
+    for file in [] if only is not None else sorted(dump_root.glob("*/*/*.zip")):
         if f"raw:{file.relative_to(paths.raw)}" in done:
             continue
         name, venue_symbol = file.parent.parent.name, file.parent.name
@@ -79,6 +82,8 @@ def curate(paths: DataPaths, settings: Settings) -> dict[str, int]:
     by_dir: dict[Path, list[Path]] = defaultdict(list)
     for file in paths.raw.glob("*/*/*/date=*/*.parquet"):
         if file.name.endswith(TMP_SUFFIX) or file.is_relative_to(dump_root):
+            continue
+        if only is not None and _table_name(file.parent.parent.parent.name) not in only:
             continue
         if f"raw:{file.relative_to(paths.raw)}" not in done:
             by_dir[file.parent].append(file)

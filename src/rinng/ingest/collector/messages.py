@@ -24,7 +24,12 @@ def binance_streams(venue_symbols: list[str]) -> list[str]:
     streams = []
     for s in venue_symbols:
         low = s.lower()
-        streams += [f"{low}@aggTrade", f"{low}@markPrice@1s", f"{low}@forceOrder"]
+        streams += [
+            f"{low}@aggTrade",
+            f"{low}@markPrice@1s",
+            f"{low}@forceOrder",
+            f"{low}@kline_1m",
+        ]
     return streams
 
 
@@ -70,6 +75,24 @@ def parse_binance(raw: str, symbols: dict[str, str]) -> list[Record]:
             "qty": float(order["z"] or order["q"]),
         }
         return [Record("liquidations", sym, row)]
+    if event == "kline":
+        k = data["k"]
+        sym = symbols.get(k["s"])
+        if sym is None or k.get("i") != "1m":
+            return []
+        row = {
+            "open_time": int(k["t"]),
+            "open": float(k["o"]),
+            "high": float(k["h"]),
+            "low": float(k["l"]),
+            "close": float(k["c"]),
+            "volume": float(k["v"]),
+            "quote_volume": float(k["q"]),
+            "trades": int(k["n"]),
+            "taker_buy_volume": float(k["V"]),
+            "is_closed": bool(k["x"]),  # nến đang chạy cũng được gửi, x=true khi đã đóng
+        }
+        return [Record("ohlcv", sym, row, "1m")]
     return []
 
 
@@ -80,6 +103,12 @@ def okx_subscribe(venue_symbols: list[str]) -> str:
     args = [{"channel": "liquidation-orders", "instType": "SWAP"}]
     for s in venue_symbols:
         args += [{"channel": "trades", "instId": s}, {"channel": "mark-price", "instId": s}]
+    return json.dumps({"op": "subscribe", "args": args})
+
+
+def okx_candle_subscribe(venue_symbols: list[str]) -> str:
+    """Kênh nến nằm ở endpoint /ws/v5/business, không phải /public."""
+    args = [{"channel": "candle1m", "instId": s} for s in venue_symbols]
     return json.dumps({"op": "subscribe", "args": args})
 
 
@@ -107,6 +136,32 @@ def parse_okx(
         return OkxControl(msg["event"], msg.get("code"), msg.get("msg", ""))
     channel = msg.get("arg", {}).get("channel")
     records: list[Record] = []
+    if channel == "candle1m":
+        sym = symbols.get(msg["arg"].get("instId"))
+        if sym is None:
+            return records
+        for x in msg.get("data", []):
+            records.append(
+                Record(
+                    "ohlcv",
+                    sym,
+                    {
+                        "open_time": int(x[0]),
+                        "open": float(x[1]),
+                        "high": float(x[2]),
+                        "low": float(x[3]),
+                        "close": float(x[4]),
+                        # x[5] là số hợp đồng; x[6] là khối lượng tính bằng đồng base.
+                        "volume": float(x[6]),
+                        "quote_volume": float(x[7]),
+                        "trades": None,
+                        "taker_buy_volume": None,
+                        "is_closed": x[8] == "1",
+                    },
+                    "1m",
+                )
+            )
+        return records
     for item in msg.get("data", []):
         inst = item.get("instId")
         sym = symbols.get(inst)

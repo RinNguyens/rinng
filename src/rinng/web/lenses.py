@@ -1,15 +1,15 @@
-"""Biến kết quả phân tích thành JSON cho chart web. Mỗi "lens" là một cách nhìn riêng.
+"""Turn analysis results into JSON for the web charts. Each "lens" is one way of looking.
 
-Quy ước JSON chung (thời gian là giây UTC, đúng định dạng Lightweight Charts):
+Shared JSON contract (times are UTC seconds, as Lightweight Charts expects):
 - markers: [{time, position: aboveBar|belowBar, shape, color, text}]
-- zones:   [{t0, t1 (null = kéo tới phải), p0, p1, color, label, style}]
+- zones:   [{t0, t1 (null = extends to the right), p0, p1, color, label, style}]
 - levels:  [{t0, t1, price, color, label, dash}]
-- lines:   [{name, color, pane, data: [{time, value}]}]  (pane 0 = cùng pane với nến)
+- lines:   [{name, color, pane, data: [{time, value}]}]  (pane 0 = the candle pane)
 - histos:  [{name, pane, data: [{time, value, color}]}]
 - profiles:[{t0, t1, closed, shape, poc, val, vah, buy, sell, rows: [[lo, hi, buy, sell]]}]
-- legend:  [[màu, mô tả]] để người xem biết mình đang nhìn gì.
+- legend:  [[color, text]] so the viewer knows what they are looking at.
 
-Lens chỉ đọc nến đã đóng; mọi định nghĩa nằm trong rinng.analysis.
+Lenses read closed candles only; all definitions live in rinng.analysis.
 """
 
 import json
@@ -21,6 +21,7 @@ import polars as pl
 from rinng.analysis import (
     derivatives,
     elliott,
+    forecast,
     indicators,
     liquidity,
     orderflow,
@@ -82,9 +83,9 @@ def _zone(e: dict, color: str, label: str, style: str = "solid") -> dict:
 def _recent(
     events: pl.DataFrame, kinds: list[str], keep: int, near: float | None = None, band: float = 0.12
 ) -> list[dict]:
-    """Sự kiện còn hiệu lực ưu tiên trước, rồi tới sự kiện gần nhất.
+    """Active events first, then the most recent ones.
 
-    `near`: giá hiện tại; vùng còn hiệu lực nằm xa hơn `band` (tỉ lệ) bị bỏ để chart đỡ rối.
+    `near`: current price; active zones farther than `band` (fraction) are dropped.
     """
     sub = events.filter(pl.col("kind").is_in(kinds)).sort("event_time")
     active = sub.filter(pl.col("invalidated_at").is_null())
@@ -163,9 +164,9 @@ def lens_structure(o: pl.DataFrame, ctx: dict) -> dict:
         "levels": levels[-40:],
         "zones": zones,
         "legend": [
-            [BULL, "HH/HL, BOS/CHoCH tăng, OB/FVG tăng"],
-            [BEAR, "LH/LL, BOS/CHoCH giảm, OB/FVG giảm"],
-            ["", "nét đứt = CHoCH (đổi xu hướng); vùng mờ = premium/discount"],
+            [BULL, "HH/HL, bullish BOS/CHoCH, bullish OB/FVG"],
+            [BEAR, "LH/LL, bearish BOS/CHoCH, bearish OB/FVG"],
+            ["", "dashed = CHoCH (trend change); faint zones = premium/discount"],
         ],
     }
 
@@ -210,10 +211,10 @@ def lens_liquidity(o: pl.DataFrame, ctx: dict) -> dict:
         "levels": levels,
         "markers": markers,
         "legend": [
-            [BULL, "BSL: thanh khoản phía trên (đỉnh cũ)"],
-            [BEAR, "SSL: thanh khoản phía dưới (đáy cũ)"],
-            [PURPLE, "EQH/EQL: đỉnh/đáy bằng nhau"],
-            ["", "đường dừng = đã bị lấy; mũi tên = sweep (lấy rồi đóng lại bên trong)"],
+            [BULL, "BSL: buy-side liquidity above (old highs)"],
+            [BEAR, "SSL: sell-side liquidity below (old lows)"],
+            [PURPLE, "EQH/EQL: equal highs/lows"],
+            ["", "line ends = taken; arrow = sweep (taken, then closed back inside)"],
         ],
     }
 
@@ -270,10 +271,10 @@ def lens_profile(o: pl.DataFrame, ctx: dict) -> dict:
         "profiles": profiles,
         "levels": levels,
         "legend": [
-            [BULL, "volume taker mua"],
-            [BEAR, "volume taker bán"],
-            [POC, "POC; đường chấm = naked POC chưa bị chạm"],
-            ["", "nhãn D/P/b/DD = hình dạng profile; số dưới = delta (mua − bán)"],
+            [BULL, "taker buy volume"],
+            [BEAR, "taker sell volume"],
+            [POC, "POC; dotted = naked POC not yet touched"],
+            ["", "D/P/b/DD label = profile shape; number below = delta (buy − sell)"],
         ],
     }
 
@@ -333,7 +334,7 @@ def lens_wyckoff(o: pl.DataFrame, ctx: dict) -> dict:
             [BULL, "SC: selling climax; spring"],
             [BEAR, "BC: buying climax; UT: upthrust"],
             [BLUE, "trading range (Wyckoff)"],
-            [PURPLE, "zigzag; số 1–5 = ứng viên sóng xung lực Elliott (có thể nhiều cách đếm)"],
+            [PURPLE, "zigzag; 1–5 = Elliott impulse candidates (several counts possible)"],
         ],
     }
 
@@ -368,18 +369,18 @@ def lens_derivatives(o: pl.DataFrame, ctx: dict) -> dict:
     if ctx.get("oi") is not None and not ctx["oi"].is_empty():
         f = derivatives.open_interest_features(o, ctx["oi"])
         lines.append({"name": "OI", "color": BLUE, "pane": pane, "data": _series(f, "oi")})
-        legend.append([BLUE, f"pane {pane}: open interest (BTC)"])
+        legend.append([BLUE, f"pane {pane}: open interest ({ctx.get('asset', 'base')})"])
         pane += 1
     if ctx.get("ls") is not None and not ctx["ls"].is_empty():
         f = derivatives.long_short_features(o, ctx["ls"])
         lines.append({"name": "L/S", "color": POC, "pane": pane, "data": _series(f, "ls_ratio")})
-        legend.append([POC, f"pane {pane}: tỷ lệ tài khoản long/short"])
+        legend.append([POC, f"pane {pane}: long/short account ratio"])
         pane += 1
     d = orderflow.delta_features(o, cvd_reset=None)
     lines.append({"name": "CVD", "color": PURPLE, "pane": pane, "data": _series(d, "cvd")})
-    legend.append([PURPLE, f"pane {pane}: CVD từ taker buy volume"])
+    legend.append([PURPLE, f"pane {pane}: CVD from taker buy volume"])
     if len(legend) == 1:
-        legend.insert(0, ["", "chưa có dữ liệu funding/OI/long-short cho khoảng này"])
+        legend.insert(0, ["", "no funding/OI/long-short data for this range"])
     return {"lines": lines, "histos": histos, "legend": legend}
 
 
@@ -421,23 +422,147 @@ def lens_indicators(o: pl.DataFrame, ctx: dict) -> dict:
             [BLUE, "EMA 21"],
             [POC, "EMA 50"],
             [PURPLE, "EMA 200; pane 1: RSI 14"],
-            ["", "pane 2: MACD histogram; pane 3: delta mỗi nến"],
+            ["", "pane 2: MACD histogram; pane 3: delta per candle"],
         ],
     }
 
 
+# Số nến nhìn trước cho mỗi khung: 5m ≈ 4 giờ, 15m/1h ≈ nửa ngày/2 ngày, 4h ≈ 7 ngày,
+# 1d ≈ 1 tháng.
+HORIZON = {"5m": 48, "15m": 48, "1h": 48, "4h": 42, "1d": 30, "1w": 12}
+CONE = "#42a5f5"
+
+
+def _forecast_levels(o: pl.DataFrame, history: pl.DataFrame, fc) -> list[dict]:
+    """Các mức giá đáng chú ý gần giá hiện tại, kèm xác suất chạm trong H nến tới."""
+    close = fc.close
+    cands: list[tuple[str, float, str]] = []
+    lv = liquidity.liquidity_levels(o).filter(pl.col("invalidated_at").is_null())
+    above = lv.filter((pl.col("kind") == "liquidity_bsl") & (pl.col("price_low") > close))
+    below = lv.filter((pl.col("kind") == "liquidity_ssl") & (pl.col("price_low") < close))
+    for price in above.sort("price_low")["price_low"].head(2).to_list():
+        cands.append(("BSL", price, BULL))
+    for price in below.sort("price_low", descending=True)["price_low"].head(2).to_list():
+        cands.append(("SSL", price, BEAR))
+    # Value area của tuần trước (đã đóng) từ nến 1 giờ của lịch sử nếu có, không thì nến hiện có.
+    end = history["open_time"].max()
+    week = (end - timedelta(days=end.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    prev = history.filter(
+        (pl.col("open_time") >= week - timedelta(days=7)) & (pl.col("open_time") < week)
+    )
+    if prev.height > 2:
+        prof = volume_profile.profile_from_ohlcv(prev, n_bins=48)
+        va = volume_profile.value_area(prof)
+        cands += [("wPOC", va.poc, POC), ("wVAH", va.vah, GREY), ("wVAL", va.val, GREY)]
+    sigma_h = fc.sigma * np.sqrt(fc.horizon)
+    out = []
+    for label, price, color in cands:
+        if price is None or price <= 0:
+            continue
+        # Bỏ mức quá xa (ngoài ~3.5 sigma của cả khoảng dự báo): xác suất gần 0, chỉ gây rối.
+        if abs(np.log(price / close)) > 3.5 * sigma_h:
+            continue
+        out.append(
+            {
+                "label": label,
+                "price": float(price),
+                "color": color,
+                "probability": fc.touch_probability(float(price)),
+            }
+        )
+    return out
+
+
+def forecast_json(o: pl.DataFrame, history: pl.DataFrame, fc, stats: dict | None) -> dict:
+    """Projection payload (cone, touch levels, median line) for a forecast already computed."""
+    horizon = fc.horizon
+    t0 = history["open_time"][-1]
+    step = history["open_time"][-1] - history["open_time"][-2]
+    times = [ts(t0 + step * k) for k in range(horizon + 1)]
+    bands = {
+        f"q{int(q * 100):02d}": [fc.close] + [float(x) for x in fc.quantiles[i]]
+        for i, q in enumerate(forecast.QUANTILES)
+    }
+    median = bands["q50"]
+    levels = _forecast_levels(o, history, fc)
+    end = {k: v[-1] for k, v in bands.items()}
+    return {
+        "forecast": {
+            "times": times,
+            "bands": bands,
+            "horizon": horizon,
+            "close": fc.close,
+            "analogs": fc.analogs,
+            "pool": fc.pool,
+            "end": end,
+            "levels": levels,
+        },
+        "stats": stats,
+        "levels": [
+            {
+                "t0": times[0],
+                "t1": times[-1],
+                "price": lv["price"],
+                "color": lv["color"],
+                "label": f"{lv['label']} {lv['probability'] * 100:.0f}%",
+                "dash": True,
+            }
+            for lv in levels
+        ],
+        "lines": [
+            {
+                "name": "median",
+                "color": CONE,
+                "pane": 0,
+                "data": [{"time": t, "value": v} for t, v in zip(times, median, strict=True)],
+            }
+        ],
+        "legend": [
+            [
+                CONE,
+                f"projection for the next {horizon} candles: "
+                "bands hold 50% / 80% / 90% of outcomes",
+            ],
+            [CONE, "solid line = median path (not a direction call)"],
+            ["", "dashed levels: probability price touches them within the projection window"],
+        ],
+    }
+
+
+def lens_forecast(o: pl.DataFrame, ctx: dict) -> dict:
+    """Hình nón phân vị cho H nến tới + xác suất chạm các mức + số liệu kiểm chứng lịch sử."""
+    history: pl.DataFrame = ctx.get("history", o)
+    tf = o["timeframe"][0] if "timeframe" in o.columns else ctx.get("tf", "4h")
+    horizon = HORIZON.get(tf, 30)
+    prepared = forecast.prepare(history)
+    fc = forecast.forecast_at(prepared, history.height - 1, horizon)
+    if fc is None:
+        return {
+            "legend": [
+                [
+                    "",
+                    "need more history to project "
+                    f"({forecast.WARMUP + forecast.MIN_POOL + horizon}+ candles)",
+                ]
+            ],
+        }
+    stats = forecast.walk_forward(history, horizon, prepared=prepared)
+    return forecast_json(o, history, fc, stats)
+
+
 LENSES = {
-    "structure": ("Cấu trúc SMC", lens_structure),
-    "liquidity": ("Thanh khoản", lens_liquidity),
+    "structure": ("SMC structure", lens_structure),
+    "liquidity": ("Liquidity", lens_liquidity),
     "profile": ("Volume profile", lens_profile),
     "wyckoff": ("Wyckoff / Elliott", lens_wyckoff),
-    "derivatives": ("Phái sinh & CVD", lens_derivatives),
-    "indicators": ("Indicator", lens_indicators),
+    "derivatives": ("Derivatives & CVD", lens_derivatives),
+    "indicators": ("Indicators", lens_indicators),
+    "forecast": ("Projection", lens_forecast),
 }
 
 
 def to_native(obj):
-    """Đổi kiểu numpy sang kiểu Python để trả JSON."""
+    """Convert numpy types to Python types for JSON."""
     if isinstance(obj, dict):
         return {k: to_native(v) for k, v in obj.items()}
     if isinstance(obj, list | tuple):

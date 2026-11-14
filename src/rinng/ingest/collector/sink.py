@@ -40,9 +40,13 @@ class Sink:
         self.written_rows = 0
 
     def add(self, records: list[Record]) -> None:
+        kept = 0
         for r in records:
+            if r.table == "ohlcv" and not r.row.get("is_closed", True):
+                continue  # nến đang chạy chỉ dùng cho realtime, không lưu
             self._rows[(r.table, r.symbol, r.timeframe)].append(r.row)
-        self._count += len(records)
+            kept += 1
+        self._count += kept
         if self._count >= self.max_rows or self._clock() - self._since >= self.max_age:
             self.flush()
 

@@ -1,5 +1,5 @@
-// Đồng bộ con trỏ (mọi chart trong tab) và vùng thời gian (chỉ các chart cùng khung) giữa
-// các chart đang mở.
+// Syncs the crosshair (all charts in a tab) and the visible time range (only charts on the
+// same timeframe) between open charts.
 import type { IChartApi, ISeriesApi, MouseEventParams, Time } from "lightweight-charts"
 
 type Entry = {
@@ -8,6 +8,9 @@ type Entry = {
   candles: ISeriesApi<"Candlestick">
   times: Array<number>
   closes: Array<number>
+  // false: the chart leads but never follows other charts' time range (projection keeps its
+  // future cone in view).
+  follow?: boolean
 }
 
 export class SyncGroup {
@@ -46,18 +49,18 @@ export class SyncGroup {
     if (!this.enabled || this.busy || !r || !me) return
     this.busy = true
     for (const [id, e] of this.entries) {
-      if (id === src || e.tf !== me.tf || !e.times.length) continue
+      if (id === src || e.tf !== me.tf || !e.times.length || e.follow === false) continue
       try {
         e.chart.timeScale().setVisibleRange(r)
       } catch {
-        /* ngoài vùng dữ liệu của chart kia */
+        /* outside the other chart's data range */
       }
     }
     this.busy = false
   }
 }
 
-// Nến chứa thời điểm t (mốc mở lớn nhất <= t).
+// The candle containing time t (largest open time <= t).
 function barAt(ts: Array<number>, t: number) {
   if (!ts.length || t < ts[0]) return -1
   let lo = 0
@@ -70,7 +73,7 @@ function barAt(ts: Array<number>, t: number) {
   return lo
 }
 
-// Đọc màu thật từ biến CSS của theme (oklch...) thành rgb để Lightweight Charts hiểu.
+// Resolve a theme CSS variable (oklch...) to rgb so Lightweight Charts can use it.
 export function cssColor(name: string, fallback: string) {
   if (typeof document === "undefined") return fallback
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim()

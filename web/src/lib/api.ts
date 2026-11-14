@@ -1,5 +1,5 @@
-// Hợp đồng JSON với backend FastAPI (src/rinng/web/lenses.py, summary.py).
-// Thời gian là giây UTC.
+// JSON contract with the FastAPI backend (src/rinng/web/lenses.py, summary.py).
+// Times are UTC seconds.
 
 export type Marker = {
   time: number
@@ -7,6 +7,7 @@ export type Marker = {
   shape: "circle" | "square" | "arrowUp" | "arrowDown"
   color: string
   text: string
+  layer?: string
 }
 export type Zone = {
   t0: number | null
@@ -16,6 +17,7 @@ export type Zone = {
   color: string
   label?: string
   style?: "solid" | "dash" | "light" | "faint"
+  layer?: string
 }
 export type Level = {
   t0: number | null
@@ -24,12 +26,14 @@ export type Level = {
   color: string
   label?: string
   dash?: boolean
+  layer?: string
 }
 export type Line = {
   name: string
   color: string
   pane: number
   data: Array<{ time: number; value: number }>
+  layer?: string
 }
 export type Histo = {
   name: string
@@ -48,6 +52,7 @@ export type Profile = {
   buy: number
   sell: number
   rows: Array<[number, number, number, number]>
+  layer?: string
 }
 export type Candle = {
   time: number
@@ -57,6 +62,28 @@ export type Candle = {
   close: number
   volume: number
   buy: number
+}
+
+export type ForecastLevel = { label: string; price: number; color: string; probability: number }
+export type Projection = {
+  times: Array<number>
+  bands: Record<"q05" | "q10" | "q25" | "q50" | "q75" | "q90" | "q95", Array<number>>
+  horizon: number
+  close: number
+  analogs: number
+  pool: number
+  end: Record<string, number>
+  levels: Array<ForecastLevel>
+}
+export type ProjectionStats = {
+  origins: number
+  coverage: Record<"50" | "80" | "90", number>
+  pinball: number
+  pinball_baseline: number
+  skill: number
+  direction_hit: number | null
+  brier: number
+  brier_baseline: number
 }
 
 export type ChartData = {
@@ -70,13 +97,71 @@ export type ChartData = {
   guides?: Array<{ pane: number; values: Array<number> }>
   profiles?: Array<Profile>
   legend?: Array<[string, string]>
+  forecast?: Projection
+  stats?: ProjectionStats | null
+}
+
+// Live desk (src/rinng/web/desk.py): the 5m chart with every overlay tagged by layer, plus the
+// rule-based agents' votes and one long / one short setup.
+export type AgentVote = {
+  id: string
+  name: string
+  score: number // -1 (sell) … +1 (buy)
+  confidence: number // 0 … 1
+  stance: "buy" | "sell" | "wait"
+  reasons: Array<string>
+}
+export type Verdict = {
+  score: number
+  lean: "long" | "short" | "none"
+  buy: number
+  sell: number
+  wait: number
+  total: number
+}
+export type Scenario = {
+  side: "long" | "short"
+  zone: [number, number]
+  zone_label: string
+  entry: number
+  stop: number
+  target: number
+  target_label: string
+  rr: number | null
+  trigger: string
+  favor: number
+  aligned: boolean
+  p_entry: number | null
+  p_target: number | null
+  p_stop: number | null
+}
+export type Desk = ChartData & {
+  tf: string
+  layers: Array<string>
+  atr: number
+  agents: Array<AgentVote>
+  verdict: Verdict
+  scenarios: Array<Scenario>
+}
+
+export type Instrument = {
+  id: string
+  kind: "perp" | "spot"
+  base: string
+  quote: string | null
+  name: string
+  icon?: string // base without Binance's 1000x multiplier (1000PEPE → PEPE)
+  binance?: boolean
+  okx?: boolean
+  configured?: boolean // in the default watchlist (stored history + live data)
 }
 
 export type Meta = {
-  instruments: Array<string>
+  instruments: Array<Instrument>
   exchanges: Array<string>
   timeframes: Array<string>
   lenses: Record<string, string>
+  live: boolean
 }
 
 type Pct = number | null
@@ -140,6 +225,28 @@ export type WeekProfile = {
   delta: number
 }
 
+export type NewsItem = {
+  id: string
+  source: string
+  kind: "exchange" | "media"
+  title: string
+  url: string
+  time: number
+  score: number
+  sentiment: "bullish" | "bearish" | "neutral"
+  impact: 1 | 2 | 3
+  tags: Array<string>
+  coins: Array<string>
+}
+export type NewsOutlook = { score: number; label: "bullish" | "bearish" | "neutral"; count: number; base?: string }
+export type News = {
+  updated: number
+  items: Array<NewsItem>
+  market: NewsOutlook
+  coin: NewsOutlook | null
+  coin_items: Array<NewsItem>
+}
+
 async function get<T>(path: string, params: Record<string, string | number>): Promise<T> {
   const q = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))
   const r = await fetch(`${path}?${q}`)
@@ -148,7 +255,7 @@ async function get<T>(path: string, params: Record<string, string | number>): Pr
     try {
       detail = (await r.json()).detail ?? detail
     } catch {
-      /* body không phải JSON */
+      /* body is not JSON */
     }
     throw new Error(detail)
   }
@@ -166,4 +273,7 @@ export const api = {
     exchange: string
   }) => get<ChartData>("/api/chart", p),
   summary: (p: { symbol: string; exchange: string }) => get<Summary>("/api/summary", p),
+  desk: (p: { symbol: string; exchange: string }) => get<Desk>("/api/desk", p),
+  news: (base: string) => get<News>("/api/news", { base, limit: 80 }),
+  instruments: (q: string) => get<Array<Instrument>>("/api/instruments", { q, limit: 30 }),
 }

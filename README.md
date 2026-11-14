@@ -37,13 +37,28 @@ Giao diện React (TanStack Start + shadcn/ui, thư mục `web/`) trên API Fast
 
 ```bash
 pnpm --dir web install && pnpm --dir web build   # build một lần
-uv run rinng web                                  # mở http://127.0.0.1:8000
+uv run rinng live                                 # dữ liệu realtime, mở http://127.0.0.1:8000
+uv run rinng web                                  # hoặc: chỉ xem dữ liệu đã lưu
 ```
+
+`rinng live` chạy collector (Binance + OKX, gồm nến 1m), cập nhật curated mỗi phút và đẩy giá,
+nến đang chạy, nến vừa đóng xuống trình duyệt qua WebSocket `/ws/live`. Phân tích (SMC, profile,
+Wyckoff…) chỉ tính lại khi nến của khung đó đóng. Nếu máy tắt lâu hơn 3 ngày, chạy
+`rinng backfill --start <ngày>` trước. Chi tiết: [docs/10-ke-hoach-realtime.md](docs/10-ke-hoach-realtime.md).
 
 - Tab **Dashboard**: giá, funding, OI, long/short, delta 24h và bối cảnh cấu trúc 4H,
   volume profile tuần, thanh khoản, động lượng, Wyckoff; nút "Xem chart" mở chart lớn.
 - Các tab chart: chọn bố cục (1 đến 6 khung), kéo thẻ từ thư viện vào khung, kéo tay nắm
   trên đầu chart để đổi chỗ, phóng to một khung. Bố cục lưu trong trình duyệt.
+- Watchlist mặc định 5 coin (BTC, SOL, ETH, BNB, LINK) có lịch sử lưu sẵn và dữ liệu realtime.
+  Ô tìm coin (⌘K hoặc /) mở mọi hợp đồng perp USDT trên Binance/OKX (~790 mã): dữ liệu qua REST,
+  `rinng live` mở feed realtime theo yêu cầu (tối đa 8 coin cùng lúc). Thêm coin vào watchlist:
+  sửa `configs/instruments.yaml` rồi chạy `rinng backfill --symbol <ID>`.
+- **Combos** trong thư viện chart: 7 bộ chart ghép sẵn, mỗi bộ trả lời một câu hỏi (Top-down
+  structure, Value vs. liquidity, Trend health, Positioning & squeeze risk, Market cycle, Risk map,
+  Intraday plan) kèm thứ tự đọc. Kéo vào lưới để nạp vào tab đang mở, hoặc bấm "New tab".
+- Lens **Projection**: hình nón xác suất cho H nến tới, xác suất chạm các mức giá, kèm kết quả
+  kiểm chứng walk-forward ngay trên chart. Phương pháp và số liệu: [docs/11-du-bao.md](docs/11-du-bao.md).
 - Sửa giao diện: chạy `uv run rinng web` rồi `pnpm --dir web dev` (cổng 3000, /api chuyển sang 8000).
 - Giao diện cũ (HTML thuần) vẫn ở `/classic`.
 

@@ -6,6 +6,7 @@ nối lại được ghi vào meta/gaps cho mọi (bảng, symbol) mà kết n�
 
 import asyncio
 import logging
+import socket
 import ssl
 import time
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,7 @@ from rinng.ingest.collector.messages import (
     OkxControl,
     Record,
     binance_streams,
+    okx_candle_subscribe,
     okx_subscribe,
     parse_binance,
     parse_okx,
@@ -31,6 +33,7 @@ log = logging.getLogger(__name__)
 
 BINANCE_WS = "wss://fstream.binance.com/market/stream"
 OKX_WS = "wss://ws.okx.com/ws/v5/public"  # cổng 8443 sắp bị bỏ (thông báo 64010)
+OKX_BUSINESS_WS = "wss://ws.okx.com/ws/v5/business"  # kênh nến
 DATASETS = ("trades", "mark_price", "liquidations")
 
 
@@ -52,6 +55,8 @@ class Feed:
     datasets: tuple[str, ...] = DATASETS
     stats: dict[str, int] = field(default_factory=lambda: {"messages": 0, "reconnects": 0})
     last_message: datetime | None = None
+    # Gọi với mọi bản ghi vừa nhận (kể cả nến đang chạy), dùng cho dữ liệu realtime.
+    on_records: Callable[[str, list[Record]], None] | None = None
 
 
 def binance_feed(symbols: dict[str, str], url: str = BINANCE_WS) -> Feed:
@@ -62,6 +67,7 @@ def binance_feed(symbols: dict[str, str], url: str = BINANCE_WS) -> Feed:
         symbols=symbols,
         parse=lambda raw: parse_binance(raw, symbols),
         max_lifetime=23 * 3600,  # Binance ngắt sau 24 giờ
+        datasets=(*DATASETS, "ohlcv"),
     )
 
 
@@ -79,9 +85,30 @@ def okx_feed(symbols: dict[str, str], contract_values: dict[str, float], url: st
     )
 
 
+def okx_candle_feed(symbols: dict[str, str], url: str = OKX_BUSINESS_WS) -> Feed:
+    async def subscribe(ws):
+        await ws.send(okx_candle_subscribe(list(symbols)))
+
+    return Feed(
+        exchange="okx",
+        url=url,
+        symbols=symbols,
+        parse=lambda raw: parse_okx(raw, symbols, {}),
+        on_open=subscribe,
+        idle_ping=20.0,
+        datasets=("ohlcv",),
+    )
+
+
 def _ssl_for(url: str) -> ssl.SSLContext | None:
     # Python cài từ python.org trên macOS không dùng kho chứng chỉ của hệ thống.
     return ssl.create_default_context(cafile=certifi.where()) if url.startswith("wss") else None
+
+
+def _family_for(url: str) -> int:
+    # OKX qua IPv6 treo ở bước bắt tay trên một số mạng (giống REST, xem exchanges/okx.py):
+    # ép IPv4 cho OKX, sàn khác để hệ thống tự chọn.
+    return socket.AF_INET if "okx.com" in url else socket.AF_UNSPEC
 
 
 async def _receive(feed: Feed, ws, sink: Sink, on_first: Callable[[], None]) -> None:
@@ -115,6 +142,8 @@ async def _receive(feed: Feed, ws, sink: Sink, on_first: Callable[[], None]) -> 
             first = False
         sink.add(result)
         feed.last_message = datetime.now(UTC)
+        if feed.on_records is not None and result:
+            feed.on_records(feed.exchange, result)
 
 
 async def run_feed(
@@ -149,7 +178,11 @@ async def run_feed(
     while not stop.is_set():
         try:
             async with websockets.connect(
-                feed.url, ssl=_ssl_for(feed.url), open_timeout=15, max_size=2**22
+                feed.url,
+                ssl=_ssl_for(feed.url),
+                family=_family_for(feed.url),
+                open_timeout=15,
+                max_size=2**22,
             ) as ws:
                 if feed.on_open is not None:
                     await feed.on_open(ws)

@@ -2,16 +2,96 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "rinng-live",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "rinng",
+        "live",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
+    },
+    {
       "name": "rinng-web",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "rinng", "web", "--port", "8000"],
+      "runtimeArgs": [
+        "run",
+        "rinng",
+        "web",
+        "--port",
+        "8000"
+      ],
       "port": 8000
     },
     {
       "name": "rinng-ui-dev",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--dir", "web", "dev"],
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "rinng-news-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "rinng",
+        "web",
+        "--port",
+        "8011"
+      ],
+      "port": 8011
+    },
+    {
+      "name": "rinng-news-ui",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "exec",
+        "vite",
+        "dev",
+        "--port",
+        "3011"
+      ],
+      "port": 3011,
+      "env": {
+        "RINNG_API": "http://127.0.0.1:8011"
+      }
+    },
+    {
+      "name": "rinng-desk-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "rinng",
+        "web",
+        "--port",
+        "8022"
+      ],
+      "port": 8022
+    },
+    {
+      "name": "rinng-desk-ui",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "exec",
+        "vite",
+        "dev",
+        "--port",
+        "3021"
+      ],
+      "port": 3021,
+      "env": {
+        "RINNG_API": "http://127.0.0.1:8022"
+      }
     }
   ]
 }

@@ -1,6 +1,6 @@
-// Primitive vẽ lớp phủ rinng lên series nến (Lightweight Charts 5 plugin API):
-// vùng (zones), mức ngang (levels) và volume profile theo kỳ (profiles).
-// Thời gian tùy ý (không trùng mốc nến) đổi sang chỉ số logical có phần lẻ rồi sang pixel.
+// Primitive that draws the rinng overlay on the candle series (Lightweight Charts 5 plugin API):
+// zones, horizontal levels and per-period volume profiles.
+// Arbitrary times (not on a candle boundary) map to a fractional logical index, then to pixels.
 import type {
   IChartApi,
   ISeriesApi,
@@ -12,9 +12,9 @@ import type {
   SeriesType,
   Time,
 } from "lightweight-charts"
-import type { ChartData, Level, Profile, Zone } from "./api"
+import type { ChartData, Level, Profile, Projection, Zone } from "./api"
 
-// Phần của CanvasRenderingTarget2D (gói fancy-canvas) mà overlay dùng.
+// The part of CanvasRenderingTarget2D (fancy-canvas package) the overlay uses.
 type CanvasRenderingTarget2D = {
   useMediaCoordinateSpace: <T>(
     f: (s: { context: CanvasRenderingContext2D; mediaSize: { width: number; height: number } }) => T,
@@ -56,12 +56,16 @@ export class RinngOverlay implements ISeriesPrimitive<Time> {
   private zones: Array<Zone> = []
   private levels: Array<Level> = []
   private profiles: Array<Profile> = []
+  private projection: Projection | null = null
   private chart: IChartApi | null = null
   private series: ISeriesApi<SeriesType> | null = null
   private request: (() => void) | null = null
   private readonly views: Array<IPrimitivePaneView>
+  // Live desk: the cone is revealed left to right (0..1) and carries its own median line.
+  private coneReveal = 1
+  coneMedian = false
 
-  constructor(private readonly times: Array<number>) {
+  constructor(private times: Array<number>) {
     const bg: IPrimitivePaneRenderer = {
       draw: () => {},
       drawBackground: (t) => this.drawBg(t),
@@ -79,6 +83,17 @@ export class RinngOverlay implements ISeriesPrimitive<Time> {
     this.zones = data.zones ?? []
     this.levels = data.levels ?? []
     this.profiles = data.profiles ?? []
+    this.projection = data.forecast ?? null
+    this.request?.()
+  }
+
+  // Candle times changed (a chart that keeps its series across reloads).
+  setTimes(times: Array<number>) {
+    this.times = times
+  }
+
+  reveal(k: number) {
+    this.coneReveal = k
     this.request?.()
   }
 
@@ -96,7 +111,16 @@ export class RinngOverlay implements ISeriesPrimitive<Time> {
     return this.views
   }
 
-  // Thời gian → chỉ số logical (nội suy giữa hai mốc nến; ngoại suy sau nến cuối).
+  // Keep the whole projection cone inside the price scale.
+  autoscaleInfo() {
+    const p = this.projection
+    if (!p) return null
+    return {
+      priceRange: { minValue: Math.min(...p.bands.q05), maxValue: Math.max(...p.bands.q95) },
+    }
+  }
+
+  // Time → logical index (interpolated between candles; extrapolated past the last one).
   private logical(t: number): number | null {
     const ts = this.times
     const n = ts.length
@@ -155,6 +179,7 @@ export class RinngOverlay implements ISeriesPrimitive<Time> {
         }
       }
       for (const p of this.profiles) this.drawProfile(ctx, p, right)
+      if (this.projection) this.drawCone(ctx, this.projection, mediaSize.height)
     })
   }
 
@@ -214,6 +239,68 @@ export class RinngOverlay implements ISeriesPrimitive<Time> {
       ctx.font = "10px 'Geist Mono Variable', monospace"
       ctx.fillStyle = delta >= 0 ? "#26a69a" : "#ef5350"
       ctx.fillText(fmtVol(delta), x0, bottom + 12)
+    }
+  }
+
+  // Projection cone: 90%, 80%, 50% bands, darker towards the middle.
+  private drawCone(ctx: Ctx, p: Projection, height: number) {
+    const xs = p.times.map((t) => this.x(t, null))
+    if (xs.some((x) => x == null)) return
+    const end = xs.length - 1
+    const k = Math.min(1, Math.max(0, this.coneReveal))
+    const edge = xs[0]! + (xs[end]! - xs[0]!) * k
+    ctx.save()
+    if (k < 1) {
+      ctx.beginPath()
+      ctx.rect(0, 0, edge, height)
+      ctx.clip()
+    }
+    const pairs: Array<[keyof Projection["bands"], keyof Projection["bands"], number]> = [
+      ["q05", "q95", 0.1],
+      ["q10", "q90", 0.14],
+      ["q25", "q75", 0.2],
+    ]
+    for (const [lo, hi, a] of pairs) {
+      const top = p.bands[hi].map((v) => this.y(v))
+      const bot = p.bands[lo].map((v) => this.y(v))
+      if (top.some((y) => y == null) || bot.some((y) => y == null)) continue
+      ctx.beginPath()
+      xs.forEach((x, i) => (i ? ctx.lineTo(x!, top[i]!) : ctx.moveTo(x!, top[i]!)))
+      for (let i = xs.length - 1; i >= 0; i--) ctx.lineTo(xs[i]!, bot[i]!)
+      ctx.closePath()
+      ctx.fillStyle = `rgba(66,165,245,${a})`
+      ctx.fill()
+    }
+    if (this.coneMedian) {
+      const ys = p.bands.q50.map((v) => this.y(v))
+      if (!ys.some((y) => y == null)) {
+        ctx.strokeStyle = "rgba(66,165,245,0.95)"
+        ctx.lineWidth = 1.5
+        ctx.setLineDash([5, 4])
+        ctx.beginPath()
+        xs.forEach((x, i) => (i ? ctx.lineTo(x!, ys[i]!) : ctx.moveTo(x!, ys[i]!)))
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+    }
+    ctx.restore()
+    if (k < 1) {
+      // Leading edge of the reveal.
+      ctx.fillStyle = "rgba(144,202,249,0.5)"
+      ctx.fillRect(edge - 1, 0, 2, height)
+      return
+    }
+    // Labels at the cone's end: price for each band edge.
+    const last = xs.length - 1
+    ctx.font = "10px 'Geist Mono Variable', monospace"
+    ctx.fillStyle = "rgba(144,202,249,0.95)"
+    for (const [key, name] of [
+      ["q90", "90%"],
+      ["q10", "10%"],
+    ] as const) {
+      const y = this.y(p.bands[key][last])
+      if (y == null) continue
+      ctx.fillText(`${name} ${Math.round(p.bands[key][last]).toLocaleString("en-US")}`, xs[last]! + 4, y + 3)
     }
   }
 

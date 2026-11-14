@@ -138,3 +138,34 @@
     @apply font-sans;
     }
 }
+@keyframes news-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.news-marquee { animation: news-marquee var(--news-dur, 120s) linear infinite; }
+.news-marquee:hover, .news-marquee:focus-within { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) { .news-marquee { animation: none; } }
+
+/* Live desk: pulsing marker at the running price, and rows that settle in on each update. */
+.desk-dot {
+  position: absolute; top: 0; left: 0; width: 8px; height: 8px; margin: -4px 0 0 -4px;
+  border-radius: 9999px; pointer-events: none; background: var(--up);
+  box-shadow: 0 0 0 2px var(--card); transition: opacity 0.2s, background-color 0.3s;
+}
+.desk-dot[data-dir="down"] { background: var(--down); }
+.desk-dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; background: inherit; opacity: 0;
+}
+.desk-dot[data-live="1"]::after { animation: desk-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes desk-ping {
+  0% { transform: scale(1); opacity: 0.6; }
+  80%, 100% { transform: scale(3.6); opacity: 0; }
+}
+@keyframes desk-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.desk-in { animation: desk-in 0.35s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .desk-in, .desk-dot[data-live="1"]::after { animation: none; }
+}

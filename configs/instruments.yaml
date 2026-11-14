@@ -1,13 +1,41 @@
 # Mặc định theo docs/07-ke-hoach-trien-khai.md mục 1.
+# Thứ tự ở đây là thứ tự hiển thị trong web (watchlist). Coin khác: tìm trong ô tìm kiếm.
 data_dir: data
 base_timeframe: 1m
-timeframes: [15m, 1h, 4h, 1d, 1w]
+timeframes: [5m, 15m, 1h, 4h, 1d, 1w]
 instruments:
   - id: BTC-USDT-PERP
     kind: perp
+    base: BTC
+    quote: USDT
+    name: Bitcoin
     binance: BTCUSDT
     okx: BTC-USDT-SWAP
+  - id: SOL-USDT-PERP
+    kind: perp
+    base: SOL
+    quote: USDT
+    name: Solana
+    binance: SOLUSDT
+    okx: SOL-USDT-SWAP
   - id: ETH-USDT-PERP
     kind: perp
+    base: ETH
+    quote: USDT
+    name: Ethereum
     binance: ETHUSDT
     okx: ETH-USDT-SWAP
+  - id: BNB-USDT-PERP
+    kind: perp
+    base: BNB
+    quote: USDT
+    name: BNB
+    binance: BNBUSDT
+    okx: BNB-USDT-SWAP
+  - id: LINK-USDT-PERP
+    kind: perp
+    base: LINK
+    quote: USDT
+    name: Chainlink
+    binance: LINKUSDT
+    okx: LINK-USDT-SWAP

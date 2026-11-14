@@ -1,53 +1,107 @@
-"""Server web rinng: API JSON + giao diện tĩnh. Chạy: `uv run rinng web`.
+"""rinng web server: JSON API + static UI. Run: `uv run rinng web`.
 
-Nguồn dữ liệu: ưu tiên dữ liệu curated trong data/; nếu khoảng thời gian chưa có thì lấy
-thẳng từ REST của Binance (chỉ nến và funding/OI/long-short gần đây). Kết quả lens được
-cache trong bộ nhớ 60 giây.
+Data source: curated data in data/ first; when the range is missing, fetch directly from the
+exchange REST API (candles, and recent funding/OI/long-short on Binance). Lens results are
+cached in memory for 60 seconds.
 """
 
+import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import polars as pl
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from rinng.config import Settings
 from rinng.exchanges.base import timeframe_ms
+from rinng.exchanges.listing import Catalog, icon_symbol
+from rinng.news.feed import NewsFeed
+from rinng.news.score import outlook
 from rinng.pipeline.run import load_ohlcv
 from rinng.store.paths import DataPaths
 from rinng.store.reader import read_curated
+from rinng.store.resample import resample_ohlcv
 from rinng.store.schemas import FUNDING, LONG_SHORT, OHLCV, OPEN_INTEREST, rows_to_frame
-from rinng.web import summary
+from rinng.web import desk, summary
 from rinng.web.lenses import LENSES, candles_json, to_native
 
+if TYPE_CHECKING:
+    from rinng.live.hub import LiveHub
+
 STATIC = Path(__file__).parent / "static"
-# Bản build tĩnh của giao diện React (thư mục web/ ở gốc repo, `pnpm build`).
+# Static build of the React UI (web/ at the repo root, `pnpm build`).
 SPA = Path(__file__).resolve().parents[3] / "web" / "dist" / "client"
-TIMEFRAMES = ["15m", "1h", "4h", "1d", "1w"]
+TIMEFRAMES = ["5m", "15m", "1h", "4h", "1d", "1w"]
+DESK_DAYS = 70  # 5m history behind the desk projection (~20k candles)
 MAX_BARS = 3000
 
 
-def create_app(settings: Settings) -> FastAPI:
+def _instrument_json(i, configured: bool) -> dict:
+    return {
+        "id": i.id,
+        "kind": i.kind,
+        "base": i.base,
+        "quote": i.quote,
+        "name": i.name,
+        "icon": icon_symbol(i.base or ""),
+        "binance": bool(i.binance),
+        "okx": bool(i.okx),
+        "configured": configured,
+    }
+
+
+def create_app(
+    settings: Settings, hub: "LiveHub | None" = None, catalog: Catalog | None = None
+) -> FastAPI:
+    """`hub`: có khi chạy bằng `rinng live` (dữ liệu realtime + WebSocket /ws/live).
+    `catalog`: danh mục coin trên sàn để mở coin ngoài cấu hình (dữ liệu qua REST)."""
     app = FastAPI(title="rinng")
+    catalog = catalog or Catalog(settings)
     paths = DataPaths(settings.data_dir)
     cache: dict[tuple, tuple[float, object]] = {}
+    news = NewsFeed()
+    # Chạy live: cache theo mốc nến đóng gần nhất của khung đó (đóng nến mới là tính lại);
+    # không live: dữ liệu chỉ đổi khi chạy curate, nên hết hạn sau 60 giây là đủ.
+    ttl = 3600.0 if hub is not None else 60.0
 
-    def cached(key: tuple, fn, ttl: float = 60.0):
+    def stamp(exchange: str, symbol: str, tf: str) -> int | None:
+        return None if hub is None else hub.last_closed.get((exchange, symbol, tf))
+
+    def cached(key: tuple, fn):
+        # Khóa cuối là mốc nến đóng; không có (coin ngoài cấu hình chưa có feed) thì 60 giây.
+        life = ttl if key[-1] is not None else 60.0
         hit = cache.get(key)
-        if hit and time.time() - hit[0] < ttl:
+        if hit and time.time() - hit[0] < life:
             return hit[1]
         value = fn()
+        if len(cache) > 256:
+            for old in sorted(cache, key=lambda k: cache[k][0])[:64]:
+                cache.pop(old, None)
         cache[key] = (time.time(), value)
         return value
 
+    def instrument(symbol: str):
+        try:
+            return catalog.resolve(symbol)
+        except KeyError:
+            raise HTTPException(404, f"unknown instrument {symbol}") from None
+
     def venue(symbol: str, exchange: str) -> str:
-        for inst in settings.instruments:
-            if inst.id == symbol:
-                return getattr(inst, exchange)
-        raise HTTPException(404, f"không có instrument {symbol}")
+        v = getattr(instrument(symbol), exchange, None)
+        if not v:
+            raise HTTPException(404, f"{symbol} is not listed on {exchange}")
+        return v
+
+    def from_1m(exchange: str, symbol: str, tf: str, start: datetime) -> pl.DataFrame:
+        """Nến `tf` đã đóng, gộp từ nến 1m trong curated (rỗng nếu coin chưa có dữ liệu lưu)."""
+        m1 = load_ohlcv(paths, exchange, symbol, "1m", start)
+        if m1.height < 2:
+            return m1
+        return resample_ohlcv(m1, tf).filter(pl.col("is_closed")).sort("open_time")
 
     def candles(exchange: str, symbol: str, tf: str, days: int) -> tuple[pl.DataFrame, str]:
         start = datetime.now(UTC) - timedelta(days=days)
@@ -55,6 +109,11 @@ def create_app(settings: Settings) -> FastAPI:
         need = days * 86_400_000 / timeframe_ms(tf)
         if o.height >= 0.9 * min(need, MAX_BARS) and o.height > 2:
             return o.tail(MAX_BARS), "curated"
+        if tf == "5m":
+            # 5m chưa được lưu đủ (mới thêm khung): gộp từ nến 1m đã lưu.
+            o = from_1m(exchange, symbol, tf, start)
+            if o.height >= 0.9 * min(need, MAX_BARS):
+                return o.tail(MAX_BARS), "curated"
         from rinng.exchanges.binance import Binance
         from rinng.exchanges.okx import Okx
 
@@ -76,7 +135,7 @@ def create_app(settings: Settings) -> FastAPI:
             for col, val in extra.items():
                 f = f.filter(pl.col(col) == val)
             if "source" in f.columns and f["source"].n_unique() > 1:
-                # Hai nguồn cho số hơi khác nhau: dùng dump (dài hơn), lấp phần mới hơn bằng api.
+                # Sources differ slightly: use the dump (longer), fill newer points from the api.
                 dump = f.filter(pl.col("source") == "dump")
                 newer = f.filter(
                     (pl.col("source") == "api") & (pl.col("time") > dump["time"].max())
@@ -109,10 +168,11 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/api/meta")
     def meta():
         return {
-            "instruments": [i.id for i in settings.instruments],
+            "instruments": [_instrument_json(i, True) for i in settings.instruments],
             "exchanges": ["binance", "okx"],
             "timeframes": TIMEFRAMES,
             "lenses": {k: v[0] for k, v in LENSES.items()},
+            "live": hub is not None,
         }
 
     @app.get("/api/chart")
@@ -125,26 +185,47 @@ def create_app(settings: Settings) -> FastAPI:
         period: str = Query("week"),
     ):
         if lens not in LENSES:
-            raise HTTPException(404, f"không có lens {lens}")
+            raise HTTPException(404, f"unknown lens {lens}")
         if tf not in TIMEFRAMES:
-            raise HTTPException(400, f"khung {tf} không hỗ trợ")
+            raise HTTPException(400, f"timeframe {tf} not supported")
 
         def build():
             o, source = candles(exchange, symbol, tf, days)
             if o.height < 30:
-                raise HTTPException(404, "chưa đủ nến")
-            ctx: dict = {"period": period}
+                raise HTTPException(404, "not enough candles")
+            ctx: dict = {"period": period, "asset": instrument(symbol).base}
             if lens == "profile":
                 base_tf = "15m" if days <= 45 else "1h" if days <= 400 else "4h"
                 if timeframe_ms(base_tf) > timeframe_ms(tf):
                     base_tf = tf
                 ctx["base"] = candles(exchange, symbol, base_tf, days)[0]
+            if lens == "forecast":
+                # Lịch sử dài cho tập quỹ đạo quá khứ; kết thúc đúng ở nến cuối đang hiển thị.
+                hist = load_ohlcv(paths, exchange, symbol, tf)
+                hist = hist.filter(pl.col("open_time") <= o["open_time"][-1]).tail(20_000)
+                if hist.height < 2_000:
+                    # Coin chưa có dữ liệu lưu: lấy tối đa MAX_BARS nến qua REST làm tập quỹ đạo.
+                    need = MAX_BARS * timeframe_ms(tf) / 86_400_000
+                    more = candles(exchange, symbol, tf, int(need) + 1)[0]
+                    hist = more if more.height > hist.height else hist
+                ctx["history"] = hist if hist.height >= o.height else o
             if lens == "derivatives":
                 ctx.update(derivs(exchange, symbol, o["open_time"][0]))
             payload = LENSES[lens][1](o, ctx)
             return to_native({"candles": candles_json(o), "source": source, **payload})
 
-        return cached((lens, symbol, exchange, tf, days, period), build)
+        return cached(
+            (lens, symbol, exchange, tf, days, period, stamp(exchange, symbol, tf)), build
+        )
+
+    @app.get("/api/instruments")
+    def instruments_api(q: str = Query(""), limit: int = Query(30, ge=1, le=100)):
+        """Tìm coin trên Binance/OKX (perp USDT). q rỗng: danh sách mặc định trong cấu hình."""
+        return [_instrument_json(i, catalog.is_configured(i.id)) for i in catalog.search(q, limit)]
+
+    @app.get("/api/instrument")
+    def instrument_api(symbol: str = Query(...)):
+        return _instrument_json(instrument(symbol), catalog.is_configured(symbol))
 
     @app.get("/api/summary")
     def summary_api(
@@ -156,7 +237,7 @@ def create_app(settings: Settings) -> FastAPI:
             h4 = candles(exchange, symbol, "4h", 180)[0]
             d1 = candles(exchange, symbol, "1d", 1000)[0]
             if h1.height < 30 or h4.height < 30 or d1.height < 30:
-                raise HTTPException(404, "chưa đủ nến")
+                raise HTTPException(404, "not enough candles")
             d = derivs(exchange, symbol, h1["open_time"].max() - timedelta(days=8))
             return to_native(
                 {
@@ -172,11 +253,93 @@ def create_app(settings: Settings) -> FastAPI:
                 }
             )
 
-        return cached(("summary", symbol, exchange), build)
+        return cached(("summary", symbol, exchange, stamp(exchange, symbol, "1h")), build)
+
+    @app.get("/api/desk")
+    def desk_api(
+        symbol: str = Query("BTC-USDT-PERP"),
+        exchange: str = Query("binance"),
+    ):
+        """Chart 5m gộp mọi lớp phân tích + phiếu của các agent và hai kịch bản long/short."""
+
+        def build():
+            # Phần hiển thị: nến 5m đầy đủ (curated nếu đủ, không thì REST). Phần lịch sử dài
+            # phía trước chỉ làm tập quỹ đạo cho dự báo: gộp từ nến 1m đã lưu, có thể thiếu nến.
+            hist, source = candles(exchange, symbol, desk.TF, 4)
+            if hist.height < 60:
+                raise HTTPException(404, "not enough candles")
+            old = from_1m(exchange, symbol, desk.TF, datetime.now(UTC) - timedelta(days=DESK_DAYS))
+            old = old.filter(pl.col("open_time") < hist["open_time"][0])
+            if old.height:
+                hist = pl.concat([old, hist], how="diagonal_relaxed")
+            h1 = candles(exchange, symbol, "1h", 30)[0]
+            d = derivs(exchange, symbol, h1["open_time"].max() - timedelta(days=8))
+            block = summary.derivatives_block(d["funding"], d["oi"], d["ls"])
+            return to_native(desk.build(hist, h1, block, source))
+
+        return cached(("desk", symbol, exchange, stamp(exchange, symbol, desk.TF)), build)
+
+    @app.get("/api/news")
+    async def news_api(
+        base: str = Query("", description="coin to build an outlook for, e.g. BTC"),
+        limit: int = Query(60, ge=1, le=300),
+    ):
+        """Latest scored headlines, plus a 24h sentiment outlook for the market and `base`."""
+        await news.refresh()
+        items = news.latest(news.keep)
+        now = int(time.time() * 1000)
+        b = base.upper() or None
+        return {
+            "updated": int(news.updated * 1000),
+            "items": items[:limit],
+            "market": outlook(items, now),
+            "coin": outlook(items, now, b) | {"base": b} if b else None,
+            "coin_items": [it for it in items if b in it["coins"]][:20] if b else [],
+        }
+
+    @app.websocket("/ws/live")
+    async def live_ws(ws: WebSocket):
+        """Client gửi {"op": "sub", "symbol", "exchange", "tfs": [...]}; server đẩy sự kiện
+        tick, mark, bar (nến đang chạy), close (nến vừa đóng), liq, status."""
+        if hub is None:
+            await ws.close(code=1013, reason="live data is not running (use `rinng live`)")
+            return
+        await ws.accept()
+        client = hub.connect()
+
+        async def reader():
+            while True:
+                msg = await ws.receive_json()
+                if msg.get("op") != "sub":
+                    continue
+                client.exchange = msg.get("exchange")
+                client.symbol = msg.get("symbol")
+                client.timeframes = set(msg.get("tfs") or []) & set(TIMEFRAMES)
+                key = (client.exchange, client.symbol)
+                if hub.on_new_key is not None and not hub.covers(key):
+                    asyncio.create_task(hub.on_new_key(key))
+                for event in hub.snapshot(key, client.timeframes):
+                    if not client.queue.full():
+                        client.queue.put_nowait(event)
+
+        read_task = asyncio.create_task(reader())
+        try:
+            while True:
+                get = asyncio.create_task(client.queue.get())
+                done, _ = await asyncio.wait({get, read_task}, return_when=asyncio.FIRST_COMPLETED)
+                if read_task in done:
+                    get.cancel()
+                    break
+                await ws.send_json(get.result())
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            hub.disconnect(client)
+            read_task.cancel()
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     if (SPA / "_shell.html").exists():
-        # Giao diện mới (web/, React + shadcn) đã build: phục vụ nó; giao diện cũ ở /classic.
+        # The React UI (web/) is built: serve it; the old UI stays at /classic.
         app.mount("/assets", StaticFiles(directory=SPA / "assets"), name="assets")
 
         @app.get("/classic")
