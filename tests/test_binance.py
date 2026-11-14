@@ -230,3 +230,49 @@ def test_sync_limits_reads_exchange_info():
     api = make(lambda r: httpx.Response(200, json=body))
     api.sync_limits()
     assert api._weight.budget == 500
+
+
+def test_stats_paginate_backwards_because_binance_returns_newest():
+    """Sàn trả `limit` điểm mới nhất trong khoảng hỏi, xếp tăng dần."""
+    step = 300_000
+    points = [T0_MS + i * step for i in range(1200)]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        q = request.url.params
+        start, end, limit = int(q["startTime"]), int(q["endTime"]), int(q["limit"])
+        inside = [p for p in points if start <= p <= end][-limit:]
+        body = [
+            {"sumOpenInterest": "1", "sumOpenInterestValue": "2", "timestamp": p} for p in inside
+        ]
+        return httpx.Response(200, json=body)
+
+    pages = make(handler).open_interest("BTCUSDT", "5m", T0, T0 + timedelta(minutes=5 * 1200))
+    times = sorted(r["time"] for page in pages for r in page)
+    assert times == points
+    assert len(requests) == 3  # 500 + 500 + 200
+
+
+def test_transient_network_error_is_retried():
+    calls, slept = [], []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ConnectError("Connection reset by peer")
+        return httpx.Response(200, json=[kline(T0_MS)])
+
+    rows = collect(
+        make(handler, sleep=slept.append).klines("BTCUSDT", "1h", T0, T0 + timedelta(hours=1))
+    )
+    assert len(rows) == 1
+    assert slept == [2.0]
+
+
+def test_persistent_network_error_raises():
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    with pytest.raises(httpx.ConnectError):
+        collect(make(handler, max_retries=1).klines("BTCUSDT", "1h", T0, T0 + timedelta(hours=1)))

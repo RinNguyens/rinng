@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rinng-web",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "rinng", "web", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "rinng-ui-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "web", "dev"],
+      "port": 3000
+    }
+  ]
+}

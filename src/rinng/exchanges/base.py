@@ -23,18 +23,12 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from rinng.timeframes import timeframe_ms
+
+__all__ = ["Exchange", "Pages", "Row", "timeframe_ms", "to_ms"]
+
 Row = dict[str, Any]
 Pages = Iterator[list[Row]]
-
-_UNIT_MS = {"m": 60_000, "h": 3_600_000, "d": 86_400_000, "w": 604_800_000}
-
-
-def timeframe_ms(timeframe: str) -> int:
-    """Độ dài một khung thời gian, ví dụ '15m', '4h', '1d', '1w'."""
-    unit = timeframe[-1:]
-    if unit not in _UNIT_MS or not timeframe[:-1].isdigit():
-        raise ValueError(f"khung thời gian không hợp lệ: {timeframe!r}")
-    return int(timeframe[:-1]) * _UNIT_MS[unit]
 
 
 def to_ms(moment: datetime) -> int:

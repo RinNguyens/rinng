@@ -1,0 +1,37 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// rinng Oscillators — pane riêng: RSI, MACD histogram, volume delta và CVD.
+// Delta ở đây là ƯỚC LƯỢNG từ nến khung thấp hơn (volume nến tăng tính là mua, nến giảm là bán),
+// không phải taker buy volume thật như trong Python (src/rinng/analysis/orderflow.py dùng cột
+// taker_buy_volume của Binance). Hai số sẽ lệch nhau.
+//@version=6
+indicator("rinng Oscillators", overlay = false)
+
+show   = input.string("CVD", "Hiện", options = ["RSI", "MACD", "Delta", "CVD"])
+ltf    = input.timeframe("1", "Khung thấp để ước lượng delta")
+reset  = input.string("1W", "CVD reset theo", options = ["1D", "1W", "Không"])
+
+[ltfClose, ltfOpen, ltfVol] = request.security_lower_tf(syminfo.tickerid, ltf, [close, open, volume])
+float delta = 0.0
+// Mảng có thể rỗng (nến chưa có dữ liệu khung thấp); for 0 to -1 trong Pine sẽ chạy ngược.
+for i = 0 to math.max(ltfVol.size() - 1, -1)
+    if ltfVol.size() == 0
+        break
+    float c = ltfClose.get(i)
+    float o = ltfOpen.get(i)
+    delta += c > o ? ltfVol.get(i) : c < o ? -ltfVol.get(i) : 0.0
+
+// ta.change phải chạy mọi nến nên tính ở phạm vi toàn cục, ngoài biểu thức điều kiện.
+periodChanged = ta.change(time(reset == "Không" ? "1W" : reset, "", "UTC")) != 0
+var float cvd = 0.0
+bool newPeriod = reset != "Không" and periodChanged
+cvd := (newPeriod ? 0.0 : cvd) + delta
+
+rsi = ta.rsi(close, 14)
+[macdLine, signalLine, hist] = ta.macd(close, 12, 26, 9)
+
+plot(show == "RSI" ? rsi : na, "RSI", color.purple)
+hline(70, "70", color.gray, hline.style_dotted, display = show == "RSI" ? display.all : display.none)
+hline(30, "30", color.gray, hline.style_dotted, display = show == "RSI" ? display.all : display.none)
+plot(show == "MACD" ? hist : na, "MACD hist", hist >= 0 ? color.teal : color.red, style = plot.style_columns)
+plot(show == "Delta" ? delta : na, "Delta", delta >= 0 ? color.teal : color.red, style = plot.style_columns)
+plot(show == "CVD" ? cvd : na, "CVD", color.orange)
