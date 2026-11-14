@@ -74,9 +74,7 @@ function App() {
     <div className="flex h-svh flex-col gap-3 p-3">
       <nav className="flex flex-wrap items-center gap-2">
         <div className="mr-1 flex items-center gap-2 pl-1">
-          <span className="grid size-7 place-items-center rounded-lg bg-primary font-heading text-sm font-bold text-primary-foreground">
-            r
-          </span>
+          <img src="/logo.svg" alt="" className="size-7 rounded-lg" />
           <span className="font-heading text-sm font-semibold tracking-tight">rinng</span>
         </div>
 
