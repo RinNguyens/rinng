@@ -1,1 +1,1 @@
-"""L2: đường dẫn, đọc/ghi Parquet, schema."""
+"""L2: paths, Parquet read/write, schemas."""

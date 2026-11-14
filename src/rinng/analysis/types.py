@@ -1,17 +1,17 @@
-"""Hai dạng đầu ra của lớp phân tích (docs/08-kien-truc.md mục 5.3).
+"""The two output shapes of the analysis layer (docs/08-architecture.md section 5.3).
 
-Đầu vào chung của mọi module: frame nến theo schema curated `ohlcv` của MỘT symbol và MỘT
-khung thời gian, đã sắp tăng dần theo `open_time`, không trùng.
+Common input of every module: a candle frame in the curated `ohlcv` schema for ONE symbol and ONE
+timeframe, sorted ascending by `open_time`, without duplicates.
 
-- Features: một dòng mỗi nến. Cột khóa `symbol, timeframe, open_time, known_at, params_hash`
-  rồi tới các cột giá trị. `known_at` = thời điểm đóng nến.
-- Events: một dòng mỗi sự kiện, schema cố định `EVENT_SCHEMA`.
-  `event_time` là nến sự kiện gắn vào; `known_at` là lúc sự kiện được xác nhận
-  (luôn >= thời điểm đóng của nến `event_time`). `invalidated_at` là lúc vùng bị phá/lấp.
-  `attrs` là chuỗi JSON cho thuộc tính riêng của từng loại.
+- Features: one row per candle. Key columns `symbol, timeframe, open_time, known_at, params_hash`
+  followed by the value columns. `known_at` = candle close time.
+- Events: one row per event, fixed schema `EVENT_SCHEMA`.
+  `event_time` is the candle the event attaches to; `known_at` is when the event is confirmed
+  (always >= the close time of the `event_time` candle). `invalidated_at` is when the zone is
+  broken/filled. `attrs` is a JSON string holding kind-specific attributes.
 
-Quy tắc chống nhìn trước: kết quả có `known_at <= T` không được thay đổi khi dữ liệu sau T
-được thêm vào. `rinng.analysis.testing.assert_no_lookahead` kiểm điều này.
+No-lookahead rule: results with `known_at <= T` must not change when data after T
+is appended. `rinng.analysis.testing.assert_no_lookahead` checks this.
 """
 
 import hashlib
@@ -43,7 +43,7 @@ EVENT_SCHEMA: dict[str, pl.DataType] = {
 
 
 def params_hash(module: str, params: Mapping[str, Any]) -> str:
-    """Mã băm ổn định của (module, tham số)."""
+    """Stable hash of (module, params)."""
     payload = json.dumps({"module": module, "params": dict(params)}, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
@@ -53,22 +53,22 @@ def bar_duration(timeframe: str) -> timedelta:
 
 
 def check_ohlcv(ohlcv: pl.DataFrame) -> tuple[str, str]:
-    """Kiểm đầu vào và trả về (symbol, timeframe)."""
+    """Validate the input and return (symbol, timeframe)."""
     if ohlcv.is_empty():
-        raise ValueError("frame nến rỗng")
+        raise ValueError("empty candle frame")
     for col in ("symbol", "timeframe"):
         if ohlcv[col].n_unique() != 1:
-            raise ValueError(f"frame nến phải chỉ có một giá trị {col}")
+            raise ValueError(f"candle frame must have a single {col} value")
     times = ohlcv["open_time"]
     if not times.is_sorted() or times.n_unique() != len(times):
-        raise ValueError("open_time phải tăng dần và không trùng")
+        raise ValueError("open_time must be strictly increasing without duplicates")
     return ohlcv["symbol"][0], ohlcv["timeframe"][0]
 
 
 def features_frame(
     ohlcv: pl.DataFrame, values: Mapping[str, pl.Series | pl.Expr], phash: str
 ) -> pl.DataFrame:
-    """Dựng frame Features từ nến và các cột giá trị cùng độ dài."""
+    """Build a Features frame from candles and value columns of the same length."""
     _, timeframe = check_ohlcv(ohlcv)
     duration = bar_duration(timeframe)
     return ohlcv.select(
@@ -84,8 +84,8 @@ def features_frame(
 def events_frame(
     rows: list[dict[str, Any]], *, symbol: str, timeframe: str, phash: str
 ) -> pl.DataFrame:
-    """Dựng frame Events. Mỗi dict cần: kind, event_time, known_at; tùy chọn: price_low,
-    price_high, invalidated_at, attrs (dict). `event_id` được sinh ổn định từ nội dung."""
+    """Build an Events frame. Each dict needs: kind, event_time, known_at; optional: price_low,
+    price_high, invalidated_at, attrs (dict). `event_id` is derived stably from the content."""
     out = []
     for r in rows:
         attrs = r.get("attrs") or {}
@@ -102,7 +102,7 @@ def events_frame(
             "params_hash": phash,
         }
         if record["known_at"] < record["event_time"]:
-            raise ValueError(f"known_at trước event_time ở sự kiện {r['kind']}")
+            raise ValueError(f"known_at before event_time in event {r['kind']}")
         ident = f"{symbol}|{timeframe}|{r['kind']}|{r['event_time']}|{phash}|{r.get('id', '')}"
         record["event_id"] = hashlib.sha1(ident.encode()).hexdigest()[:16]
         out.append(record)

@@ -1,4 +1,4 @@
-"""Đọc và kiểm tra cấu hình dự án."""
+"""Load and validate the project config."""
 
 from pathlib import Path
 from typing import Literal
@@ -10,7 +10,7 @@ DEFAULT_CONFIG = Path("configs/instruments.yaml")
 
 
 class Instrument(BaseModel):
-    """Một instrument với tên chuẩn của dự án và tên gốc trên từng sàn."""
+    """An instrument with the project canonical name and the native name on each exchange."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -18,7 +18,7 @@ class Instrument(BaseModel):
     kind: Literal["perp", "spot"]
     binance: str | None = None
     okx: str | None = None
-    # Hiển thị: tài sản cơ sở (icon), tài sản định giá, tên đầy đủ. Bỏ trống thì suy từ id.
+    # Display: base asset (icon), quote asset, full name. Left empty, derived from id.
     base: str | None = None
     quote: str | None = None
     name: str | None = None
@@ -34,7 +34,7 @@ class Instrument(BaseModel):
     def venue_symbol(self, exchange: str) -> str:
         symbol = getattr(self, exchange, None)
         if symbol is None:
-            raise KeyError(f"{self.id} không có tên trên sàn {exchange!r}")
+            raise KeyError(f"{self.id} has no name on exchange {exchange!r}")
         return symbol
 
 
@@ -50,14 +50,14 @@ class Settings(BaseModel):
     def _unique_ids(self) -> "Settings":
         ids = [i.id for i in self.instruments]
         if len(ids) != len(set(ids)):
-            raise ValueError("id của instrument bị trùng")
+            raise ValueError("duplicate instrument id")
         return self
 
     def instrument(self, instrument_id: str) -> Instrument:
         for inst in self.instruments:
             if inst.id == instrument_id:
                 return inst
-        raise KeyError(f"không có instrument {instrument_id!r} trong cấu hình")
+        raise KeyError(f"instrument {instrument_id!r} not in config")
 
 
 def load_settings(path: Path = DEFAULT_CONFIG) -> Settings:

@@ -1,123 +1,123 @@
-# 08 — Kiến trúc dự án rinng
+# 08 — rinng architecture
 
-Lập ngày 2026-11-13. Phạm vi: crypto, chưa có LLM, chưa đặt lệnh thật. Đây là bản thiết kế; chưa có dòng code nào. Kiến trúc dùng các mặc định ở [07-ke-hoach-trien-khai.md](07-ke-hoach-trien-khai.md) mục 1 (BTCUSDT và ETHUSDT perpetual, Binance là chính, nến gốc 1 phút, UTC); các mặc định đó chưa được xác nhận.
+Written 2026-11-13. Scope: crypto, no LLM yet, no live order placement. This is a design; not a single line of code exists yet. The architecture uses the defaults in [07-implementation-plan.md](07-implementation-plan.md) section 1 (BTCUSDT and ETHUSDT perpetuals, Binance as primary, 1-minute base bars, UTC); those defaults have not been confirmed.
 
-## 1. Nguyên tắc thiết kế
+## 1. Design principles
 
-1. **Dữ liệu thô bất biến.** Thứ tải về được ghi một lần và không sửa. Mọi lớp sau tính lại được từ nó.
-2. **Phụ thuộc một chiều.** Lớp sau chỉ đọc đầu ra của lớp trước qua file Parquet, không gọi ngược.
-3. **Hai mốc thời gian.** Mỗi bản ghi phân tích có `event_time` (sự việc xảy ra lúc nào) và `known_at` (lúc nào mới biết chắc). Backtest chỉ được dùng `known_at`.
-4. **Phân tích là hàm thuần.** Cùng dữ liệu và cùng tham số thì cùng kết quả; không gọi mạng, không đọc đồng hồ.
-5. **Tham số nằm trong cấu hình**, không nằm trong code. Mỗi kết quả ghi lại mã băm của bộ tham số đã dùng.
-6. **Sàn nằm sau một giao diện chung.** Phần còn lại của hệ thống không biết đang nói chuyện với Binance hay OKX.
+1. **Raw data is immutable.** What is downloaded is written once and never modified. Every later layer can be recomputed from it.
+2. **One-way dependencies.** A later layer only reads the previous layer's output through Parquet files and never calls back.
+3. **Two timestamps.** Every analysis record has `event_time` (when it happened) and `known_at` (when it became known for certain). Backtests may only use `known_at`.
+4. **Analysis is pure functions.** Same data and same parameters give the same result; no network calls, no reading the clock.
+5. **Parameters live in configuration**, not in code. Every result records the hash of the parameter set used.
+6. **Exchanges sit behind a common interface.** The rest of the system does not know whether it is talking to Binance or OKX.
 
-## 2. Sơ đồ tổng thể
+## 2. Overall diagram
 
 ```
-        Binance REST/WS      OKX REST/WS      data.binance.vision      (FRED, tùy chọn)
+        Binance REST/WS      OKX REST/WS      data.binance.vision      (FRED, optional)
                │                  │                    │                     │
 ┌──────────────▼──────────────────▼────────────────────▼─────────────────────▼───────┐
 │ L1  INGEST                                                                         │
-│   exchanges/   bộ chuyển đổi từng sàn (giới hạn tốc độ, phân trang, chuẩn hóa tên) │
-│   backfill     tải lịch sử theo lô            collector   thu realtime 24/7        │
+│   exchanges/   per-exchange adapters (rate limits, pagination, name normalization) │
+│   backfill     batch history download        collector   24/7 realtime capture     │
 └──────────────────────────────────────┬─────────────────────────────────────────────┘
-                                       │ ghi
+                                       │ write
 ┌──────────────────────────────────────▼─────────────────────────────────────────────┐
 │ L2  STORE                                                                          │
-│   data/raw       đúng như sàn trả về, bất biến                                     │
-│   data/curated   schema chung, UTC, đã khử trùng, đã resample                      │
-│   data/meta      manifest, danh mục instrument, nhật ký khoảng trống               │
-│   DuckDB         chỉ chứa view trỏ vào Parquet                                     │
+│   data/raw       exactly as the exchange returned it, immutable                    │
+│   data/curated   common schema, UTC, deduplicated, resampled                       │
+│   data/meta      manifest, instrument catalog, gap log                             │
+│   DuckDB         only views pointing at Parquet                                    │
 └──────────────────────────────────────┬─────────────────────────────────────────────┘
-                                       │ đọc curated
+                                       │ read curated
 ┌──────────────────────────────────────▼─────────────────────────────────────────────┐
-│ L3  ANALYSIS (hàm thuần, không I/O mạng)                                           │
+│ L3  ANALYSIS (pure functions, no network I/O)                                      │
 │   indicators → structure (swing) → smc · liquidity · wyckoff · elliott             │
 │   volume_profile · orderflow · derivatives · (macro)                               │
-│   Đầu ra: bảng feature (một dòng mỗi nến) và bảng event (một dòng mỗi sự kiện)     │
+│   Output: feature tables (one row per bar) and event tables (one row per event)    │
 └──────────────────────────────────────┬─────────────────────────────────────────────┘
-                                       │ ghi data/features, data/events
+                                       │ write data/features, data/events
 ┌──────────────────────────────────────▼─────────────────────────────────────────────┐
 │ L4  STRATEGY + BACKTEST                                                            │
-│   strategy    feature + event → tín hiệu vào/ra, stop, take-profit                 │
-│   engine      mô phỏng lệnh: phí, slippage, funding, thanh lý                      │
-│   metrics     Sharpe, drawdown, so với baseline                                    │
+│   strategy    features + events → entry/exit signals, stop, take-profit            │
+│   engine      order simulation: fees, slippage, funding, liquidation               │
+│   metrics     Sharpe, drawdown, comparison with baselines                          │
 └──────────────────────────────────────┬─────────────────────────────────────────────┘
-                                       │ ghi data/results
+                                       │ write data/results
 ┌──────────────────────────────────────▼─────────────────────────────────────────────┐
 │ L5  PRESENTATION                                                                   │
-│   chart có lớp phủ · dashboard · báo cáo backtest · indicator Pine Script          │
+│   charts with overlays · dashboard · backtest reports · Pine Script indicators     │
 └────────────────────────────────────────────────────────────────────────────────────┘
 
-   (hoãn)  L6  LLM diễn giải: chỉ đọc features, events, results; không ghi ngược
+   (deferred)  L6  LLM interpretation: reads features, events, results only; never writes back
 ```
 
-## 3. Các tiến trình chạy
+## 3. Running processes
 
-Hệ thống không phải một chương trình duy nhất mà là năm kiểu chạy, dùng chung thư mục `data/`.
+The system is not a single program but five kinds of runs sharing the `data/` directory.
 
-| Tiến trình | Kiểu | Làm gì | Ghi vào |
+| Process | Kind | What it does | Writes to |
 |---|---|---|---|
-| `collector` | chạy liên tục 24/7 | WebSocket: liquidation, mark price, aggTrades. Định kỳ 5 phút: OI, long/short ratio, taker volume | `raw/` |
-| `backfill` | lệnh chạy tay | tải dump và REST cho một khoảng thời gian, kiểm checksum | `raw/` |
-| `pipeline` | chạy theo lịch (ví dụ mỗi giờ) hoặc tay | raw → curated → features → events | `curated/`, `features/`, `events/` |
-| `backtest` | lệnh chạy tay | chạy một chiến lược với một bộ tham số | `results/` |
-| `dashboard` | chạy khi cần xem | đọc và hiển thị | không ghi |
+| `collector` | runs continuously 24/7 | WebSocket: liquidations, mark price, aggTrades. Every 5 minutes: OI, long/short ratio, taker volume | `raw/` |
+| `backfill` | manual command | downloads dumps and REST for a time range, verifies checksums | `raw/` |
+| `pipeline` | scheduled (e.g. hourly) or manual | raw → curated → features → events | `curated/`, `features/`, `events/` |
+| `backtest` | manual command | runs one strategy with one parameter set | `results/` |
+| `dashboard` | run when needed | reads and displays | nothing |
 
-Chỉ `collector` cần máy luôn bật. Bốn tiến trình còn lại chạy trên máy cá nhân được. Nếu `collector` chạy trên VPS, thư mục `raw/` của nó được đồng bộ về máy phân tích; hai bên không cần kết nối trực tiếp.
+Only `collector` needs an always-on machine. The other four can run on a personal machine. If `collector` runs on a VPS, its `raw/` directory is synced to the analysis machine; the two do not need a direct connection.
 
-Vì nhiều tiến trình ghi cùng `data/`, quy tắc là: mỗi tiến trình chỉ ghi vào vùng của mình, ghi file tạm rồi đổi tên, và không bao giờ sửa file đã có trong `raw/`.
+Because several processes write to the same `data/`, the rule is: each process writes only to its own area, writes a temp file and then renames it, and never modifies existing files in `raw/`.
 
-## 4. Module và trách nhiệm
+## 4. Modules and responsibilities
 
 ```
 src/rinng/
-  config/          đọc cấu hình, kiểm tra hợp lệ
-  exchanges/       base.py (giao diện chung), binance.py, okx.py, ratelimit.py
+  config/          load configuration, validate
+  exchanges/       base.py (common interface), binance.py, okx.py, ratelimit.py
   ingest/          backfill.py, dumps.py, collector/ (ws.py, poller.py, gaps.py)
   store/           paths.py, writer.py, reader.py, schemas.py, resample.py, catalog.py
   analysis/
-    indicators.py      bọc TA-Lib
-    structure.py       swing, HH/HL/LH/LL
+    indicators.py      TA-Lib wrappers
+    structure.py       swings, HH/HL/LH/LL
     smc.py             BOS, CHoCH, order block, FVG, premium/discount
-    liquidity.py       equal highs/lows, sweep
+    liquidity.py       equal highs/lows, sweeps
     volume_profile.py  VPOC, VAH/VAL, HVN/LVN, naked POC
     orderflow.py       delta, CVD, footprint
-    derivatives.py     funding, OI, long/short, liquidation
+    derivatives.py     funding, OI, long/short, liquidations
     wyckoff.py         climax, range, spring/upthrust
-    elliott.py         zigzag, quy tắc cứng, Fibonacci
-    macro.py           tùy chọn
-  pipeline/        sắp thứ tự chạy các bước phân tích, tính tăng dần
-  strategy/        base.py, các chiến lược mẫu, baseline (buy-and-hold, hồi quy tuyến tính)
+    elliott.py         zigzag, hard rules, Fibonacci
+    macro.py           optional
+  pipeline/        orders the analysis steps, incremental computation
+  strategy/        base.py, sample strategies, baselines (buy-and-hold, linear regression)
   backtest/        engine.py, costs.py, metrics.py, report.py
   viz/             chart.py, overlays.py, dashboard/
-  cli.py           điểm vào dòng lệnh
-pine/              indicator Pine Script v6
-tests/             cùng cấu trúc với src/
-data/              không đưa vào git
-configs/           file cấu hình YAML
+  cli.py           command-line entry point
+pine/              Pine Script v6 indicators
+tests/             mirrors the src/ structure
+data/              not committed to git
+configs/           YAML configuration files
 ```
 
-Quy tắc phụ thuộc giữa các gói:
+Dependency rules between packages:
 
-| Gói | Được dùng | Không được dùng |
+| Package | May use | Must not use |
 |---|---|---|
-| `exchanges` | `config` | mọi gói khác |
-| `ingest` | `exchanges`, `store`, `config` | `analysis` trở đi |
+| `exchanges` | `config` | every other package |
+| `ingest` | `exchanges`, `store`, `config` | `analysis` and later |
 | `store` | `config` | `exchanges`, `analysis` |
-| `analysis` | chỉ numpy, polars, TA-Lib | `store`, `exchanges`, mạng |
+| `analysis` | only numpy, polars, TA-Lib | `store`, `exchanges`, network |
 | `pipeline` | `store`, `analysis`, `config` | `exchanges` |
-| `strategy` | kiểu dữ liệu của `analysis` | `store`, `exchanges` |
+| `strategy` | `analysis` data types | `store`, `exchanges` |
 | `backtest` | `strategy`, `store` | `exchanges`, `ingest` |
 | `viz` | `store` | `exchanges`, `ingest` |
 
-Điểm quan trọng nhất: `analysis` nhận bảng dữ liệu trong bộ nhớ và trả bảng dữ liệu. Nó không biết file nằm ở đâu. Nhờ vậy test không cần dữ liệu thật, và cùng một hàm dùng được cho cả backtest lẫn realtime.
+The most important point: `analysis` takes in-memory tables and returns tables. It does not know where files live. That way tests need no real data, and the same function works for both backtesting and realtime.
 
-Trong `analysis`, thứ tự phụ thuộc là: `indicators` và `structure` đứng độc lập; `smc`, `liquidity`, `wyckoff`, `elliott` dùng `structure`; `volume_profile`, `orderflow`, `derivatives` đứng độc lập.
+Within `analysis`, the dependency order is: `indicators` and `structure` stand alone; `smc`, `liquidity`, `wyckoff`, `elliott` use `structure`; `volume_profile`, `orderflow`, `derivatives` stand alone.
 
-## 5. Mô hình dữ liệu
+## 5. Data model
 
-### 5.1 Các vùng
+### 5.1 Areas
 
 ```
 data/
@@ -129,9 +129,9 @@ data/
   meta/       manifest.parquet, instruments.parquet, gaps.parquet
 ```
 
-### 5.2 Bảng chính ở vùng curated
+### 5.2 Main tables in the curated area
 
-| Bảng | Khóa | Cột |
+| Table | Key | Columns |
 |---|---|---|
 | `ohlcv` | exchange, symbol, timeframe, open_time | open, high, low, close, volume, quote_volume, trades, taker_buy_volume, is_closed |
 | `trades` | exchange, symbol, trade_id | time, price, qty, is_buyer_maker |
@@ -141,106 +141,106 @@ data/
 | `liquidations` | exchange, symbol, time | side, price, qty |
 | `mark_index` | exchange, symbol, time | mark_price, index_price, premium |
 
-Mọi cột thời gian là UTC, độ phân giải mili giây. Tên symbol được chuẩn hóa về một dạng chung (ví dụ `BTC-USDT-PERP`); bảng `instruments` giữ tên gốc của từng sàn.
+Every time column is UTC with millisecond resolution. Symbol names are normalized to a common form (e.g. `BTC-USDT-PERP`); the `instruments` table keeps each exchange's native name.
 
-Cột `taker_buy_volume` chỉ có sẵn ở nến Binance; với OKX phải tính từ `trades`.
+The `taker_buy_volume` column only comes with Binance bars; for OKX it must be computed from `trades`.
 
-### 5.3 Hai dạng đầu ra của phân tích
+### 5.3 The two forms of analysis output
 
-**Feature** — giá trị liên tục, một dòng mỗi nến:
+**Feature** — continuous values, one row per bar:
 
-| Cột | Ý nghĩa |
+| Column | Meaning |
 |---|---|
-| symbol, timeframe, open_time | khóa |
-| known_at | bằng thời điểm đóng nến |
-| các cột giá trị | ví dụ `rsi_14`, `atr_14`, `cvd`, `funding_z` |
-| params_hash | mã băm bộ tham số |
+| symbol, timeframe, open_time | key |
+| known_at | equal to the bar's close time |
+| value columns | e.g. `rsi_14`, `atr_14`, `cvd`, `funding_z` |
+| params_hash | hash of the parameter set |
 
-**Event** — sự kiện rời rạc, một dòng mỗi sự kiện:
+**Event** — discrete events, one row per event:
 
-| Cột | Ý nghĩa |
+| Column | Meaning |
 |---|---|
-| event_id | định danh |
+| event_id | identifier |
 | symbol, timeframe | |
 | kind | `swing_high`, `bos_up`, `choch_down`, `fvg_bull`, `order_block`, `sweep_low`, `vpoc`, `naked_poc`… |
-| event_time | nến mà sự kiện gắn vào |
-| known_at | nến mà sự kiện được xác nhận |
-| price_low, price_high | mức giá hoặc vùng giá |
-| invalidated_at | khi vùng bị phá hoặc được lấp, nếu có |
-| attrs | thuộc tính riêng theo loại |
+| event_time | the bar the event is attached to |
+| known_at | the bar at which the event is confirmed |
+| price_low, price_high | price level or price zone |
+| invalidated_at | when the zone is broken or filled, if ever |
+| attrs | type-specific attributes |
 | params_hash | |
 
-Ví dụ: một swing high với độ dài 5 có `event_time` là nến tạo đỉnh, còn `known_at` là thời điểm đóng của nến thứ 5 sau đó. Tách hai dạng này ra là quyết định trung tâm của thiết kế: SMC, thanh khoản, Wyckoff và volume profile đều sinh ra sự kiện và vùng giá, không phải một con số mỗi nến.
+Example: a swing high with length 5 has `event_time` at the bar that forms the high, while `known_at` is the close of the 5th bar after it. Separating these two forms is the central design decision: SMC, liquidity, Wyckoff and volume profile all produce events and price zones, not one number per bar.
 
-## 6. Giao diện giữa các lớp
+## 6. Interfaces between layers
 
-Bốn hợp đồng dưới đây là thứ cần giữ ổn định; phần bên trong đổi thoải mái.
+The four contracts below must stay stable; internals can change freely.
 
 ```python
-# exchanges/base.py — mọi sàn cài cùng giao diện
+# exchanges/base.py — every exchange implements the same interface
 class Exchange(Protocol):
     def klines(self, symbol, timeframe, start, end) -> Iterator[DataFrame]: ...
     def funding(self, symbol, start, end) -> Iterator[DataFrame]: ...
     def open_interest(self, symbol, period, start, end) -> Iterator[DataFrame]: ...
     def stream(self, channels: list[Channel]) -> AsyncIterator[Message]: ...
 
-# analysis — mọi module theo cùng một dạng
+# analysis — every module follows the same shape
 def compute(ohlcv: DataFrame, params: Params) -> Features | Events: ...
 
 # strategy/base.py
 class Strategy(Protocol):
     def signals(self, features: DataFrame, events: DataFrame) -> DataFrame:
-        """Trả về: time, side, entry, stop, take_profit, size_hint, reason."""
+        """Returns: time, side, entry, stop, take_profit, size_hint, reason."""
 
 # backtest/engine.py
 def run(signals: DataFrame, ohlcv: DataFrame, costs: CostModel) -> Result: ...
 ```
 
-Đây là phác thảo để thống nhất hình dạng, chưa phải code đã chạy.
+This is a sketch to agree on the shapes, not code that has run.
 
-## 7. Các mối quan tâm xuyên suốt
+## 7. Cross-cutting concerns
 
-| Việc | Cách làm |
+| Concern | Approach |
 |---|---|
-| Cấu hình | YAML trong `configs/`, đọc và kiểm tra bằng Pydantic; một file cho instrument, một file cho tham số từng module |
-| Giới hạn tốc độ | một bộ điều tiết dùng chung trong `exchanges/ratelimit.py`; Binance đọc header, OKX tự đếm |
-| Lỗi mạng | thử lại có giãn cách; gặp 429 thì ngủ theo `Retry-After`; không bao giờ thử lại ngay |
-| Khoảng trống dữ liệu | `collector` ghi mọi lần mất kết nối vào `meta/gaps`; `pipeline` từ chối tính trên đoạn có khoảng trống chưa lấp |
-| Tái lập | mỗi lần backtest lưu cấu hình, mã băm tham số, phiên bản code và manifest dữ liệu |
-| Log | log có cấu trúc (JSON), riêng cho từng tiến trình |
-| Kiểm thử | unit test cho `analysis` trên dữ liệu dựng tay; test đối chiếu cho `store` (resample khớp nến sàn); test tích hợp cho `exchanges` chạy riêng vì cần mạng |
-| Bí mật | hiện không có API key nào; nếu sau này có thì nằm trong biến môi trường, không nằm trong repo |
+| Configuration | YAML in `configs/`, loaded and validated with Pydantic; one file for instruments, one for each module's parameters |
+| Rate limiting | one shared throttle in `exchanges/ratelimit.py`; Binance reads the header, OKX counts itself |
+| Network errors | retry with backoff; on 429 sleep per `Retry-After`; never retry immediately |
+| Data gaps | `collector` records every disconnect in `meta/gaps`; `pipeline` refuses to compute over segments with unfilled gaps |
+| Reproducibility | every backtest stores the config, parameter hash, code version and data manifest |
+| Logging | structured (JSON) logs, separate per process |
+| Testing | unit tests for `analysis` on hand-built data; cross-check tests for `store` (resample matches exchange bars); integration tests for `exchanges` run separately since they need network |
+| Secrets | there are no API keys today; if any are added later they live in environment variables, not in the repo |
 
-## 8. Công nghệ
+## 8. Technology
 
-| Việc | Lựa chọn |
+| Concern | Choice |
 |---|---|
-| Ngôn ngữ, môi trường | Python 3.12, `uv` |
-| HTTP, WebSocket | `httpx`, `websockets`; `ccxt` làm đường dự phòng và để đối chiếu |
-| Bảng dữ liệu | `polars`, `numpy` |
-| Lưu trữ | Parquet, DuckDB |
-| Indicator | TA-Lib |
-| Lịch chạy | `APScheduler` trong `collector`; cron cho `pipeline` |
-| Cấu hình | Pydantic, YAML |
-| Dòng lệnh | `typer` |
-| Metric | `quantstats` |
-| Hiển thị | Plotly hoặc `lightweight-charts`, Streamlit |
-| Chất lượng | `pytest`, `ruff` |
+| Language, environment | Python 3.12, `uv` |
+| HTTP, WebSocket | `httpx`, `websockets`; `ccxt` as a fallback and for cross-checking |
+| Data frames | `polars`, `numpy` |
+| Storage | Parquet, DuckDB |
+| Indicators | TA-Lib |
+| Scheduling | `APScheduler` in `collector`; cron for `pipeline` |
+| Configuration | Pydantic, YAML |
+| CLI | `typer` |
+| Metrics | `quantstats` |
+| Visualization | Plotly or `lightweight-charts`, Streamlit |
+| Quality | `pytest`, `ruff` |
 
-Tôi chọn viết bộ chuyển đổi sàn bằng `httpx` thay vì dùng hẳn `ccxt` vì cần các endpoint mà `ccxt` không bọc đầy đủ (nhóm `/futures/data/*`, file dump, luồng liquidation) và cần kiểm soát giới hạn tốc độ. Cái giá là phải tự theo dõi khi sàn đổi API.
+I chose to write the exchange adapters with `httpx` rather than relying entirely on `ccxt` because we need endpoints `ccxt` does not fully wrap (the `/futures/data/*` group, dump files, the liquidation stream) and need control over rate limiting. The cost is having to track exchange API changes ourselves.
 
-## 9. Điểm mở rộng
+## 9. Extension points
 
-- **Thêm sàn:** viết một file trong `exchanges/` theo giao diện chung.
-- **Thêm indicator:** viết một module trong `analysis/` trả về Features hoặc Events, đăng ký vào `pipeline`.
-- **On-chain:** là một nguồn mới ở L1 và một bảng mới ở curated.
-- **LLM:** là lớp L6 chỉ đọc. Vì features, events và results đã là bảng có cấu trúc kèm `known_at`, lớp này gắn vào mà không phải sửa gì bên dưới.
-- **Realtime:** `pipeline` chạy tăng dần trên nến vừa đóng thay vì cả lịch sử; các hàm `analysis` giữ nguyên.
+- **New exchange:** write one file in `exchanges/` implementing the common interface.
+- **New indicator:** write a module in `analysis/` that returns Features or Events, and register it in `pipeline`.
+- **On-chain:** a new source in L1 and a new table in curated.
+- **LLM:** a read-only L6 layer. Since features, events and results are already structured tables with `known_at`, it plugs in without changing anything below.
+- **Realtime:** `pipeline` runs incrementally on just-closed bars instead of the whole history; the `analysis` functions stay the same.
 
-## 10. Chỗ còn mở
+## 10. Open questions
 
-1. Các mặc định ở file 07 mục 1 chưa được xác nhận.
-2. `collector` chạy ở đâu quyết định có cần cơ chế đồng bộ `raw/` hay không.
-3. File `metrics` của Binance chưa được mở; schema bảng `open_interest` và `long_short` có thể phải chỉnh theo.
-4. Tính tăng dần cho module dựa trên swing (sự kiện có thể bị vô hiệu về sau) cần thiết kế kỹ hơn khi tới bước đó.
-5. Dung lượng aggTrades chưa ước lượng; có thể cần chỉ giữ dạng đã gộp theo mức giá thay vì từng giao dịch.
+1. The defaults in file 07 section 1 have not been confirmed.
+2. Where `collector` runs determines whether a `raw/` sync mechanism is needed.
+3. Binance's `metrics` file has not been opened; the `open_interest` and `long_short` table schemas may need adjusting accordingly.
+4. Incremental computation for swing-based modules (events can be invalidated later) needs more careful design when we get there.
+5. aggTrades storage size has not been estimated; we may need to keep only price-level aggregates instead of individual trades.

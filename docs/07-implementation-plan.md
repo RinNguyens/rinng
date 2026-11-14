@@ -1,190 +1,190 @@
-# 07 — Kế hoạch triển khai từng bước (crypto, chưa có LLM)
+# 07 — Step-by-step implementation plan (crypto, no LLM yet)
 
-Lập ngày 2026-11-13. Số liệu giới hạn API lấy từ [02-exchange-apis.md](02-exchange-apis.md); chỗ nào file đó ghi "chưa xác minh" thì ở đây cũng ghi lại. Chưa có bước nào được thực hiện.
+Written 2026-11-13. API limit figures come from [02-exchange-apis.md](02-exchange-apis.md); wherever that file says "unverified", this one says so too. No step has been carried out yet.
 
-## 1. Các quyết định mặc định
+## 1. Default decisions
 
-Đây là giá trị tôi đề xuất để kế hoạch đủ cụ thể. Đổi được, nhưng nên chốt trước bước 1.
+These are the values I propose so the plan is concrete. They can change, but should be settled before step 1.
 
-| Hạng mục | Mặc định | Lý do |
+| Item | Default | Reason |
 |---|---|---|
-| Cặp giao dịch | BTCUSDT, ETHUSDT | thanh khoản cao nhất, dữ liệu dài nhất; thêm mã sau không đổi kiến trúc |
-| Loại hợp đồng | USDT perpetual là chính, spot để đối chiếu | funding, OI, liquidation chỉ có ở perpetual |
-| Sàn chính | Binance; OKX là nguồn thứ hai | Binance có kho dump đầy đủ hơn và giữ lịch sử funding dài hơn |
-| Nến gốc lưu trữ | 1 phút | mọi khung lớn hơn resample từ đây; volume profile cần 1 phút |
-| Khung phân tích | 15m, 1h, 4h, 1D, 1W | khớp các chart mẫu |
-| Múi giờ | UTC cho mọi thứ | nến `1D` của OKX mặc định mở theo UTC+8, phải dùng `1Dutc` |
-| API key | không dùng | toàn bộ dữ liệu cần thiết là công khai |
+| Trading pairs | BTCUSDT, ETHUSDT | highest liquidity, longest data; adding symbols later does not change the architecture |
+| Contract type | USDT perpetual primarily, spot for cross-checking | funding, OI and liquidations only exist for perpetuals |
+| Primary exchange | Binance; OKX as a second source | Binance has a more complete dump archive and keeps funding history longer |
+| Base stored bar | 1 minute | every larger timeframe is resampled from it; volume profile needs 1 minute |
+| Analysis timeframes | 15m, 1h, 4h, 1D, 1W | match the sample charts |
+| Time zone | UTC for everything | OKX `1D` bars open at UTC+8 by default; `1Dutc` must be used |
+| API key | none | all the data needed is public |
 
-## 2. Giới hạn và chặn ở Binance và OKX
+## 2. Limits and blocking on Binance and OKX
 
-### 2.1 Tóm tắt
+### 2.1 Summary
 
-Dữ liệu thị trường công khai ở cả hai sàn không cần API key và không mất phí. Giới hạn tốc độ rộng hơn nhiều so với nhu cầu của dự án. Rủi ro thật nằm ở ba chỗ: độ sâu lịch sử của một số chuỗi, bị ban IP nếu bỏ qua lỗi 429, và chặn theo khu vực của máy chạy.
+Public market data on both exchanges needs no API key and is free. Rate limits are far more generous than the project needs. The real risks are in three places: the history depth of some series, IP bans if 429 errors are ignored, and regional blocking of the host machine.
 
-### 2.2 Giới hạn tốc độ
+### 2.2 Rate limits
 
 | | Binance | OKX |
 |---|---|---|
-| Cách tính | theo weight, theo IP | theo từng endpoint, "N request / 2 giây", theo IP |
-| Mức | Spot 6000 weight/phút; Futures 2400 weight/phút (USDⓈ-M và COIN-M dùng chung) | candles 40/2s; history-candles 20/2s; nhóm thống kê `rubik` 5/2s |
-| Biết đã dùng bao nhiêu | header `X-MBX-USED-WEIGHT-1M` | không có header, phải tự đếm |
-| Khi vượt | HTTP 429 kèm `Retry-After` | mã `50011` trong body, HTTP vẫn 200 |
-| Nếu tiếp tục gửi | HTTP 418, ban IP từ 2 phút đến 3 ngày, tăng dần | docs không mô tả hình phạt (chưa xác minh) |
-| Giới hạn riêng | `fundingRate` 500 request/5 phút; nhóm `/futures/data/*` 1000 request/5 phút | funding 10/2s theo IP + instrument |
-| Khác | HTTP 403 khi vi phạm WAF | — |
+| Accounting | by weight, per IP | per endpoint, "N requests / 2 seconds", per IP |
+| Level | Spot 6000 weight/min; Futures 2400 weight/min (USDⓈ-M and COIN-M shared) | candles 40/2s; history-candles 20/2s; `rubik` statistics group 5/2s |
+| Knowing usage | `X-MBX-USED-WEIGHT-1M` header | no header, count yourself |
+| When exceeded | HTTP 429 with `Retry-After` | code `50011` in the body, HTTP still 200 |
+| If you keep sending | HTTP 418, IP ban from 2 minutes to 3 days, escalating | docs do not describe the penalty (unverified) |
+| Specific limits | `fundingRate` 500 requests/5 min; `/futures/data/*` group 1000 requests/5 min | funding 10/2s per IP + instrument |
+| Other | HTTP 403 on WAF violations | — |
 
-Ước lượng thời gian tải nến 1 phút qua REST, chạy ở một nửa giới hạn:
+Estimated time to download 1-minute bars over REST, running at half the limit:
 
-- Binance Futures: 1500 nến/lần, weight 10, tức khoảng 120 lần/phút = 180.000 nến/phút. Một năm (525.600 nến) mất khoảng 3 phút.
-- OKX: 300 nến/lần, khoảng 300 lần/phút = 90.000 nến/phút. Một năm mất khoảng 6 phút.
+- Binance Futures: 1500 bars/request, weight 10, i.e. about 120 requests/min = 180,000 bars/min. One year (525,600 bars) takes about 3 minutes.
+- OKX: 300 bars/request, about 300 requests/min = 90,000 bars/min. One year takes about 6 minutes.
 
-Đây là phép tính từ số trong docs, chưa đo thực tế. Một lần gọi thử `limit=1500` làm bộ đếm weight tăng nhiều hơn bảng nêu, nên bộ tải phải đọc header chứ không tự cộng.
+These are calculations from the documented numbers, not measured. A test call with `limit=1500` raised the weight counter more than the table says, so the downloader must read the header rather than add up weights itself.
 
-### 2.3 Độ sâu lịch sử (giới hạn quan trọng nhất)
+### 2.3 History depth (the most important limit)
 
-| Dữ liệu | Binance qua REST | Binance qua dump (data.binance.vision) | OKX qua REST | OKX qua dump |
+| Data | Binance via REST | Binance via dump (data.binance.vision) | OKX via REST | OKX via dump |
 |---|---|---|---|---|
-| Nến | đầy đủ | có, từ 1s đến 1mo | `candles` chỉ 1440 nến mới nhất; `history-candles` "những năm gần đây" | nến 1 phút từ 2023-07 |
-| aggTrades / trades | Futures chỉ 48 giờ | có, theo ngày và tháng | 3 tháng | từ 2021-09 |
-| Funding rate | đầy đủ, 1000 bản ghi/lần | có, theo tháng | chỉ 3 tháng | từ 2022-03 |
-| Open interest | chỉ 30 ngày | có trong file `metrics` (cột chưa xác minh) | 1440 bản ghi mới nhất | không thấy |
-| Long/short ratio | chỉ 30 ngày | có thể trong `metrics` (chưa xác minh) | 1440 bản ghi mới nhất | không thấy |
-| Taker buy/sell volume | 30 ngày (limit chưa xác minh) | suy được từ cột taker buy của nến | 1440 bản ghi mới nhất | suy từ trades |
-| Liquidation | không có REST công khai | không có (đường dẫn thử trả 404) | REST không còn trong docs | không có |
-| Order book | chỉ ảnh chụp hiện tại | `bookDepth` (cột chưa xác minh) | chỉ ảnh chụp hiện tại | L2 từ 2023-03 |
+| Bars | complete | yes, 1s to 1mo | `candles` only the latest 1440 bars; `history-candles` "recent years" | 1-minute bars from 2023-07 |
+| aggTrades / trades | Futures only 48 hours | yes, daily and monthly | 3 months | from 2021-09 |
+| Funding rate | complete, 1000 records/request | yes, monthly | only 3 months | from 2022-03 |
+| Open interest | only 30 days | in the `metrics` files (columns unverified) | latest 1440 records | not found |
+| Long/short ratio | only 30 days | possibly in `metrics` (unverified) | latest 1440 records | not found |
+| Taker buy/sell volume | 30 days (limit unverified) | derivable from the bars' taker buy column | latest 1440 records | derive from trades |
+| Liquidations | no public REST | none (test path returns 404) | REST no longer in the docs | none |
+| Order book | current snapshot only | `bookDepth` (columns unverified) | current snapshot only | L2 from 2023-03 |
 
-Hệ quả:
+Consequences:
 
-1. Nến, trades và funding lấy lại được đầy đủ bất cứ lúc nào.
-2. Open interest và long/short ratio: quá 30 ngày thì phụ thuộc file `metrics` của Binance. Việc đầu tiên cần làm là tải một file về xem cột.
-3. Liquidation không có lịch sử ở đâu cả. Chỉ có từ lúc bộ thu WebSocket bắt đầu chạy, và ngay cả khi chạy cũng không đầy đủ: Binance chỉ đẩy lệnh mới nhất mỗi 1000 ms, OKX ghi rõ là không đầy đủ.
+1. Bars, trades and funding can be fully recovered at any time.
+2. Open interest and long/short ratio: beyond 30 days, depends on Binance's `metrics` files. The first thing to do is download one and inspect the columns.
+3. Liquidations have no history anywhere. They exist only from when the WebSocket collector starts, and even then are incomplete: Binance only pushes the latest order every 1000 ms, and OKX states explicitly that its feed is incomplete.
 
-### 2.4 Chặn theo khu vực
+### 2.4 Regional blocking
 
-- Từ máy này, ngày 2026-11-13, `api.binance.com`, `fapi.binance.com`, `dapi.binance.com` đều trả 200.
-- Docs API của Binance không nêu danh sách khu vực bị chặn (chưa xác minh). Theo hiểu biết chung của tôi, không phải từ tài liệu đã tra, Binance chặn IP từ Mỹ. Nếu thuê VPS, chọn khu vực rồi gọi `GET /api/v3/ping` và `GET /fapi/v1/ping` trước khi trả tiền dài hạn.
-- OKX: tài khoản đăng ký ở Mỹ, Úc dùng `us.okx.com`; EU dùng `eea.okx.com`; nơi khác dùng `openapi.okx.com`. Danh sách quốc gia bị hạn chế chưa đọc được (chưa xác minh).
+- From this machine, on 2026-11-13, `api.binance.com`, `fapi.binance.com` and `dapi.binance.com` all returned 200.
+- Binance's API docs do not list blocked regions (unverified). From my general knowledge, not from the documents consulted, Binance blocks US IPs. If renting a VPS, pick the region and call `GET /api/v3/ping` and `GET /fapi/v1/ping` before paying long term.
+- OKX: accounts registered in the US and Australia use `us.okx.com`; the EU uses `eea.okx.com`; elsewhere uses `openapi.okx.com`. The list of restricted countries could not be read (unverified).
 
 ### 2.5 WebSocket
 
-- Binance: kết nối sống tối đa 24 giờ, phải tự kết nối lại. Futures đã tách URL thành `/public`, `/market`, `/private`.
-- OKX: client phải gửi `ping` nếu im lặng 30 giây; sàn ngắt kết nối khi nâng cấp, báo trước 60 giây.
-- Cả hai đều yêu cầu bộ thu có logic kết nối lại và ghi nhận khoảng trống.
+- Binance: a connection lives at most 24 hours and must reconnect itself. Futures has split its URLs into `/public`, `/market`, `/private`.
+- OKX: the client must send `ping` after 30 seconds of silence; the exchange drops connections during upgrades, with 60 seconds' notice.
+- Both require the collector to have reconnect logic and to record gaps.
 
-### 2.6 Quy tắc viết bộ tải để không bị ban
+### 2.6 Rules for writing a downloader that does not get banned
 
-1. Đọc `rateLimits` từ `exchangeInfo` lúc khởi động, không ghi cứng con số.
-2. Tự giới hạn ở 50% mức cho phép.
-3. Binance: đọc `X-MBX-USED-WEIGHT-1M` sau mỗi lần gọi; gặp 429 thì ngủ đúng `Retry-After`, không gọi lại ngay.
-4. OKX: kiểm tra `code` trong body ở mọi phản hồi, vì lỗi vẫn trả HTTP 200.
-5. Lịch sử dài lấy từ dump trước, REST chỉ lấp phần còn thiếu.
-6. Realtime dùng WebSocket, không poll REST.
+1. Read `rateLimits` from `exchangeInfo` at startup; do not hard-code numbers.
+2. Self-limit to 50% of the allowance.
+3. Binance: read `X-MBX-USED-WEIGHT-1M` after every call; on 429, sleep exactly `Retry-After`, do not retry immediately.
+4. OKX: check `code` in the body of every response, since errors still return HTTP 200.
+5. Get long history from dumps first; REST only fills what is missing.
+6. Realtime uses WebSocket, not REST polling.
 
-## 3. Mỗi indicator cần thêm gì
+## 3. What each indicator needs
 
-Cột "Cần thêm" là thứ ngoài nến OHLCV 1 phút.
+The "Extra needs" column is anything beyond 1-minute OHLCV bars.
 
-### 3.1 Chỉ cần OHLCV
+### 3.1 OHLCV only
 
-| Nhóm | Indicator | Công cụ | Tham số phải chốt | Cần thêm |
+| Group | Indicator | Tool | Parameters to settle | Extra needs |
 |---|---|---|---|---|
-| Momentum | RSI, MACD, ROC, Stochastic, Williams %R | TA-Lib | chu kỳ; số nến khởi động bị bỏ | không |
-| Biến động | ATR, Bollinger Bands | TA-Lib | chu kỳ, số độ lệch chuẩn | không |
-| Xu hướng | EMA/SMA, ADX, kênh hồi quy OLS | TA-Lib, numpy | chu kỳ, độ dài cửa sổ | không |
-| Volume | OBV, VWAP, anchored VWAP | tự viết | điểm neo (đầu tuần, đầu tháng, swing) | không; VWAP chính xác cần nến 1 phút |
-| Cấu trúc | swing high/low, HH/HL/LH/LL | tự viết | độ dài swing (số nến mỗi bên) | không |
-| SMC | BOS, CHoCH, order block, FVG, premium/discount, displacement | tự viết | độ dài swing; phá bằng giá đóng hay wick; ngưỡng displacement theo ATR | không |
-| Thanh khoản | equal highs/lows, liquidity sweep, vùng dưới đáy cũ | tự viết | dung sai "bằng nhau" theo ATR; số nến xác nhận sweep | không |
-| Wyckoff (thành phần) | climax volume, biên trading range, spring/upthrust, effort vs result | tự viết | ngưỡng z-score volume; cách xác định range | không |
-| Elliott (thành phần) | zigzag pivot, 3 quy tắc cứng, tỷ lệ Fibonacci | tự viết | ngưỡng zigzag (% hoặc ATR) | không |
-| Phiên | kill zone, đỉnh/đáy phiên Á–Âu–Mỹ | tự viết | khung giờ UTC của từng phiên | không |
+| Momentum | RSI, MACD, ROC, Stochastic, Williams %R | TA-Lib | periods; number of warm-up bars discarded | none |
+| Volatility | ATR, Bollinger Bands | TA-Lib | period, number of standard deviations | none |
+| Trend | EMA/SMA, ADX, OLS regression channel | TA-Lib, numpy | periods, window length | none |
+| Volume | OBV, VWAP, anchored VWAP | custom | anchor point (week start, month start, swing) | none; accurate VWAP needs 1-minute bars |
+| Structure | swing high/low, HH/HL/LH/LL | custom | swing length (bars on each side) | none |
+| SMC | BOS, CHoCH, order block, FVG, premium/discount, displacement | custom | swing length; break on close or wick; ATR-based displacement threshold | none |
+| Liquidity | equal highs/lows, liquidity sweep, zones below old lows | custom | ATR-based "equal" tolerance; bars to confirm a sweep | none |
+| Wyckoff (components) | climax volume, trading range bounds, spring/upthrust, effort vs result | custom | volume z-score threshold; how to define the range | none |
+| Elliott (components) | zigzag pivots, 3 hard rules, Fibonacci ratios | custom | zigzag threshold (% or ATR) | none |
+| Sessions | kill zones, Asia–Europe–US session highs/lows | custom | UTC hours of each session | none |
 
-Lưu ý chung cho nhóm này: mọi tín hiệu dựa trên swing chỉ được xác nhận sau N nến. Phải lưu thời điểm xác nhận, nếu không backtest sẽ nhìn trước tương lai.
+General note for this group: every swing-based signal is only confirmed after N bars. The confirmation time must be stored, otherwise the backtest looks into the future.
 
-### 3.2 Cần dữ liệu ngoài nến
+### 3.2 Needs data beyond bars
 
-| Indicator | Cần thêm | Nguồn | Có lịch sử không |
+| Indicator | Extra needs | Source | History available? |
 |---|---|---|---|
-| Volume profile gần đúng (VPOC, VAH/VAL, HVN/LVN, naked POC) | không, dùng nến 1 phút rải volume theo khoảng giá | nến | có |
-| Volume profile chính xác | từng giao dịch | aggTrades từ dump Binance | có |
-| Delta theo nến, CVD | cột taker buy volume có sẵn trong nến Binance (delta = 2 × taker buy − volume) | nến Binance | có |
-| Delta theo mức giá, footprint, imbalance, absorption | từng giao dịch kèm chiều taker | aggTrades (trường `m`) | có qua dump; REST Futures chỉ 48 giờ |
-| Funding rate, funding cực đoan | funding lịch sử | Binance REST hoặc dump | có |
-| Basis, premium | mark price, index price, premium index | `markPriceKlines`, `premiumIndexKlines` | có |
-| Open interest, giá + OI | OI theo 5 phút | REST (30 ngày) + file `metrics` + bộ thu | tùy file `metrics` |
-| Long/short ratio | tỷ lệ theo 5 phút | như trên | tùy file `metrics` |
-| Liquidation, cụm thanh lý | luồng thanh lý | WebSocket `@forceOrder`, `liquidation-orders` | không, chỉ từ lúc tự thu |
-| Liquidation heatmap | OI + giả định đòn bẩy | tự mô hình hóa | là ước lượng, không kiểm chứng được |
-| Tường lệnh, độ sâu sổ lệnh | order book | WebSocket depth; `bookDepth` dump | một phần |
-| Vĩ mô (lãi suất Fed, lợi suất) | chuỗi FRED | FRED API, cần đăng ký key miễn phí | có |
-| Vàng, DXY | nguồn ngoài FRED | chưa chọn | chưa xác minh |
-| On-chain (MVRV, SOPR, exchange flows) | nhà cung cấp trả phí | Glassnode, CryptoQuant | giá chưa xác minh |
+| Approximate volume profile (VPOC, VAH/VAL, HVN/LVN, naked POC) | none, spread 1-minute bar volume across the price range | bars | yes |
+| Exact volume profile | individual trades | aggTrades from Binance dumps | yes |
+| Per-bar delta, CVD | the taker buy volume column already in Binance bars (delta = 2 × taker buy − volume) | Binance bars | yes |
+| Delta by price level, footprint, imbalance, absorption | individual trades with taker side | aggTrades (field `m`) | yes via dumps; Futures REST only 48 hours |
+| Funding rate, extreme funding | funding history | Binance REST or dump | yes |
+| Basis, premium | mark price, index price, premium index | `markPriceKlines`, `premiumIndexKlines` | yes |
+| Open interest, price + OI | 5-minute OI | REST (30 days) + `metrics` files + collector | depends on `metrics` files |
+| Long/short ratio | 5-minute ratio | as above | depends on `metrics` files |
+| Liquidations, liquidation clusters | liquidation stream | WebSocket `@forceOrder`, `liquidation-orders` | no, only from when we collect |
+| Liquidation heatmap | OI + leverage assumptions | own model | an estimate, cannot be validated |
+| Order walls, book depth | order book | WebSocket depth; `bookDepth` dump | partial |
+| Macro (Fed rates, yields) | FRED series | FRED API, needs a free registered key | yes |
+| Gold, DXY | source outside FRED | not chosen | unverified |
+| On-chain (MVRV, SOPR, exchange flows) | paid provider | Glassnode, CryptoQuant | pricing unverified |
 
-Volume profile có hai tham số quyết định kết quả và phải chốt trước: kích thước bin giá, và định nghĩa "tuần" (đề xuất: thứ Hai 00:00 UTC). Biến thể mở rộng value area mà TradingView dùng chưa xác minh, nên kết quả có thể lệch nhẹ so với chart của bạn.
+Volume profile has two parameters that determine the result and must be settled first: the price bin size, and the definition of a "week" (proposed: Monday 00:00 UTC). The value area expansion variant TradingView uses is unverified, so results may differ slightly from your charts.
 
-## 4. Các bước
+## 4. Steps
 
-Mỗi bước có tiêu chí xong. Không sang bước sau khi tiêu chí chưa đạt.
+Each step has done criteria. Do not move on until they are met.
 
-### Bước 0 — Chốt phạm vi
-- Việc: xác nhận bảng ở mục 1; quyết định có làm mảng vĩ mô không; quyết định máy nào chạy bộ thu 24/7.
-- Xong khi: các ô ở mục 1 và mục 5 có câu trả lời.
+### Step 0 — Settle the scope
+- Tasks: confirm the table in section 1; decide whether to do the macro part; decide which machine runs the 24/7 collector.
+- Done when: the items in sections 1 and 5 have answers.
 
-### Bước 1 — Khung dự án và kiểm tra kết nối
-- Việc: tạo repo git, môi trường `uv`, cấu trúc thư mục, `pytest`, `ruff`. Viết script gọi `ping` và `exchangeInfo` của hai sàn, in ra giới hạn tốc độ đang áp dụng. Tải một file `metrics` và một file `bookDepth` của Binance để xem cột.
-- Công cụ: `uv`, `httpx`, `ccxt`.
-- Xong khi: script chạy được trên máy sẽ chạy bộ thu; biết chắc `metrics` có OI và long/short ratio hay không.
+### Step 1 — Project skeleton and connectivity check
+- Tasks: create the git repo, `uv` environment, directory structure, `pytest`, `ruff`. Write a script that calls `ping` and `exchangeInfo` on both exchanges and prints the rate limits in effect. Download one Binance `metrics` file and one `bookDepth` file to inspect the columns.
+- Tools: `uv`, `httpx`, `ccxt`.
+- Done when: the script runs on the machine that will run the collector; we know for sure whether `metrics` has OI and long/short ratio.
 
-### Bước 2 — Bộ thu realtime (làm sớm vì dữ liệu không lấy lại được)
-- Việc: tiến trình WebSocket ghi liquidation, mark price, aggTrades; tác vụ định kỳ 5 phút ghi OI, long/short ratio, taker volume qua REST. Có kết nối lại, ghi nhận khoảng trống, ghi Parquet theo lô.
-- Công cụ: `websockets`, `APScheduler`, `polars`.
-- Xong khi: chạy liên tục 72 giờ, qua được ít nhất một lần Binance ngắt kết nối 24 giờ, và báo cáo khoảng trống chính xác.
+### Step 2 — Realtime collector (do early because the data cannot be recovered)
+- Tasks: a WebSocket process recording liquidations, mark price, aggTrades; a 5-minute periodic job recording OI, long/short ratio and taker volume over REST. With reconnects, gap recording, batched Parquet writes.
+- Tools: `websockets`, `APScheduler`, `polars`.
+- Done when: it runs continuously for 72 hours, survives at least one Binance 24-hour disconnect, and reports gaps accurately.
 
-### Bước 3 — Tải lịch sử
-- Việc: tải dump Binance (nến 1 phút, funding, aggTrades cho giai đoạn cần), kiểm checksum; lấp phần mới nhất bằng REST; tải OKX để đối chiếu.
-- Lưu ý: dump Spot từ 2025-01-01 dùng timestamp micro giây, Futures vẫn mili giây.
-- Xong khi: không có nến thiếu hay trùng trong khoảng đã tải; nến từ dump và từ REST khớp nhau ở phần giao nhau.
+### Step 3 — Historical download
+- Tasks: download Binance dumps (1-minute bars, funding, aggTrades for the needed period), verify checksums; fill the latest part via REST; download OKX for cross-checking.
+- Note: Spot dumps from 2025-01-01 use microsecond timestamps; Futures still uses milliseconds.
+- Done when: no missing or duplicate bars in the downloaded range; dump and REST bars match where they overlap.
 
-### Bước 4 — Lớp lưu trữ
-- Việc: chuẩn hóa schema (UTC, kiểu số, tên cột chung cho hai sàn); resample 1 phút lên các khung phân tích; view DuckDB; bảng manifest ghi nguồn và khoảng thời gian.
-- Xong khi: nến 1h và 1D tự resample khớp với nến 1h và 1D sàn trả về.
+### Step 4 — Storage layer
+- Tasks: normalize the schema (UTC, numeric types, common column names for both exchanges); resample 1 minute up to the analysis timeframes; DuckDB views; a manifest table recording source and time range.
+- Done when: self-resampled 1h and 1D bars match the 1h and 1D bars the exchange returns.
 
-### Bước 5 — Module phân tích, theo thứ tự phụ thuộc
-1. Indicator cổ điển (bọc TA-Lib).
-2. Swing và cấu trúc thị trường. Mọi thứ ở 3, 4, 7 dựa vào đây.
+### Step 5 — Analysis modules, in dependency order
+1. Classic indicators (TA-Lib wrappers).
+2. Swings and market structure. Everything in 3, 4, 7 depends on this.
 3. SMC: BOS, CHoCH, FVG, order block, premium/discount.
-4. Thanh khoản: equal highs/lows, sweep.
-5. Volume profile bản gần đúng, rồi bản chính xác từ aggTrades.
-6. Order flow: delta theo nến, CVD, rồi footprint.
-7. Thành phần Wyckoff và Elliott.
-8. Feature phái sinh: funding, OI, long/short, liquidation.
-9. Vĩ mô, nếu giữ.
+4. Liquidity: equal highs/lows, sweeps.
+5. Approximate volume profile, then the exact version from aggTrades.
+6. Order flow: per-bar delta, CVD, then footprint.
+7. Wyckoff and Elliott components.
+8. Derivatives features: funding, OI, long/short, liquidations.
+9. Macro, if kept.
 
-- Xong khi (cho từng module): có unit test trên dữ liệu dựng tay; mỗi tín hiệu có thời điểm xác nhận; đối chiếu bằng mắt với TradingView trên ít nhất ba đoạn giá.
+- Done when (per module): unit tests on hand-built data; every signal has a confirmation time; visual cross-check against TradingView on at least three price segments.
 
-### Bước 6 — Backtest
-- Việc: engine nhận tín hiệu, mô phỏng lệnh có phí maker/taker, slippage, funding; metric; so với buy-and-hold và hồi quy tuyến tính; tách dữ liệu in-sample và out-of-sample.
-- Xong khi: một chiến lược tầm thường (ví dụ giao cắt EMA) cho kết quả khớp với phép tính tay.
+### Step 6 — Backtesting
+- Tasks: an engine that takes signals and simulates orders with maker/taker fees, slippage and funding; metrics; comparison against buy-and-hold and linear regression; in-sample/out-of-sample split.
+- Done when: a trivial strategy (e.g. an EMA crossover) gives results matching a hand calculation.
 
-### Bước 7 — Hiển thị
-- Việc: chart nến có lớp phủ (vùng, VPOC, nhãn cấu trúc), dashboard, báo cáo backtest.
-- Công cụ: Plotly hoặc `lightweight-charts`, Streamlit.
-- Xong khi: dựng lại được các chart mẫu của bạn từ dữ liệu của dự án.
+### Step 7 — Visualization
+- Tasks: candlestick charts with overlays (zones, VPOC, structure labels), a dashboard, backtest reports.
+- Tools: Plotly or `lightweight-charts`, Streamlit.
+- Done when: your sample charts can be reproduced from the project's data.
 
-### Bước 8 — Pine Script
-- Việc: viết indicator v6 cho những tín hiệu đã qua bước 6.
-- Xong khi: tín hiệu trên TradingView trùng với tín hiệu Python trên cùng đoạn giá.
+### Step 8 — Pine Script
+- Tasks: write v6 indicators for the signals that passed step 6.
+- Done when: signals on TradingView match the Python signals on the same price segment.
 
-### Hoãn
-- Lớp LLM multi-agent.
-- On-chain trả phí.
-- Đặt lệnh thật.
+### Deferred
+- LLM multi-agent layer.
+- Paid on-chain data.
+- Live order placement.
 
-## 5. Việc cần bạn quyết định
+## 5. Decisions needed from you
 
-1. Danh sách cặp giao dịch ban đầu (mặc định BTCUSDT, ETHUSDT).
-2. Bộ thu 24/7 chạy ở đâu: máy Mac này (mất dữ liệu khi máy ngủ) hay VPS.
-3. Có giữ mảng vĩ mô (lãi suất Fed, vàng, DXY) không.
-4. Lịch sử cần sâu tới đâu (đề xuất: nến từ 2020, aggTrades 12 tháng gần nhất vì dung lượng lớn).
-5. Dự án có mục đích thương mại không. Câu trả lời quyết định có được dùng vectorbt và tham khảo mã LuxAlgo hay không.
+1. Initial list of trading pairs (default BTCUSDT, ETHUSDT).
+2. Where the 24/7 collector runs: this Mac (data lost while it sleeps) or a VPS.
+3. Whether to keep the macro part (Fed rates, gold, DXY).
+4. How deep the history needs to be (proposed: bars from 2020, aggTrades for the last 12 months because of their size).
+5. Whether the project is commercial. The answer decides whether vectorbt can be used and LuxAlgo code consulted.

@@ -1,44 +1,44 @@
-# Đóng góp cho rinng
+# Contributing to rinng
 
-Cảm ơn bạn quan tâm. Ai cũng có thể clone, chạy và đề xuất thay đổi. Chỉ chủ repo
-(@RinNguyens) được merge vào `main` và `dev`. Mọi thay đổi đều đi qua pull request và cần
-chủ repo review.
+Thanks for your interest. Anyone can clone, run and propose changes. Only the repo owner
+(@RinNguyens) can merge into `main` and `dev`. Every change goes through a pull request and needs
+the owner's review.
 
-## Nhánh
+## Branches
 
-| Nhánh | Vai trò |
+| Branch | Role |
 |---|---|
-| `main` | bản ổn định, được bảo vệ |
-| `dev` | nhánh tích hợp, được bảo vệ. PR nhắm vào đây |
-| `feat/...`, `fix/...`, `docs/...` | nhánh làm việc của bạn |
+| `main` | stable release, protected |
+| `dev` | integration branch, protected. Target your PRs here |
+| `feat/...`, `fix/...`, `docs/...` | your working branches |
 
-## Quy trình
+## Workflow
 
-1. **Fork** repo trên GitHub (người ngoài không push thẳng vào repo này được).
-2. Clone bản fork, rồi tạo nhánh từ `dev`:
+1. **Fork** the repo on GitHub (outside contributors cannot push to this repo directly).
+2. Clone your fork, then branch off `dev`:
    ```bash
-   git clone https://github.com/<tên-bạn>/rinng.git
+   git clone https://github.com/<your-username>/rinng.git
    cd rinng
    git remote add upstream https://github.com/RinNguyens/rinng.git
    git fetch upstream
-   git checkout -b feat/ten-tinh-nang upstream/dev
+   git checkout -b feat/feature-name upstream/dev
    ```
-3. Viết code kèm test, rồi kiểm tra:
+3. Write the code with tests, then check:
    ```bash
    uv sync
    uv run pytest
    uv run ruff check && uv run ruff format --check
-   pnpm --dir web lint && pnpm --dir web typecheck   # nếu sửa web/
+   pnpm --dir web lint && pnpm --dir web typecheck   # if you changed web/
    ```
-4. Push lên fork và mở **pull request vào `dev`** của `RinNguyens/rinng`. Mô tả rõ thay đổi gì và lý do.
-5. Chủ repo review. Sửa theo góp ý bằng cách push thêm commit lên cùng nhánh. Khi PR được duyệt,
-   chủ repo sẽ merge.
+4. Push to your fork and open a **pull request against `dev`** of `RinNguyens/rinng`. Describe clearly what changed and why.
+5. The owner reviews it. Address feedback by pushing more commits to the same branch. Once the PR is approved,
+   the owner merges it.
 
-## Quy ước
+## Conventions
 
-- Mỗi PR một việc. Commit message ngắn, viết ở thể mệnh lệnh ("Add OKX funding poller").
-- Không commit dữ liệu (`data/`), `.env`, API key hay file build.
-- rinng chỉ phân tích, không đặt lệnh. PR thêm chức năng giao dịch tự động sẽ không được nhận.
-- Báo lỗi hoặc đề xuất tính năng: mở [Issue](https://github.com/RinNguyens/rinng/issues).
+- One concern per PR. Keep commit messages short, in the imperative mood ("Add OKX funding poller").
+- Do not commit data (`data/`), `.env`, API keys or build output.
+- rinng only analyzes; it never places orders. PRs that add automated trading will not be accepted.
+- To report a bug or request a feature, open an [issue](https://github.com/RinNguyens/rinng/issues).
 
-Khi gửi đóng góp, bạn đồng ý để code đó được phát hành theo [giấy phép MIT](LICENSE).
+By submitting a contribution, you agree that your code is released under the [MIT license](LICENSE).

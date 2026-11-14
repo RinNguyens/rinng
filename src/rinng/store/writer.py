@@ -1,12 +1,13 @@
-"""Ghi dữ liệu an toàn khi nhiều tiến trình cùng chạy (docs/08-kien-truc.md mục 3).
+"""Safe writes when several processes run at once (docs/08-architecture.md section 3).
 
-Ba quy tắc:
-- Ghi ra file tạm trong cùng thư mục rồi đổi tên. Tiến trình chết giữa chừng chỉ để lại
-  file `.tmp`, không bao giờ để lại file Parquet dở ở đường dẫn chính thức.
-- Vùng raw/ là bất biến: ghi đè một file đã có thì bị từ chối.
-- Vùng curated/ được gộp: đọc phần đã có, nối phần mới, khử trùng theo khóa (bản mới thắng),
-  sắp theo khóa, rồi thay file. Một khóa file (flock) giữ cho hai tiến trình không cùng gộp
-  một phân vùng.
+Three rules:
+- Write to a temp file in the same directory, then rename. A process dying midway leaves only
+  a `.tmp` file, never a partial Parquet file at the real path.
+- The raw/ zone is immutable: overwriting an existing file is refused.
+- The curated/ zone is merged: read the existing part, append the new part, dedupe by key
+  (new wins),
+  sort by key, then replace the file. A file lock (flock) keeps two processes from merging
+  the same partition.
 """
 
 import fcntl
@@ -27,7 +28,7 @@ LOCK_FILE = ".lock"
 
 
 class RawExistsError(FileExistsError):
-    """File trong raw/ đã tồn tại; raw/ không được ghi đè."""
+    """File in raw/ already exists; raw/ must not be overwritten."""
 
 
 def _tmp_path(target: Path) -> Path:
@@ -39,19 +40,19 @@ def _commit(tmp: Path, target: Path, *, overwrite: bool) -> None:
         os.replace(tmp, target)
         return
     try:
-        # link() thất bại nếu đích đã tồn tại: tạo file mới mà không ghi đè, nguyên tử.
+        # link() fails if the target exists: creates a new file without overwriting, atomically.
         os.link(tmp, target)
     except FileExistsError:
-        raise RawExistsError(f"không ghi đè dữ liệu thô: {target}") from None
+        raise RawExistsError(f"refusing to overwrite raw data: {target}") from None
     finally:
         tmp.unlink(missing_ok=True)
 
 
 def write_raw_bytes(target: Path, content: bytes) -> Path:
-    """Ghi một file thô (ví dụ file zip tải về). Báo lỗi nếu file đã có."""
+    """Write a raw file (e.g. a downloaded zip). Raises if the file exists."""
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        raise RawExistsError(f"không ghi đè dữ liệu thô: {target}")
+        raise RawExistsError(f"refusing to overwrite raw data: {target}")
     tmp = _tmp_path(target)
     tmp.write_bytes(content)
     _commit(tmp, target, overwrite=False)
@@ -59,10 +60,10 @@ def write_raw_bytes(target: Path, content: bytes) -> Path:
 
 
 def write_raw_frame(target: Path, frame: pl.DataFrame) -> Path:
-    """Ghi một frame thô thành Parquet. Báo lỗi nếu file đã có."""
+    """Write a raw frame as Parquet. Raises if the file exists."""
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        raise RawExistsError(f"không ghi đè dữ liệu thô: {target}")
+        raise RawExistsError(f"refusing to overwrite raw data: {target}")
     tmp = _tmp_path(target)
     frame.write_parquet(tmp)
     _commit(tmp, target, overwrite=False)
@@ -81,7 +82,7 @@ def _locked(directory: Path) -> Iterator[None]:
 
 
 def merge_into(partition: Path, frame: pl.DataFrame, tbl: Table) -> int:
-    """Gộp `frame` vào file của một phân vùng. Trả về số dòng sau khi gộp."""
+    """Merge `frame` into one partition file. Returns the row count after merging."""
     frame = conform(frame, tbl)
     target = partition / PART_FILE
     with _locked(partition):
@@ -97,9 +98,9 @@ def merge_into(partition: Path, frame: pl.DataFrame, tbl: Table) -> int:
 
 
 def write_curated(paths: DataPaths, tbl: Table, frame: pl.DataFrame) -> dict[Path, int]:
-    """Chia frame theo exchange, symbol, timeframe, năm rồi gộp vào từng phân vùng.
+    """Split a frame by exchange, symbol, timeframe, year and merge into each partition.
 
-    Trả về số dòng của mỗi phân vùng sau khi gộp.
+    Returns the row count of each partition after merging.
     """
     frame = conform(frame, tbl)
     if frame.is_empty():

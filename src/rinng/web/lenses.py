@@ -427,14 +427,14 @@ def lens_indicators(o: pl.DataFrame, ctx: dict) -> dict:
     }
 
 
-# Số nến nhìn trước cho mỗi khung: 5m ≈ 4 giờ, 15m/1h ≈ nửa ngày/2 ngày, 4h ≈ 7 ngày,
-# 1d ≈ 1 tháng.
+# Bars of lookahead per timeframe: 5m ≈ 4 hours, 15m/1h ≈ half a day/2 days, 4h ≈ 7 days,
+# 1d ≈ 1 month.
 HORIZON = {"5m": 48, "15m": 48, "1h": 48, "4h": 42, "1d": 30, "1w": 12}
 CONE = "#42a5f5"
 
 
 def _forecast_levels(o: pl.DataFrame, history: pl.DataFrame, fc) -> list[dict]:
-    """Các mức giá đáng chú ý gần giá hiện tại, kèm xác suất chạm trong H nến tới."""
+    """Notable price levels near the current price, with touch probability within H bars."""
     close = fc.close
     cands: list[tuple[str, float, str]] = []
     lv = liquidity.liquidity_levels(o).filter(pl.col("invalidated_at").is_null())
@@ -444,7 +444,7 @@ def _forecast_levels(o: pl.DataFrame, history: pl.DataFrame, fc) -> list[dict]:
         cands.append(("BSL", price, BULL))
     for price in below.sort("price_low", descending=True)["price_low"].head(2).to_list():
         cands.append(("SSL", price, BEAR))
-    # Value area của tuần trước (đã đóng) từ nến 1 giờ của lịch sử nếu có, không thì nến hiện có.
+    # Value area of the previous (closed) week from 1h history bars if any, else current bars.
     end = history["open_time"].max()
     week = (end - timedelta(days=end.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     prev = history.filter(
@@ -459,7 +459,7 @@ def _forecast_levels(o: pl.DataFrame, history: pl.DataFrame, fc) -> list[dict]:
     for label, price, color in cands:
         if price is None or price <= 0:
             continue
-        # Bỏ mức quá xa (ngoài ~3.5 sigma của cả khoảng dự báo): xác suất gần 0, chỉ gây rối.
+        # Drop levels too far away (beyond ~3.5 sigma of the horizon): probability ~0, just noise.
         if abs(np.log(price / close)) > 3.5 * sigma_h:
             continue
         out.append(
@@ -530,7 +530,7 @@ def forecast_json(o: pl.DataFrame, history: pl.DataFrame, fc, stats: dict | None
 
 
 def lens_forecast(o: pl.DataFrame, ctx: dict) -> dict:
-    """Hình nón phân vị cho H nến tới + xác suất chạm các mức + số liệu kiểm chứng lịch sử."""
+    """Quantile cone for the next H bars + level-touch probabilities + backtest stats."""
     history: pl.DataFrame = ctx.get("history", o)
     tf = o["timeframe"][0] if "timeframe" in o.columns else ctx.get("tf", "4h")
     horizon = HORIZON.get(tf, 30)

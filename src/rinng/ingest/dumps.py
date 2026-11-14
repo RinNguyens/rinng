@@ -1,15 +1,15 @@
-"""Tải và đọc file dump của data.binance.vision (USDⓈ-M Futures).
+"""Download and read data.binance.vision dump files (USDⓈ-M Futures).
 
-Đã kiểm ngày 2026-11-13:
-- klines 1m: có file tháng và file ngày; file mới có dòng tiêu đề, file cũ (2020) thì không.
-- fundingRate: chỉ có file tháng (file ngày trả 404). Cột: calc_time, funding_interval_hours,
+Checked on 2026-11-13:
+- klines 1m: monthly and daily files; newer files have a header row, old ones (2020) do not.
+- fundingRate: monthly files only (daily return 404). Columns: calc_time, funding_interval_hours,
   last_funding_rate.
-- metrics: chỉ có file ngày. Cột xem docs/09-lo-trinh-phase.md Phase 0.
-- aggTrades, bookDepth: có file ngày (aggTrades có cả file tháng).
-- File ngày có vào hôm sau; file tháng có vào đầu tháng sau.
-- Mỗi file .zip có file .CHECKSUM (sha256) đi kèm.
+- metrics: daily files only. Columns: see docs/09-phase-roadmap.md Phase 0.
+- aggTrades, bookDepth: daily files (aggTrades also has monthly files).
+- Daily files appear the next day; monthly files at the start of the next month.
+- Each .zip file comes with a .CHECKSUM (sha256) file.
 
-File tải về được lưu nguyên vẹn ở raw/binance/dumps/{dataset}/{SYMBOL}/{tên file}.
+Downloaded files are stored unchanged at raw/binance/dumps/{dataset}/{SYMBOL}/{file name}.
 """
 
 import calendar
@@ -44,9 +44,9 @@ BASE_URL = "https://data.binance.vision/data/futures/um"
 
 @dataclass(frozen=True)
 class DumpKind:
-    dataset: str  # tên thư mục trên data.binance.vision
-    path: str  # đường dẫn con, {s} là symbol
-    stem: str  # phần giữa tên file, {s} là symbol
+    dataset: str  # directory name on data.binance.vision
+    path: str  # sub-path, {s} is the symbol
+    stem: str  # middle part of the file name, {s} is the symbol
     monthly: bool
     daily: bool
 
@@ -62,11 +62,11 @@ DUMPS = {
 
 @dataclass(frozen=True)
 class DumpFile:
-    name: str  # khóa trong DUMPS
-    symbol: str  # tên trên sàn
-    period: str  # "2026-10" hoặc "2026-11-12"
+    name: str  # key in DUMPS
+    symbol: str  # venue symbol
+    period: str  # "2026-10" or "2026-11-12"
     start: date
-    end: date  # không gồm
+    end: date  # exclusive
 
     @property
     def filename(self) -> str:
@@ -89,10 +89,10 @@ def _month_end(d: date) -> date:
 def plan(
     name: str, symbol: str, start: date, end: date, today: date | None = None
 ) -> list[DumpFile]:
-    """Danh sách file cần để phủ [start, end), ưu tiên file tháng.
+    """Files needed to cover [start, end), preferring monthly files.
 
-    Chỉ gồm file đã được phát hành: tháng đã kết thúc, ngày trước hôm nay (UTC).
-    Phần không phủ được (tháng hiện tại với dataset chỉ có file tháng) phải lấy bằng REST.
+    Only files already published: finished months, days before today (UTC).
+    Whatever cannot be covered (current month for monthly-only datasets) must come from REST.
     """
     kind = DUMPS[name]
     today = today or datetime.now(UTC).date()
@@ -110,7 +110,7 @@ def plan(
             files.append(DumpFile(name, symbol, day.isoformat(), day, day + timedelta(days=1)))
             day += timedelta(days=1)
         else:
-            break  # dataset chỉ có file tháng và tháng này chưa kết thúc
+            break  # monthly-only dataset and this month has not finished
     return files
 
 
@@ -137,10 +137,10 @@ class Downloader:
                 self._sleep(2.0 * (attempt + 1))
                 continue
             return response
-        raise AssertionError("không tới được đây")
+        raise AssertionError("unreachable")
 
     def fetch(self, dump: DumpFile, paths: DataPaths) -> Path | None:
-        """Tải một file nếu chưa có. Trả None nếu sàn không có file (404)."""
+        """Download one file if missing. Returns None if the exchange has no such file (404)."""
         target = dump.raw_path(paths)
         if target.exists():
             return target
@@ -158,7 +158,7 @@ class Downloader:
         return target
 
 
-# --- đọc file zip thành frame đúng schema ---
+# --- read zip files into frames with the right schema ---
 
 
 def _read_csv(content: bytes, columns: list[str]) -> pl.DataFrame:
@@ -171,7 +171,7 @@ def _read_csv(content: bytes, columns: list[str]) -> pl.DataFrame:
 
 
 def _epoch(col: str) -> pl.Expr:
-    """Mili giây hoặc micro giây (Spot từ 2025) → Datetime UTC."""
+    """Milliseconds or microseconds (Spot since 2025) → UTC Datetime."""
     v = pl.col(col).cast(pl.Int64)
     ms = pl.when(v > 10**14).then(v // 1000).otherwise(v)
     return pl.from_epoch(ms, time_unit="ms").dt.replace_time_zone("UTC")
@@ -219,7 +219,7 @@ METRICS_COLUMNS = [
     "count_long_short_ratio", "sum_taker_long_short_vol_ratio",
 ]  # fmt: skip
 
-# Ánh xạ đối chiếu với API ngày 2026-11-13 (số gần khớp, không bằng hẳn).
+# Mapping checked against the API on 2026-11-13 (values close, not identical).
 METRICS_RATIOS = {
     "count_toptrader_long_short_ratio": "top_account",
     "sum_toptrader_long_short_ratio": "top_position",
@@ -228,13 +228,13 @@ METRICS_RATIOS = {
 
 
 def _num(col: str) -> pl.Expr:
-    """Số thực; ô rỗng (file metrics cũ có nhiều ô trống) thành null."""
+    """Float; empty cells (old metrics files have many) become null."""
     return pl.col(col).replace("", None).cast(pl.Float64)
 
 
 def parse_metrics(content: bytes, symbol: str) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Trả (open_interest, long_short), cả hai có source="dump". Cột taker bị bỏ: chưa
-    xác minh được nó tương ứng với số nào của API."""
+    """Return (open_interest, long_short), both with source="dump". Taker columns are dropped: not
+    yet verified which API values they correspond to."""
     f = _read_csv(content, METRICS_COLUMNS)
     when = pl.col("create_time").str.to_datetime("%Y-%m-%d %H:%M:%S", time_zone="UTC")
     when = when.dt.cast_time_unit("ms").alias("time")
@@ -291,7 +291,7 @@ def parse_book_depth(content: bytes, symbol: str) -> pl.DataFrame:
 
 
 def parse(name: str, content: bytes, symbol: str) -> dict[str, pl.DataFrame]:
-    """Đọc một file dump; trả {tên bảng curated: frame}. `symbol` là tên chuẩn của dự án."""
+    """Read one dump file; return {curated table name: frame}. `symbol` is the canonical name."""
     if name == "klines_1m":
         return {"ohlcv": parse_klines(content, symbol)}
     if name == "funding":

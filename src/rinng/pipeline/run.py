@@ -1,11 +1,11 @@
-"""Chạy các module phân tích trên dữ liệu curated và ghi vào features/ hoặc events/.
+"""Run analysis modules on curated data and write to features/ or events/.
 
-Mỗi module trong `MODULES` nhận một `Inputs` (nến của một symbol, một khung, cùng dữ liệu
-phái sinh nếu cần) và trả về (features | None, events | None). Đầu ra là dữ liệu dẫn xuất,
-tính lại được bất cứ lúc nào, nên được ghi đè cả file:
+Each module in `MODULES` takes an `Inputs` (bars of one symbol and timeframe, plus derivatives
+data if needed) and returns (features | None, events | None). Output is derived data,
+recomputable at any time, so whole files are overwritten:
 data/{features|events}/{module}/v{VERSION}/symbol=…/timeframe=…/data.parquet
 
-Đổi định nghĩa của một module thì tăng VERSION của nó, để kết quả cũ không bị trộn.
+When a module definition changes, bump its VERSION so old results are not mixed in.
 """
 
 from collections.abc import Callable
@@ -156,7 +156,7 @@ def load_ohlcv(
     start: datetime | None = None,
     end: datetime | None = None,
 ) -> pl.DataFrame:
-    """Nến đã đóng, đúng định dạng đầu vào của lớp phân tích."""
+    """Closed bars, in the input format of the analysis layer."""
     o = read_curated(
         paths, OHLCV, exchange=exchange, symbol=symbol, timeframe=timeframe, start=start, end=end
     )
@@ -176,7 +176,7 @@ def analyze(
 ) -> dict[str, Result]:
     ohlcv = load_ohlcv(paths, exchange, symbol, timeframe, start, end)
     if ohlcv.is_empty():
-        raise ValueError(f"không có nến {exchange} {symbol} {timeframe}")
+        raise ValueError(f"no bars for {exchange} {symbol} {timeframe}")
     inputs = Inputs(paths, exchange, symbol, timeframe, ohlcv, start, end)
     out: dict[str, Result] = {}
     for name in modules or list(MODULES):

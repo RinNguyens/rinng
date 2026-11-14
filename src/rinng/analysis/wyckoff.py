@@ -1,35 +1,39 @@
-"""Các THÀNH PHẦN đo được của Wyckoff (docs/04-phuong-phap-phan-tich.md mục 4).
+"""Measurable COMPONENTS of Wyckoff (docs/04-analysis-methods.md section 4).
 
-Không gắn nhãn cả sơ đồ (accumulation/distribution, phase A–E): theo docs/04 mục 4.7 nhãn đó
-chỉ rõ khi nhìn lại. Module chỉ xuất các mảnh có định nghĩa cơ học để kiểm định riêng từng cái.
+Does not label the whole schematic (accumulation/distribution, phases A–E): per docs/04 section 4.7
+that label is only clear in hindsight. The module only emits mechanically defined pieces, each
+tested on its own.
 
-Đại lượng chung (tham số `window` = W, `atr_length` = A):
-- ATR: Wilder, giá trị đầu tại nến A−1 = trung bình A true range đầu tiên.
-- `volume_z`: z-score volume trên W nến gần nhất (gồm nến hiện tại), std mẫu.
-- `spread_atr`: (high − low) / ATR của nến TRƯỚC, để biên độ nến hiện tại không tự nâng mẫu số.
-- `spread_z`: z-score của spread_atr trên W nến.
-- `effort_result_gap` = volume_z − spread_z: dương lớn = nhiều effort (volume) mà ít result
-  (biên độ); âm lớn = biên độ lớn với volume thấp.
-- `clv`: (close − low) / (high − low); 0 = đóng ở đáy, 1 = đóng ở đỉnh; null nếu high = low.
+Common quantities (parameters `window` = W, `atr_length` = A):
+- ATR: Wilder, first value at candle A−1 = mean of the first A true ranges.
+- `volume_z`: volume z-score over the last W candles (including the current one), sample std.
+- `spread_atr`: (high − low) / ATR of the PREVIOUS candle, so the current range does not inflate the
+  denominator.
+- `spread_z`: z-score of spread_atr over W candles.
+- `effort_result_gap` = volume_z − spread_z: large positive = much effort (volume) with little
+  result (range); large negative = wide range on low volume.
+- `clv`: (close − low) / (high − low); 0 = close at the low, 1 = close at the high; null if high =
+  low.
 
-Sự kiện (Events):
-- `selling_climax` / `buying_climax` (hàm `climaxes`): volume_z >= `volume_z_min` và
-  spread_atr >= `spread_min`; chiều theo nến: close < open là selling, close > open là buying,
-  nến doji bỏ qua. Không đòi xu hướng trước đó. known_at = lúc đóng nến climax.
-- `trading_range` (hàm `trading_ranges`): khi không có range nào đang dựng hoặc còn hiệu lực,
-  một nến climax c mở range. Biên = [min low, max high] của nến c..c+R (R = `reaction_bars`,
-  tương ứng SC/BC và AR). Range được xác nhận khi `min_bars` = N nến liên tiếp sau đó đều có
-  close nằm trong biên (tính cả biên); một close ra ngoài trước khi đủ N thì bỏ range.
-  event_time = nến climax, known_at = lúc đóng nến thứ N.
-- `spring` / `upthrust`: sau khi range được xác nhận, nến b có low < biên dưới (high > biên
-  trên) mở một lần phá; nếu trong tối đa M = `reclaim_bars` nến tính cả b có một nến j đóng
-  cửa trong biên thì có spring (upthrust). event_time = nến b, known_at = lúc đóng nến j.
-  Không đóng lại trong M nến thì range bị phá: `invalidated_at` của trading_range = lúc đóng
-  nến b+M−1. Mỗi phía theo dõi độc lập; range có thể có nhiều spring/upthrust.
+Events:
+- `selling_climax` / `buying_climax` (function `climaxes`): volume_z >= `volume_z_min` and
+  spread_atr >= `spread_min`; direction by candle: close < open is selling, close > open is buying,
+  doji candles are skipped. No prior trend required. known_at = close of the climax candle.
+- `trading_range` (function `trading_ranges`): when no range is being built or still valid,
+  a climax candle c opens a range. Bounds = [min low, max high] of candles c..c+R (R =
+  `reaction_bars`, corresponding to SC/BC and AR). The range is confirmed when `min_bars` = N
+  consecutive candles afterwards all close within the bounds (inclusive); a close outside before
+  reaching N discards the range. event_time = climax candle, known_at = close of the N-th candle.
+- `spring` / `upthrust`: after the range is confirmed, a candle b with low < lower bound (high >
+  upper bound) opens a break; if within at most M = `reclaim_bars` candles including b some candle j
+  closes inside the bounds, it is a spring (upthrust). event_time = candle b, known_at = close of
+  candle j. If it does not close back within M candles the range is broken: `invalidated_at` of
+  trading_range = close of candle b+M−1. Each side is tracked independently; a range may have
+  several springs/upthrusts.
 
-Mọi ngưỡng là tự chọn (docs/04 mục 4.7) và càng nhiều ngưỡng càng dễ overfit. Bằng chứng học
-thuật về lợi thế của Wyckoff sau chi phí: chưa xác minh. Range ở đây chỉ là một định nghĩa cơ
-học, không khẳng định đó là tích lũy hay phân phối.
+All thresholds are arbitrary (docs/04 section 4.7) and more thresholds overfit more easily. Academic
+evidence of a Wyckoff edge after costs: unverified. A range here is just a mechanical
+definition, not a claim of accumulation or distribution.
 """
 
 from typing import Any
@@ -49,9 +53,9 @@ MODULE = "wyckoff"
 
 
 def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, length: int = 14) -> np.ndarray:
-    """ATR kiểu Wilder; NaN trước nến length−1."""
+    """Wilder-style ATR; NaN before candle length−1."""
     if length < 1:
-        raise ValueError("length phải >= 1")
+        raise ValueError("length must be >= 1")
     n = len(high)
     tr = np.empty(n)
     if n == 0:
@@ -70,9 +74,10 @@ def atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, length: int = 14) 
 
 
 def rolling_zscore(values: np.ndarray, window: int) -> np.ndarray:
-    """z-score trên `window` giá trị gần nhất (gồm hiện tại); NaN nếu chưa đủ hoặc std = 0."""
+    """z-score over the last `window` values (including the current); NaN if not enough data or std
+    = 0."""
     if window < 2:
-        raise ValueError("window phải >= 2")
+        raise ValueError("window must be >= 2")
     s = pl.Series(values, dtype=pl.Float64(), nan_to_null=True)
     mean = s.rolling_mean(window).to_numpy()
     std = s.rolling_std(window).to_numpy()
@@ -119,7 +124,7 @@ def effort_result(ohlcv: pl.DataFrame, *, window: int = 50, atr_length: int = 14
 def _climax_flags(
     ohlcv: pl.DataFrame, m: dict[str, np.ndarray], volume_z_min: float, spread_min: float
 ) -> np.ndarray:
-    """+1 buying climax, −1 selling climax, 0 không."""
+    """+1 buying climax, −1 selling climax, 0 none."""
     with np.errstate(invalid="ignore"):
         big = (m["volume_z"] >= volume_z_min) & (m["spread_atr"] >= spread_min)
     direction = np.sign(ohlcv["close"].to_numpy() - ohlcv["open"].to_numpy())
@@ -143,7 +148,7 @@ def climaxes(
     volume_z_min: float = 2.5,
     spread_min: float = 1.8,
 ) -> pl.DataFrame:
-    """Events kind = selling_climax | buying_climax; price_low/high = low/high của nến.
+    """Events kind = selling_climax | buying_climax; price_low/high = candle low/high.
 
     attrs: {"index", "volume_z", "spread_atr", "clv"}
     """
@@ -185,15 +190,15 @@ def trading_ranges(
     min_bars: int = 10,
     reclaim_bars: int = 3,
 ) -> pl.DataFrame:
-    """Events kind = trading_range | spring | upthrust (định nghĩa ở docstring module).
+    """Events kind = trading_range | spring | upthrust (defined in the module docstring).
 
-    trading_range: price_low/high = biên; attrs {"climax", "origin_index", "confirm_index"}.
-    spring/upthrust: price_low/high = cực trị của lần phá và biên bị phá;
+    trading_range: price_low/high = bounds; attrs {"climax", "origin_index", "confirm_index"}.
+    spring/upthrust: price_low/high = extreme of the break and the broken bound;
     attrs {"break_index", "reclaim_index", "reclaim_bars", "penetration", "penetration_atr",
     "range_low", "range_high"}.
     """
     if reaction_bars < 0 or min_bars < 1 or reclaim_bars < 1:
-        raise ValueError("cần reaction_bars >= 0, min_bars >= 1, reclaim_bars >= 1")
+        raise ValueError("requires reaction_bars >= 0, min_bars >= 1, reclaim_bars >= 1")
     symbol, timeframe = check_ohlcv(ohlcv)
     params = {
         "kind": "trading_range",
@@ -215,7 +220,7 @@ def trading_ranges(
     origin = count = 0
     lo = hi = 0.0
     current: dict[str, Any] | None = None
-    # lần phá đang chờ mỗi phía: (chỉ số nến phá, cực trị)
+    # pending break on each side: (break candle index, extreme)
     pending: dict[str, tuple[int, float] | None] = {"spring": None, "upthrust": None}
 
     for i in range(len(close)):

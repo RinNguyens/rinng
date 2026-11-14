@@ -1,37 +1,37 @@
-# 11. Dự báo (Projection): hình nón xác suất cho đường đi tiếp theo
+# 11. Forecasting (Projection): a probability cone for the path ahead
 
-Code: `src/rinng/analysis/forecast.py`, lens `forecast` trong `src/rinng/web/lenses.py`.
-Chỉ phân tích, không phải khuyến nghị giao dịch.
+Code: `src/rinng/analysis/forecast.py`, the `forecast` lens in `src/rinng/web/lenses.py`.
+Analysis only, not a trading recommendation.
 
-## Vì sao là hình nón, không phải một đường
+## Why a cone and not a line
 
-Giá crypto ngắn hạn gần như ngẫu nhiên. Một đường "giá sẽ đi thế này" luôn trông chắc chắn hơn
-thực tế. Thứ đo được và kiểm chứng được là **phân phối**: giá có khả năng nằm trong khoảng nào sau
-H nến, và xác suất chạm từng mức giá quan trọng.
+Short-term crypto prices are close to random. A single "price will go like this" line always looks more certain
+than reality. What can be measured and validated is the **distribution**: the range price is likely to be in after
+H bars, and the probability of touching each important price level.
 
-## Phương pháp
+## Method
 
-1. **Biến động** sigma_t: EWMA của log-return (lambda 0.94). Mọi quỹ đạo được chia theo sigma của
-   chính nó, nên quá khứ biến động mạnh/yếu đều so sánh được với hiện tại.
-2. **Trạng thái** mỗi nến (8 đặc trưng, chỉ dùng dữ liệu tới nến đó): lợi suất 1/5/20/60 nến theo
-   sigma, chế độ biến động (sigma / độ lệch chuẩn 200 nến), vị trí trong range 50 nến, RSI 14,
-   volume so với trung bình 50 nến.
-3. **Tình huống tương tự**: K nến quá khứ gần nhất với trạng thái hiện tại (K ≈ pool/15, 100–600),
-   chỉ những nến mà H nến sau đó đã kết thúc trước hiện tại. Trọng số kernel theo khoảng cách.
-4. **Trộn** 70% phân phối có điều kiện với 30% phân phối của mọi quỹ đạo quá khứ, để không quá tin
-   một nhóm nhỏ.
-5. **Kết quả**: phân vị 5/10/25/50/75/90/95% cho từng bước 1..H (hình nón), và xác suất chạm mức
-   giá = tỉ lệ có trọng số các quỹ đạo có high/low chạm mức đó trong H nến.
+1. **Volatility** sigma_t: EWMA of log returns (lambda 0.94). Every path is scaled by its own
+   sigma, so high- and low-volatility periods in the past are comparable to the present.
+2. **State** of each bar (8 features, using only data up to that bar): 1/5/20/60-bar returns in
+   sigma units, volatility regime (sigma / 200-bar standard deviation), position within the 50-bar range, RSI 14,
+   volume relative to the 50-bar average.
+3. **Analog situations**: the K past bars closest to the current state (K ≈ pool/15, 100–600),
+   only bars whose following H bars ended before now. Kernel weights by distance.
+4. **Blend** 70% of the conditional distribution with 30% of the distribution of all past paths, so as not to over-trust
+   a small group.
+5. **Output**: 5/10/25/50/75/90/95% quantiles for each step 1..H (the cone), and the probability of touching a price
+   level = the weighted share of paths whose high/low touches that level within H bars.
 
-H theo khung: 15m/1h: 48 nến, 4h: 42 (≈ 7 ngày), 1d: 30, 1w: 12. Tập quỹ đạo: tối đa 20.000 nến
-lịch sử của khung đó. Tính lại khi nến của khung đóng (cùng cơ chế realtime).
+H per timeframe: 15m/1h: 48 bars, 4h: 42 (≈ 7 days), 1d: 30, 1w: 12. Path pool: at most 20,000 historical bars
+of that timeframe. Recomputed when a bar of that timeframe closes (same realtime mechanism).
 
-## Kiểm chứng walk-forward
+## Walk-forward validation
 
-Chạy lại đúng quy trình tại 250 điểm trong quá khứ, mỗi điểm chỉ thấy dữ liệu trước nó, so với giá
-thật sau H nến. Số liệu hiện ngay trên chart và dashboard. Kết quả ngày 2026-11-14 (Binance):
+The exact same procedure is rerun at 250 points in the past, each seeing only data before it, and compared with the actual
+price after H bars. The numbers are shown on the chart and dashboard. Results as of 2026-11-14 (Binance):
 
-| Cặp | Khung | Dải 50% chứa | Dải 80% chứa | Dải 90% chứa | Đúng chiều | Kỹ năng vs không điều kiện |
+| Pair | Timeframe | 50% band coverage | 80% band coverage | 90% band coverage | Correct direction | Skill vs. unconditional |
 |---|---|---|---|---|---|---|
 | BTC | 1h (H=48) | 50% | 80% | 90% | 52% | 0.0% |
 | BTC | 4h (H=42) | 51% | 83% | 90% | 49% | −0.3% |
@@ -40,22 +40,22 @@ thật sau H nến. Số liệu hiện ngay trên chart và dashboard. Kết qu�
 | ETH | 4h | 54% | 79% | 91% | 47% | −0.6% |
 | ETH | 1d | 47% | 74% | 86% | 46% | −1.8% |
 
-Đọc kết quả:
-- **Độ rộng hình nón đáng tin**: các dải chứa kết quả thật gần đúng tỉ lệ danh nghĩa. Riêng ETH 1d
-  hơi hẹp: dải 80% chỉ chứa 74%.
-- **Chiều đi không đoán được**: trung vị đúng chiều quanh 50%, kỹ năng so với phân phối không điều
-  kiện xấp xỉ 0. Đây là kết quả thật, không phải lỗi; UI ghi rõ "not a direction call".
-- Giá trị dùng được: khoảng dao động hợp lý và xác suất chạm BSL/SSL/POC/VAH/VAL trong H nến.
+Reading the results:
+- **The cone width is reliable**: the bands contain the actual outcome close to their nominal rates. ETH 1d alone
+  is slightly narrow: the 80% band contains only 74%.
+- **Direction is not predictable**: the median gets the direction right about 50% of the time, and skill versus the unconditional
+  distribution is about 0. This is a real result, not a bug; the UI says plainly "not a direction call".
+- What is usable: a reasonable range of movement and the probability of touching BSL/SSL/POC/VAH/VAL within H bars.
 
-## Test
+## Tests
 
-`tests/analysis/test_forecast.py`: không nhìn trước tương lai (dự báo trên dữ liệu cắt = dự báo trên
-dữ liệu đầy đủ tại cùng điểm), phân vị có thứ tự và mở rộng theo thời gian, xác suất chạm đơn điệu,
-và trên random walk thì các dải được hiệu chỉnh đúng còn kỹ năng ≈ 0 (không có "kỹ năng ảo").
+`tests/analysis/test_forecast.py`: no look-ahead (a forecast on truncated data = the forecast on the full
+data at the same point), quantiles are ordered and widen over time, touch probabilities are monotonic,
+and on a random walk the bands are correctly calibrated while skill ≈ 0 (no "phantom skill").
 
-## Hướng cải thiện có thể thử (mỗi thay đổi phải qua walk-forward trước khi dùng)
+## Possible improvements (each change must pass walk-forward before use)
 
-- Thêm đặc trưng phái sinh (funding, thay đổi OI, CVD) vào trạng thái.
-- Chọn `blend`, K theo walk-forward riêng từng khung (cẩn thận overfit: tách giai đoạn chọn và
-  giai đoạn chấm).
-- Hiệu chỉnh lại (conformal) khi độ phủ lệch, ví dụ ETH 1d.
+- Add derivatives features (funding, OI change, CVD) to the state.
+- Choose `blend` and K by walk-forward per timeframe (beware overfitting: separate the selection period from
+  the scoring period).
+- Recalibrate (conformal) when coverage is off, e.g. ETH 1d.

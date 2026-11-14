@@ -1,4 +1,4 @@
-"""Dự báo xác suất: không nhìn trước tương lai, phân vị hợp lệ, hiệu chỉnh trên random walk."""
+"""Probabilistic forecast: no lookahead, valid quantiles, calibration on a random walk."""
 
 import numpy as np
 import pytest
@@ -25,7 +25,7 @@ def test_no_lookahead():
     cut = F.forecast(o.head(origin + 1), h)
     np.testing.assert_allclose(full.quantiles, cut.quantiles)
     np.testing.assert_allclose(full.weights, cut.weights)
-    # walk_forward dùng quỹ đạo tính sẵn trên toàn bộ dữ liệu: phải cho cùng kết quả.
+    # walk_forward uses trajectories precomputed on the full data: must give the same result.
     fast = F.forecast_at(
         F.prepare(o), origin, h, paths=F.all_paths(F.prepare(o), h), last_only=True
     )
@@ -35,9 +35,9 @@ def test_no_lookahead():
 def test_quantiles_are_ordered_and_widen():
     fc = F.forecast(_walk(1500), 30)
     q = fc.quantiles
-    assert np.all(np.diff(q, axis=0) >= 0)  # 5% <= 10% <= ... <= 95% ở mọi bước
+    assert np.all(np.diff(q, axis=0) >= 0)  # 5% <= 10% <= ... <= 95% at every step
     width = q[-1] - q[0]
-    assert width[-1] > width[0] * 2  # nón mở rộng theo thời gian
+    assert width[-1] > width[0] * 2  # the cone widens over time
 
 
 def test_touch_probability_is_monotone():
@@ -57,5 +57,5 @@ def test_bands_are_calibrated_on_random_walk(seed):
     wf = F.walk_forward(_walk(4000, seed), 24, max_origins=200)
     assert abs(wf["coverage"][80] - 0.8) < 0.1
     assert abs(wf["coverage"][50] - 0.5) < 0.12
-    # Không có gì để đoán: kỹ năng so với đối chứng phải xấp xỉ 0, không được "ảo".
+    # Nothing to predict: skill versus the baseline must be ~0, not "phantom".
     assert abs(wf["skill"]) < 0.05

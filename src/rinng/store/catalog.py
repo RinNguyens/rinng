@@ -1,8 +1,8 @@
-"""Sổ sách dữ liệu ở data/meta/: manifest (đã tải gì) và gaps (thiếu gì).
+"""Data bookkeeping in data/meta/: manifest (what was loaded) and gaps (what is missing).
 
-- manifest: mỗi lần ghi một lô dữ liệu thì thêm một dòng: nguồn, khoảng thời gian, số dòng,
-  checksum của nội dung, thời điểm tải. Dùng để biết một backtest chạy trên dữ liệu nào.
-- gaps: mỗi khoảng thời gian biết là thiếu dữ liệu (mất kết nối, sàn bảo trì...).
+- manifest: one row per written batch: source, time range, row count,
+  content checksum, load time. Used to know which data a backtest ran on.
+- gaps: each time range known to be missing (lost connection, exchange maintenance...).
 """
 
 import hashlib
@@ -49,7 +49,7 @@ GAPS = _table(
 
 
 def frame_checksum(frame: pl.DataFrame) -> str:
-    """SHA-256 của nội dung frame dạng CSV, không phụ thuộc cách nén file hay phiên bản polars."""
+    """SHA-256 of the frame content as CSV, independent of file compression or polars version."""
     return hashlib.sha256(frame.write_csv().encode()).hexdigest()
 
 
@@ -107,7 +107,7 @@ def record_gap(
     reason: str,
 ) -> None:
     if end <= start:
-        raise ValueError("khoảng trống phải có end > start")
+        raise ValueError("gap must have end > start")
     row = {
         "exchange": exchange,
         "symbol": symbol,

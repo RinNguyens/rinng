@@ -1,4 +1,4 @@
-"""curate_tail lặp nhiều lần phải cho đúng kết quả của curate + resample toàn bộ."""
+"""Repeated curate_tail must match a full curate + resample."""
 
 from datetime import UTC, datetime
 
@@ -29,7 +29,7 @@ def _rows(frame: pl.DataFrame) -> list[dict]:
 
 @pytest.mark.parametrize("split", [17, 600, 2000])
 def test_incremental_equals_full_resample(tmp_path, split):
-    # Thứ Sáu 2026-01-09 tới thứ Hai: đi qua mốc ngày và mốc tuần.
+    # Friday 2026-01-09 to Monday: crosses day and week boundaries.
     import numpy as np
 
     n = 4 * 1440
@@ -42,7 +42,7 @@ def test_incremental_equals_full_resample(tmp_path, split):
     for tf in TFS:
         write_curated(paths, OHLCV, resample_ohlcv(first, tf))
     rest = _rows(bars.slice(split))
-    for i in range(0, len(rest), 97):  # từng lô nhỏ như khi chạy live
+    for i in range(0, len(rest), 97):  # small batches, as when running live
         curate_tail(paths, "binance", "BTC-USDT-PERP", rest[i : i + 97], TFS)
 
     for tf in TFS:

@@ -1,270 +1,270 @@
-# 09 — Lộ trình theo phase
+# 09 — Phase roadmap
 
-Lập ngày 2026-11-13. Chi tiết hóa [07-ke-hoach-trien-khai.md](07-ke-hoach-trien-khai.md) thành các phase làm được độc lập, theo kiến trúc ở [08-kien-truc.md](08-kien-truc.md). Phase 0 đã xong (commit `c6ae912`); các phase còn lại chưa bắt đầu.
+Written 2026-11-13. Breaks [07-implementation-plan.md](07-implementation-plan.md) down into independently deliverable phases, following the architecture in [08-architecture.md](08-architecture.md). Phase 0 is done (commit `c6ae912`); the remaining phases have not started.
 
-## Trạng thái (cập nhật 2026-11-13)
+## Status (updated 2026-11-13)
 
-| Phase | Code | Tiêu chí "xong khi" | Còn lại |
+| Phase | Code | "Done when" criteria | Remaining |
 |---|---|---|---|
-| 0–2 | xong | đạt | — |
-| 3 Bộ thu | xong | một phần: test với server WebSocket giả qua; chạy thật 90 giây | chạy liên tục 72 giờ chưa làm; file dịch vụ trong `deploy/` chưa cài |
-| 4 Lịch sử | xong | xem kết quả chạy thật trong báo cáo phiên | aggTrades và bookDepth chưa tải (nặng; lệnh có sẵn) |
-| 5 Lõi phân tích | xong | test + chống nhìn trước qua | chưa so bằng mắt với TradingView |
-| 6 SMC, thanh khoản | xong | test + chống nhìn trước qua | chưa so với TradingView; chưa có MSS, inverse FVG |
-| 7 Volume profile, order flow | xong | test qua | chưa so VPOC với TradingView; chưa so bản nến với bản trades trên dữ liệu thật |
-| 8 Phái sinh, Wyckoff, Elliott | xong | test + chống nhìn trước qua | liquidation chỉ có từ lúc collector chạy |
-| 9 Backtest | xong | test khớp phép tính tay | không mô phỏng thanh lý; chưa có chiến lược nào đã kiểm định có lợi thế |
-| 10 Dashboard | xong | dashboard chạy được (test headless) | chưa đối chiếu với chart mẫu |
-| 11 Pine Script | `pine/rinng_overlay.pine` (SMC, thanh khoản, VP tuần, Wyckoff climax) và `pine/rinng_oscillators.pine` (RSI, MACD, delta/CVD ước lượng) | qua trình kiểm lỗi của Pine Editor, không còn lỗi hay cảnh báo | chưa chạy trên chart (TradingView đòi đăng nhập để Add to chart) |
+| 0–2 | done | met | — |
+| 3 Collector | done | partial: tests with a fake WebSocket server pass; ran live for 90 seconds | 72-hour continuous run not done; service files in `deploy/` not installed |
+| 4 History | done | see live run results in the session report | aggTrades and bookDepth not downloaded (heavy; command available) |
+| 5 Analysis core | done | tests + look-ahead checks pass | not yet visually compared with TradingView |
+| 6 SMC, liquidity | done | tests + look-ahead checks pass | not compared with TradingView; no MSS or inverse FVG yet |
+| 7 Volume profile, order flow | done | tests pass | VPOC not compared with TradingView; bar-based vs. trade-based versions not compared on real data |
+| 8 Derivatives, Wyckoff, Elliott | done | tests + look-ahead checks pass | liquidations only exist since the collector started |
+| 9 Backtest | done | tests match hand calculations | no liquidation simulation; no strategy validated as having an edge |
+| 10 Dashboard | done | dashboard runs (headless test) | not compared with the sample charts |
+| 11 Pine Script | `pine/rinng_overlay.pine` (SMC, liquidity, weekly VP, Wyckoff climax) and `pine/rinng_oscillators.pine` (RSI, MACD, estimated delta/CVD) | passes the Pine Editor checker with no errors or warnings | not yet run on a chart (TradingView requires login to Add to chart) |
 
-Quy ước:
+Conventions:
 
-- **Cỡ:** S (một module nhỏ), M (vài module), L (nhiều module hoặc phải chạy thử dài ngày). Đây là độ lớn tương đối, không phải ước lượng thời gian.
-- **Xong khi:** điều kiện kiểm chứng được. Chưa đạt thì chưa sang phase sau.
-- Mỗi phase kết thúc bằng một commit với test và ruff đều qua.
+- **Size:** S (one small module), M (a few modules), L (many modules or a multi-day trial run). This is relative size, not a time estimate.
+- **Done when:** verifiable conditions. If not met, do not move to the next phase.
+- Each phase ends with a commit where tests and ruff both pass.
 
-## Tổng quan
+## Overview
 
-| Phase | Tên | Cỡ | Phụ thuộc | Kết quả dùng được |
+| Phase | Name | Size | Depends on | Usable result |
 |---|---|---|---|---|
-| 0 | Khung dự án | S | — | `rinng check` chạy được (đã xong) |
-| 1 | Bộ chuyển đổi sàn | M | 0 | lấy nến, funding, OI từ hai sàn bằng một giao diện |
-| 2 | Lớp lưu trữ | M | 0 | ghi/đọc Parquet an toàn, có manifest |
-| 3 | Bộ thu realtime | L | 1, 2 | liquidation, OI, long/short được tích lũy liên tục |
-| 4 | Tải lịch sử và làm sạch | L | 1, 2 | nến 1 phút sạch từ 2020, đã resample |
-| 5 | Lõi phân tích | M | 4 | indicator cổ điển, swing, cấu trúc thị trường |
-| 6 | SMC và thanh khoản | M | 5 | BOS, CHoCH, FVG, order block, sweep |
-| 7 | Volume profile và order flow | L | 4 | VPOC, value area, delta, CVD, footprint |
-| 8 | Phái sinh, Wyckoff, Elliott | M | 3, 5 | feature funding/OI/liquidation; thành phần Wyckoff và Elliott |
-| 9 | Chiến lược và backtest | L | 5, tốt nhất sau 6–8 | kết quả backtest có phí, so với baseline |
-| 10 | Chart và dashboard | M | 5 trở đi | dựng lại các chart mẫu từ dữ liệu của dự án |
-| 11 | Pine Script | S–M | 9 | indicator trên TradingView khớp Python |
+| 0 | Project skeleton | S | — | `rinng check` works (done) |
+| 1 | Exchange adapters | M | 0 | bars, funding, OI from both exchanges through one interface |
+| 2 | Storage layer | M | 0 | safe Parquet read/write, with a manifest |
+| 3 | Realtime collector | L | 1, 2 | liquidations, OI, long/short accumulated continuously |
+| 4 | Historical download and cleaning | L | 1, 2 | clean 1-minute bars since 2020, resampled |
+| 5 | Analysis core | M | 4 | classic indicators, swings, market structure |
+| 6 | SMC and liquidity | M | 5 | BOS, CHoCH, FVG, order block, sweep |
+| 7 | Volume profile and order flow | L | 4 | VPOC, value area, delta, CVD, footprint |
+| 8 | Derivatives, Wyckoff, Elliott | M | 3, 5 | funding/OI/liquidation features; Wyckoff and Elliott components |
+| 9 | Strategy and backtest | L | 5, ideally after 6–8 | backtest results with fees, compared with baselines |
+| 10 | Charts and dashboard | M | 5 onward | reproduce the sample charts from project data |
+| 11 | Pine Script | S–M | 9 | TradingView indicators matching Python |
 
-Thứ tự làm đề xuất: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Phase 3 đi sớm vì mỗi ngày chưa chạy là một ngày liquidation mất hẳn. Phase 10 có thể kéo lên ngay sau phase 5 nếu muốn nhìn kết quả sớm; khi đó làm bản chart tối thiểu trước.
+Proposed order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10 → 11. Phase 3 goes early because every day it is not running is a day of liquidations lost for good. Phase 10 can move up right after phase 5 to see results early; in that case build a minimal chart first.
 
-## Phase 0 — Khung dự án (đã xong)
+## Phase 0 — Project skeleton (done)
 
-Việc treo đã xong (2026-11-13): đã tải file ngày 2026-11-10 của BTCUSDT, checksum khớp.
+The pending task is done (2026-11-13): downloaded the BTCUSDT files for 2026-11-10, checksums match.
 
-- `metrics` (288 dòng, mỗi 5 phút, không xếp theo thời gian): `create_time, symbol, sum_open_interest, sum_open_interest_value, count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, count_long_short_ratio, sum_taker_long_short_vol_ratio`. Đối chiếu với API cùng thời điểm: `count_toptrader…` ≈ top trader theo tài khoản, `sum_toptrader…` ≈ top trader theo vị thế, `count_long_short_ratio` ≈ toàn bộ tài khoản. Số gần khớp nhưng không bằng hẳn (OI 98691.69 so với 98690.01), nên lưu riêng với `source="dump"`. Cột taker không khớp rõ với API; coi như chưa xác minh. Không có tỷ lệ % long/short.
-- `bookDepth` (mỗi 30 giây, 12 mức ±0.2/1/2/3/4/5 %): `timestamp, percentage, depth, notional`, độ sâu lũy kế.
+- `metrics` (288 rows, every 5 minutes, not sorted by time): `create_time, symbol, sum_open_interest, sum_open_interest_value, count_toptrader_long_short_ratio, sum_toptrader_long_short_ratio, count_long_short_ratio, sum_taker_long_short_vol_ratio`. Compared against the API at the same times: `count_toptrader…` ≈ top traders by account, `sum_toptrader…` ≈ top traders by position, `count_long_short_ratio` ≈ all accounts. The numbers are close but not identical (OI 98691.69 vs 98690.01), so they are stored separately with `source="dump"`. The taker column does not clearly match the API; treat it as unverified. There are no long/short percentages.
+- `bookDepth` (every 30 seconds, 12 levels ±0.2/1/2/3/4/5 %): `timestamp, percentage, depth, notional`, cumulative depth.
 
-## Phase 1 — Bộ chuyển đổi sàn
+## Phase 1 — Exchange adapters
 
-**Mục tiêu:** phần còn lại của hệ thống lấy dữ liệu qua `Exchange` mà không biết sàn nào.
+**Goal:** the rest of the system gets data through `Exchange` without knowing which exchange.
 
-**Việc:**
-1. `exchanges/ratelimit.py`: bộ điều tiết. Binance đọc `X-MBX-USED-WEIGHT-1M` và tự hãm ở 50%; OKX đếm request theo cửa sổ 2 giây cho từng endpoint. Gặp 429 thì ngủ theo `Retry-After`; gặp 418 thì dừng hẳn và báo lỗi.
-2. `exchanges/binance.py`: `klines`, `funding`, `open_interest`, `long_short`, `taker_volume`, `mark_price_klines` cho USDⓈ-M; `klines` cho Spot. Phân trang bằng `startTime`.
-3. `exchanges/okx.py`: cùng các phương thức. Phân trang ngược bằng `after`; kiểm tra `code` trong body; dùng `1Dutc` thay cho `1D`.
-4. Chuẩn hóa đầu ra: thời gian UTC mili giây, số dạng float, tên cột chung.
-5. Mở rộng `Exchange` trong `base.py` cho đủ các phương thức trên.
+**Tasks:**
+1. `exchanges/ratelimit.py`: the throttle. Binance reads `X-MBX-USED-WEIGHT-1M` and self-limits at 50%; OKX counts requests in a 2-second window per endpoint. On 429 sleep per `Retry-After`; on 418 stop completely and raise an error.
+2. `exchanges/binance.py`: `klines`, `funding`, `open_interest`, `long_short`, `taker_volume`, `mark_price_klines` for USDⓈ-M; `klines` for Spot. Paginate with `startTime`.
+3. `exchanges/okx.py`: the same methods. Paginate backwards with `after`; check `code` in the body; use `1Dutc` instead of `1D`.
+4. Normalize output: UTC milliseconds, float numbers, common column names.
+5. Extend `Exchange` in `base.py` to cover all the methods above.
 
-**Thư viện thêm:** không.
+**Extra libraries:** none.
 
-**Xong khi:**
-- Test bằng `httpx.MockTransport` cho: phân trang nhiều trang, trang rỗng, 429 có `Retry-After`, 418, mã `50011` của OKX, nến chưa đóng.
-- Test có nhãn `network`: lấy 3 ngày nến 1h của BTC từ cả hai sàn, số nến đúng 72 và không trùng.
-- Nến 1h của Binance và OKX cùng khoảng thời gian có cùng mốc mở nến.
+**Done when:**
+- Tests with `httpx.MockTransport` for: multi-page pagination, empty pages, 429 with `Retry-After`, 418, OKX code `50011`, unclosed bars.
+- A `network`-marked test: fetch 3 days of BTC 1h bars from both exchanges, exactly 72 bars with no duplicates.
+- Binance and OKX 1h bars over the same period have the same open times.
 
-**Rủi ro:** weight thực tế cao hơn docs ghi (đã thấy một lần); một số endpoint `/futures/data/*` chưa xác minh được limit.
+**Risks:** actual weight is higher than the docs say (seen once); limits for some `/futures/data/*` endpoints are unverified.
 
-## Phase 2 — Lớp lưu trữ
+## Phase 2 — Storage layer
 
-**Mục tiêu:** ghi và đọc dữ liệu theo bố cục đã định, không hỏng file khi nhiều tiến trình cùng chạy.
+**Goal:** read and write data in the defined layout without corrupting files when several processes run at once.
 
-**Việc:**
-1. `store/schemas.py`: schema các bảng curated (`ohlcv`, `trades`, `funding`, `open_interest`, `long_short`, `liquidations`, `mark_index`).
-2. `store/writer.py`: ghi file tạm rồi đổi tên; từ chối ghi đè trong `raw/`; khử trùng theo khóa khi ghi `curated/`.
-3. `store/reader.py`: đọc theo instrument, khung thời gian, khoảng thời gian.
-4. `store/catalog.py`: `manifest` (nguồn, khoảng thời gian, số dòng, checksum, thời điểm tải) và `gaps`.
-5. View DuckDB trỏ vào Parquet.
+**Tasks:**
+1. `store/schemas.py`: schemas of the curated tables (`ohlcv`, `trades`, `funding`, `open_interest`, `long_short`, `liquidations`, `mark_index`).
+2. `store/writer.py`: write a temp file and rename; refuse overwrites in `raw/`; deduplicate by key when writing `curated/`.
+3. `store/reader.py`: read by instrument, timeframe, time range.
+4. `store/catalog.py`: `manifest` (source, time range, row count, checksum, download time) and `gaps`.
+5. DuckDB views pointing at Parquet.
 
-**Thư viện thêm:** `polars`, `duckdb`.
+**Extra libraries:** `polars`, `duckdb`.
 
-**Xong khi:**
-- Test: ghi rồi đọc lại ra đúng dữ liệu; ghi hai lần cùng khóa không sinh dòng trùng; ghi đè `raw/` bị từ chối; tiến trình chết giữa chừng không để lại file dở ở đường dẫn chính thức.
-- Truy vấn DuckDB đếm đúng số dòng đã ghi.
+**Done when:**
+- Tests: write then read back gives the same data; writing the same key twice produces no duplicate rows; overwriting `raw/` is refused; a process dying midway leaves no partial file at the official path.
+- A DuckDB query counts exactly the rows written.
 
-**Quyết định cần trước:** kết quả mở file `metrics` (phase 0).
+**Decision needed first:** the result of opening the `metrics` file (phase 0).
 
-## Phase 3 — Bộ thu realtime
+## Phase 3 — Realtime collector
 
-**Mục tiêu:** tích lũy liên tục các chuỗi không lấy lại được.
+**Goal:** continuously accumulate the series that cannot be recovered later.
 
-**Việc:**
-1. `ingest/collector/ws.py`: kết nối WebSocket Binance (`@forceOrder`, `@markPrice`, `@aggTrade`) và OKX (`liquidation-orders`, mark price, trades). Kết nối lại có giãn cách; Binance chủ động nối lại trước mốc 24 giờ; OKX gửi `ping` khi im lặng.
-2. `ingest/collector/poller.py`: mỗi 5 phút gọi OI, long/short ratio, taker volume qua phase 1.
-3. `ingest/collector/gaps.py`: ghi mọi khoảng mất kết nối vào `meta/gaps`.
-4. Gom bản ghi trong bộ nhớ, xả ra Parquet theo lô (theo thời gian hoặc số dòng), xả sạch khi nhận tín hiệu dừng.
-5. Lệnh `rinng collect` và file dịch vụ để tự khởi động lại (launchd trên macOS hoặc systemd trên VPS).
+**Tasks:**
+1. `ingest/collector/ws.py`: connect to Binance WebSocket (`@forceOrder`, `@markPrice`, `@aggTrade`) and OKX (`liquidation-orders`, mark price, trades). Reconnect with backoff; Binance proactively reconnects before the 24-hour mark; OKX sends `ping` when idle.
+2. `ingest/collector/poller.py`: every 5 minutes fetch OI, long/short ratio, taker volume via phase 1.
+3. `ingest/collector/gaps.py`: record every disconnect interval in `meta/gaps`.
+4. Buffer records in memory, flush to Parquet in batches (by time or row count), flush everything on a stop signal.
+5. The `rinng collect` command and service files for automatic restart (launchd on macOS or systemd on a VPS).
 
-**Thư viện thêm:** `websockets`, `APScheduler`.
+**Extra libraries:** `websockets`, `APScheduler`.
 
-**Xong khi:**
-- Test với server WebSocket giả: mất kết nối giữa chừng thì nối lại và ghi đúng một khoảng trống; tín hiệu dừng không làm mất bản ghi đang giữ.
-- Chạy thật 72 giờ liên tục, qua ít nhất một lần Binance ngắt 24 giờ; bảng `gaps` khớp với log.
-- Số bản ghi OI trong 72 giờ bằng 864 mỗi instrument mỗi sàn (72 × 12), trừ các khoảng trống đã ghi nhận.
+**Done when:**
+- Tests with a fake WebSocket server: a mid-stream disconnect reconnects and records exactly one gap; a stop signal does not lose buffered records.
+- A live 72-hour continuous run that survives at least one Binance 24-hour disconnect; the `gaps` table matches the logs.
+- The number of OI records over 72 hours is 864 per instrument per exchange (72 × 12), minus recorded gaps.
 
-**Quyết định cần trước:** chạy trên máy Mac này hay VPS. Nếu VPS, chạy `rinng check` trên đó trước và thêm bước đồng bộ `raw/` về máy phân tích.
+**Decision needed first:** run on this Mac or a VPS. If a VPS, run `rinng check` there first and add a step to sync `raw/` to the analysis machine.
 
-**Rủi ro:** luồng liquidation vốn không đầy đủ ở cả hai sàn; dung lượng aggTrades chưa ước lượng, có thể phải tắt luồng này và chỉ lấy aggTrades từ dump.
+**Risks:** the liquidation stream is inherently incomplete on both exchanges; aggTrades storage size has not been estimated, so this stream may have to be turned off and aggTrades taken only from dumps.
 
-## Phase 4 — Tải lịch sử và làm sạch
+## Phase 4 — Historical download and cleaning
 
-**Mục tiêu:** có bộ nến 1 phút sạch, dài, đã resample; là đầu vào cho mọi phân tích.
+**Goal:** a clean, long, resampled set of 1-minute bars; the input to all analysis.
 
-**Việc:**
-1. `ingest/dumps.py`: liệt kê và tải file từ data.binance.vision theo khoảng ngày, kiểm `.CHECKSUM`, lưu nguyên file zip vào `raw/`.
-2. `ingest/backfill.py`: lấp phần dump chưa có (vài ngày gần nhất) bằng REST; tải OKX để đối chiếu.
-3. `pipeline/curate.py`: raw → curated. Xử lý timestamp micro giây của dump Spot từ 2025-01-01.
-4. `store/resample.py`: 1 phút → 15m, 1h, 4h, 1d, 1w theo UTC; tuần bắt đầu thứ Hai.
-5. `pipeline/validate.py`: báo cáo nến thiếu, trùng, giá bất thường, lệch giữa hai sàn.
-6. Lệnh `rinng backfill` và `rinng validate`.
+**Tasks:**
+1. `ingest/dumps.py`: list and download files from data.binance.vision by date range, verify `.CHECKSUM`, store the original zip files in `raw/`.
+2. `ingest/backfill.py`: fill what the dumps do not have yet (the last few days) via REST; download OKX for cross-checking.
+3. `pipeline/curate.py`: raw → curated. Handle the microsecond timestamps of Spot dumps from 2025-01-01.
+4. `store/resample.py`: 1 minute → 15m, 1h, 4h, 1d, 1w in UTC; weeks start on Monday.
+5. `pipeline/validate.py`: report missing and duplicate bars, abnormal prices, divergence between the two exchanges.
+6. The `rinng backfill` and `rinng validate` commands.
 
-**Thư viện thêm:** không.
+**Extra libraries:** none.
 
-**Xong khi:**
-- Không có nến thiếu hay trùng trong khoảng đã tải, hoặc mọi khoảng thiếu đều được liệt kê kèm lý do (sàn bảo trì).
-- Nến 1h và 1d tự resample khớp từng giá trị với nến sàn trả về trên một tháng mẫu.
-- Phần giao nhau giữa dump và REST khớp nhau.
+**Done when:**
+- No missing or duplicate bars in the downloaded range, or every missing interval is listed with a reason (exchange maintenance).
+- Self-resampled 1h and 1d bars match the exchange's bars value for value over a sample month.
+- The overlap between dumps and REST matches.
 
-**Quyết định cần trước:** độ sâu lịch sử (đề xuất nến từ 2020; aggTrades 12 tháng gần nhất).
+**Decision needed first:** history depth (proposed: bars since 2020; aggTrades for the last 12 months).
 
-## Phase 5 — Lõi phân tích
+## Phase 5 — Analysis core
 
-**Mục tiêu:** dựng hai kiểu đầu ra Feature và Event, cùng các khối mà mọi module sau dùng lại.
+**Goal:** build the two output types, Feature and Event, and the building blocks every later module reuses.
 
-**Việc:**
-1. `analysis/types.py`: kiểu `Features`, `Events`, `Params` và cách băm tham số.
-2. `analysis/indicators.py`: RSI, MACD, ROC, Stochastic, Williams %R, ATR, Bollinger, EMA/SMA, ADX, OBV, VWAP và anchored VWAP.
-3. `analysis/structure.py`: swing high/low với độ dài cấu hình được; nhãn HH/HL/LH/LL; mỗi swing có `event_time` và `known_at`.
-4. `pipeline/run.py`: chạy một module trên một instrument và một khung thời gian, ghi vào `features/` hoặc `events/`.
+**Tasks:**
+1. `analysis/types.py`: the `Features`, `Events`, `Params` types and parameter hashing.
+2. `analysis/indicators.py`: RSI, MACD, ROC, Stochastic, Williams %R, ATR, Bollinger, EMA/SMA, ADX, OBV, VWAP and anchored VWAP.
+3. `analysis/structure.py`: swing high/low with configurable length; HH/HL/LH/LL labels; each swing has `event_time` and `known_at`.
+4. `pipeline/run.py`: run one module on one instrument and one timeframe, writing to `features/` or `events/`.
 
-**Thư viện thêm:** TA-Lib (cần cài thư viện C qua Homebrew), `numpy`.
+**Extra libraries:** TA-Lib (needs the C library installed via Homebrew), `numpy`.
 
-**Xong khi:**
-- Mỗi indicator có test trên chuỗi dựng tay với giá trị kỳ vọng tính độc lập.
-- Test chống nhìn trước: cắt dữ liệu tại thời điểm T, mọi dòng có `known_at` ≤ T phải giống hệt kết quả khi chạy trên toàn bộ dữ liệu.
-- So bằng mắt RSI, MACD và các swing với TradingView trên ba đoạn giá.
+**Done when:**
+- Each indicator has a test on a hand-built series with independently computed expected values.
+- Look-ahead test: truncate the data at time T; every row with `known_at` ≤ T must be identical to the result on the full data.
+- Visual comparison of RSI, MACD and swings with TradingView on three price segments.
 
-**Rủi ro:** TA-Lib có thể chưa có bản dựng sẵn cho môi trường này; phương án dự phòng là tự viết các indicator bằng numpy.
+**Risks:** TA-Lib may have no prebuilt binary for this environment; the fallback is writing the indicators in numpy.
 
-## Phase 6 — SMC và thanh khoản
+## Phase 6 — SMC and liquidity
 
-**Mục tiêu:** các khái niệm SMC thành sự kiện có định nghĩa rõ, kiểm định được.
+**Goal:** SMC concepts as clearly defined, testable events.
 
-**Việc:**
-1. `analysis/smc.py`: BOS, CHoCH (phá bằng giá đóng hay wick là tham số), FVG kèm trạng thái đã lấp, order block kèm mitigation và breaker, premium/discount, displacement theo bội số ATR.
-2. `analysis/liquidity.py`: equal highs/lows với dung sai theo ATR, liquidity sweep, vùng thanh khoản dưới đáy và trên đỉnh cũ.
-3. Ghi định nghĩa đã chọn cho từng khái niệm vào tài liệu, vì SMC không có định nghĩa chuẩn.
+**Tasks:**
+1. `analysis/smc.py`: BOS, CHoCH (break on close or wick is a parameter), FVG with filled state, order block with mitigation and breaker, premium/discount, displacement as an ATR multiple.
+2. `analysis/liquidity.py`: equal highs/lows with ATR-based tolerance, liquidity sweeps, liquidity zones below old lows and above old highs.
+3. Document the chosen definition of each concept, since SMC has no standard definitions.
 
-**Thư viện thêm:** không.
+**Extra libraries:** none.
 
-**Xong khi:**
-- Mỗi loại sự kiện có test trên chuỗi nến dựng tay, gồm cả trường hợp không được sinh sự kiện.
-- Test chống nhìn trước như phase 5 qua cho mọi loại sự kiện, kể cả `invalidated_at`.
-- So bằng mắt với một indicator SMC trên TradingView trên ba đoạn giá; ghi lại chỗ khác và lý do.
+**Done when:**
+- Each event type has tests on hand-built bar series, including cases where no event should be produced.
+- The phase 5 look-ahead test passes for every event type, including `invalidated_at`.
+- Visual comparison with a TradingView SMC indicator on three price segments; differences and reasons recorded.
 
-**Rủi ro:** giả mã trong [03-pine-script-va-smc.md](03-pine-script-va-smc.md) chưa từng chạy, chỉ dùng làm điểm xuất phát.
+**Risks:** the pseudocode in [03-pine-script-and-smc.md](03-pine-script-and-smc.md) has never run and is only a starting point.
 
-## Phase 7 — Volume profile và order flow
+## Phase 7 — Volume profile and order flow
 
-**Mục tiêu:** dựng lại được chart volume profile tuần có VPOC và delta.
+**Goal:** reproduce the weekly volume profile chart with VPOC and delta.
 
-**Việc:**
-1. `analysis/volume_profile.py` bản gần đúng: rải volume của nến 1 phút theo khoảng giá; VPOC, VAH/VAL (70%), HVN/LVN, naked POC; profile theo phiên, tuần, tháng và theo khoảng neo tùy ý.
-2. Bản chính xác từ aggTrades; so sai lệch với bản gần đúng.
-3. `analysis/orderflow.py`: delta theo nến từ `taker_buy_volume`, CVD; footprint theo mức giá, imbalance và absorption từ aggTrades.
-4. Bổ sung tải aggTrades vào phase 4 cho khoảng thời gian cần.
+**Tasks:**
+1. Approximate `analysis/volume_profile.py`: spread 1-minute bar volume across the price range; VPOC, VAH/VAL (70%), HVN/LVN, naked POC; profiles per session, week, month and arbitrary anchored range.
+2. Exact version from aggTrades; measure the deviation from the approximation.
+3. `analysis/orderflow.py`: per-bar delta from `taker_buy_volume`, CVD; footprint by price level, imbalance and absorption from aggTrades.
+4. Add aggTrades downloading to phase 4 for the needed period.
 
-**Thư viện thêm:** không.
+**Extra libraries:** none.
 
-**Xong khi:**
-- Test trên dữ liệu dựng tay: VPOC, VAH, VAL đúng với phép tính tay; tổng volume của profile bằng tổng volume nến.
-- Delta theo nến tính từ nến khớp với delta gộp từ aggTrades trên một ngày mẫu.
-- VPOC tuần lệch không quá một bin so với TradingView trên ba tuần mẫu.
+**Done when:**
+- Tests on hand-built data: VPOC, VAH, VAL match hand calculations; total profile volume equals total bar volume.
+- Per-bar delta computed from bars matches delta aggregated from aggTrades on a sample day.
+- Weekly VPOC is within one bin of TradingView on three sample weeks.
 
-**Quyết định cần trước:** kích thước bin giá và định nghĩa tuần (đề xuất thứ Hai 00:00 UTC).
+**Decision needed first:** price bin size and the week definition (proposed: Monday 00:00 UTC).
 
-**Rủi ro:** biến thể value area của TradingView chưa xác minh; aggTrades rất nặng, có thể chỉ lưu dạng đã gộp theo mức giá.
+**Risks:** TradingView's value area variant is unverified; aggTrades are very heavy, so only price-level aggregates may be stored.
 
-## Phase 8 — Phái sinh, Wyckoff, Elliott
+## Phase 8 — Derivatives, Wyckoff, Elliott
 
-**Mục tiêu:** feature từ dữ liệu phái sinh, và các thành phần đo được của Wyckoff và Elliott.
+**Goal:** features from derivatives data, and the measurable components of Wyckoff and Elliott.
 
-**Việc:**
-1. `analysis/derivatives.py`: funding (mức, z-score, tích lũy), basis và premium, thay đổi OI, bảng trạng thái giá + OI, long/short ratio, cụm liquidation.
-2. `analysis/wyckoff.py`: climax volume, biên trading range, spring và upthrust, effort vs result. Không gắn nhãn cả sơ đồ.
-3. `analysis/elliott.py`: zigzag pivot, kiểm ba quy tắc cứng cho một dãy pivot, tỷ lệ Fibonacci giữa các sóng. Không tự chọn một cách đếm duy nhất.
+**Tasks:**
+1. `analysis/derivatives.py`: funding (level, z-score, cumulative), basis and premium, OI change, price + OI state table, long/short ratio, liquidation clusters.
+2. `analysis/wyckoff.py`: climax volume, trading range bounds, spring and upthrust, effort vs result. No labeling of the full schematic.
+3. `analysis/elliott.py`: zigzag pivots, checking the three hard rules for a pivot sequence, Fibonacci ratios between waves. No automatic choice of a single count.
 
-**Thư viện thêm:** không.
+**Extra libraries:** none.
 
-**Xong khi:**
-- Test trên dữ liệu dựng tay cho từng feature và sự kiện.
-- Test chống nhìn trước qua.
-- Feature OI và liquidation chỉ được tính trên các đoạn không có khoảng trống trong `meta/gaps`.
+**Done when:**
+- Tests on hand-built data for each feature and event.
+- Look-ahead tests pass.
+- OI and liquidation features are only computed over segments with no gaps in `meta/gaps`.
 
-**Rủi ro:** lịch sử OI và long/short phụ thuộc file `metrics`; liquidation chỉ có từ lúc phase 3 chạy, nên phần này có ít dữ liệu để kiểm định trong thời gian đầu.
+**Risks:** OI and long/short history depends on the `metrics` files; liquidations only exist since phase 3 started, so there is little data to validate this part at first.
 
-## Phase 9 — Chiến lược và backtest
+## Phase 9 — Strategy and backtest
 
-**Mục tiêu:** đo được một ý tưởng có lợi thế hay không, sau chi phí, so với baseline.
+**Goal:** measure whether an idea has an edge, after costs, compared with baselines.
 
-**Việc:**
-1. `strategy/base.py` và hai baseline: buy-and-hold, hồi quy tuyến tính 40 nến (như trong paper).
-2. `backtest/costs.py`: phí maker/taker, slippage, funding theo thời gian giữ lệnh.
-3. `backtest/engine.py`: vào lệnh ở nến sau `known_at`; stop và take-profit trong nến; quy ước khi cả hai cùng chạm trong một nến.
-4. `backtest/metrics.py` và `report.py`: Sharpe, Sortino, max drawdown, win rate, profit factor, số lệnh; annualize cho thị trường 24/7.
-5. Tách in-sample và out-of-sample; ghi số cấu hình đã thử.
-6. Lệnh `rinng backtest`.
+**Tasks:**
+1. `strategy/base.py` and two baselines: buy-and-hold, 40-bar linear regression (as in the paper).
+2. `backtest/costs.py`: maker/taker fees, slippage, funding over the holding period.
+3. `backtest/engine.py`: enter on the bar after `known_at`; intrabar stop and take-profit; a convention for when both are hit in the same bar.
+4. `backtest/metrics.py` and `report.py`: Sharpe, Sortino, max drawdown, win rate, profit factor, trade count; annualized for a 24/7 market.
+5. Split in-sample and out-of-sample; record the number of configurations tried.
+6. The `rinng backtest` command.
 
-**Thư viện thêm:** `quantstats`.
+**Extra libraries:** `quantstats`.
 
-**Xong khi:**
-- Một chiến lược giao cắt EMA trên dữ liệu dựng tay cho đúng từng lệnh và đúng lãi lỗ so với phép tính tay, kể cả phí và funding.
-- Buy-and-hold cho lợi nhuận bằng thay đổi giá trừ chi phí.
-- Mỗi lần chạy lưu cấu hình, mã băm tham số và phiên bản code vào `results/`.
+**Done when:**
+- An EMA crossover strategy on hand-built data gives exactly the right trades and P&L versus a hand calculation, including fees and funding.
+- Buy-and-hold returns the price change minus costs.
+- Every run stores the config, parameter hash and code version in `results/`.
 
-**Rủi ro:** thử nhiều tham số sẽ dẫn tới overfitting; cần kỷ luật giữ nguyên tập out-of-sample.
+**Risks:** trying many parameters leads to overfitting; discipline is needed to keep the out-of-sample set untouched.
 
-## Phase 10 — Chart và dashboard
+## Phase 10 — Charts and dashboard
 
-**Mục tiêu:** nhìn thấy dữ liệu, sự kiện và kết quả backtest.
+**Goal:** see the data, events and backtest results.
 
-**Việc:**
-1. `viz/chart.py`: nến kèm lớp phủ (vùng FVG và order block, đường VPOC và value area, nhãn BOS/CHoCH, swing).
-2. `viz/overlays.py`: volume profile bên cạnh, bảng dưới cho CVD, funding, OI.
-3. Dashboard: chọn instrument, khung thời gian, lớp phủ; trang kết quả backtest.
+**Tasks:**
+1. `viz/chart.py`: candlesticks with overlays (FVG and order block zones, VPOC and value area lines, BOS/CHoCH labels, swings).
+2. `viz/overlays.py`: side volume profile, lower panels for CVD, funding, OI.
+3. Dashboard: pick instrument, timeframe, overlays; a backtest results page.
 
-**Thư viện thêm:** Plotly hoặc `lightweight-charts`, Streamlit.
+**Extra libraries:** Plotly or `lightweight-charts`, Streamlit.
 
-**Xong khi:** dựng lại được chart volume profile tuần và chart vùng thanh khoản trong bộ ảnh mẫu, từ dữ liệu của dự án.
+**Done when:** the weekly volume profile chart and the liquidity zone chart from the sample image set can be reproduced from project data.
 
 ## Phase 11 — Pine Script
 
-**Mục tiêu:** đưa các tín hiệu đã qua kiểm định lên TradingView.
+**Goal:** bring validated signals to TradingView.
 
-**Việc:** viết indicator Pine v6 cho từng nhóm tín hiệu đã qua phase 9; dùng cùng tham số với Python.
+**Tasks:** write Pine v6 indicators for each signal group that passed phase 9; use the same parameters as Python.
 
-**Xong khi:** trên cùng một đoạn giá, sự kiện Pine vẽ ra trùng với sự kiện Python, và chỗ lệch được giải thích.
+**Done when:** on the same price segment, the events Pine draws match the Python events, and any differences are explained.
 
-**Rủi ro:** Pine giới hạn 500 line/box/label và có mô hình thực thi khác, nên một số sự kiện chỉ hiển thị được phần gần nhất.
+**Risks:** Pine is limited to 500 lines/boxes/labels and has a different execution model, so some events can only show the most recent part.
 
-## Hoãn, chưa xếp phase
+## Deferred, not yet assigned a phase
 
-- Lớp LLM multi-agent.
-- Dữ liệu on-chain trả phí.
-- Mảng vĩ mô (lãi suất Fed, vàng, DXY), chờ quyết định.
-- Đặt lệnh thật.
+- LLM multi-agent layer.
+- Paid on-chain data.
+- Macro data (Fed rates, gold, DXY), awaiting a decision.
+- Live order placement.
 
-## Quyết định còn treo
+## Pending decisions
 
-| Quyết định | Cần trước phase | Mặc định nếu không nói gì |
+| Decision | Needed before phase | Default if unspecified |
 |---|---|---|
-| Tải file `metrics` và `bookDepth` để xem cột | 2 | chưa tải |
-| Bộ thu chạy trên Mac hay VPS | 3 | Mac này, chấp nhận khoảng trống khi máy ngủ |
-| Độ sâu lịch sử | 4 | nến từ 2020; aggTrades 12 tháng |
-| Kích thước bin và định nghĩa tuần của volume profile | 7 | tuần bắt đầu thứ Hai 00:00 UTC; bin chọn khi làm |
-| Có làm mảng vĩ mô không | 8 | không |
-| Dự án có mục đích thương mại không | 9 | coi như có, nên không dùng vectorbt và mã LuxAlgo |
+| Download `metrics` and `bookDepth` files to inspect columns | 2 | not downloaded |
+| Collector runs on the Mac or a VPS | 3 | this Mac, accepting gaps while it sleeps |
+| History depth | 4 | bars since 2020; 12 months of aggTrades |
+| Volume profile bin size and week definition | 7 | week starts Monday 00:00 UTC; bin chosen during implementation |
+| Whether to do macro | 8 | no |
+| Whether the project is commercial | 9 | assume yes, so no vectorbt and no LuxAlgo code |

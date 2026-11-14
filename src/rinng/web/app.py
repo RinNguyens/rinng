@@ -57,22 +57,22 @@ def _instrument_json(i, configured: bool) -> dict:
 def create_app(
     settings: Settings, hub: "LiveHub | None" = None, catalog: Catalog | None = None
 ) -> FastAPI:
-    """`hub`: có khi chạy bằng `rinng live` (dữ liệu realtime + WebSocket /ws/live).
-    `catalog`: danh mục coin trên sàn để mở coin ngoài cấu hình (dữ liệu qua REST)."""
+    """`hub`: present when run via `rinng live` (realtime data + WebSocket /ws/live).
+    `catalog`: exchange coin catalog for opening coins outside the config (data via REST)."""
     app = FastAPI(title="rinng")
     catalog = catalog or Catalog(settings)
     paths = DataPaths(settings.data_dir)
     cache: dict[tuple, tuple[float, object]] = {}
     news = NewsFeed()
-    # Chạy live: cache theo mốc nến đóng gần nhất của khung đó (đóng nến mới là tính lại);
-    # không live: dữ liệu chỉ đổi khi chạy curate, nên hết hạn sau 60 giây là đủ.
+    # Live: cache keyed by the latest closed bar of that timeframe (a new close recomputes);
+    # not live: data only changes when curate runs, so a 60-second expiry is enough.
     ttl = 3600.0 if hub is not None else 60.0
 
     def stamp(exchange: str, symbol: str, tf: str) -> int | None:
         return None if hub is None else hub.last_closed.get((exchange, symbol, tf))
 
     def cached(key: tuple, fn):
-        # Khóa cuối là mốc nến đóng; không có (coin ngoài cấu hình chưa có feed) thì 60 giây.
+        # Last key is the closed-bar time; without one (off-config coin, no feed) 60 s.
         life = ttl if key[-1] is not None else 60.0
         hit = cache.get(key)
         if hit and time.time() - hit[0] < life:
@@ -97,7 +97,7 @@ def create_app(
         return v
 
     def from_1m(exchange: str, symbol: str, tf: str, start: datetime) -> pl.DataFrame:
-        """Nến `tf` đã đóng, gộp từ nến 1m trong curated (rỗng nếu coin chưa có dữ liệu lưu)."""
+        """Closed `tf` bars aggregated from 1m bars in curated (empty if nothing stored)."""
         m1 = load_ohlcv(paths, exchange, symbol, "1m", start)
         if m1.height < 2:
             return m1
@@ -110,7 +110,7 @@ def create_app(
         if o.height >= 0.9 * min(need, MAX_BARS) and o.height > 2:
             return o.tail(MAX_BARS), "curated"
         if tf == "5m":
-            # 5m chưa được lưu đủ (mới thêm khung): gộp từ nến 1m đã lưu.
+            # 5m not fully stored yet (timeframe added recently): aggregate from stored 1m bars.
             o = from_1m(exchange, symbol, tf, start)
             if o.height >= 0.9 * min(need, MAX_BARS):
                 return o.tail(MAX_BARS), "curated"
@@ -200,11 +200,11 @@ def create_app(
                     base_tf = tf
                 ctx["base"] = candles(exchange, symbol, base_tf, days)[0]
             if lens == "forecast":
-                # Lịch sử dài cho tập quỹ đạo quá khứ; kết thúc đúng ở nến cuối đang hiển thị.
+                # Long history for the past-trajectory set; ends exactly at the last displayed bar.
                 hist = load_ohlcv(paths, exchange, symbol, tf)
                 hist = hist.filter(pl.col("open_time") <= o["open_time"][-1]).tail(20_000)
                 if hist.height < 2_000:
-                    # Coin chưa có dữ liệu lưu: lấy tối đa MAX_BARS nến qua REST làm tập quỹ đạo.
+                    # Coin with no stored data: fetch up to MAX_BARS bars via REST instead.
                     need = MAX_BARS * timeframe_ms(tf) / 86_400_000
                     more = candles(exchange, symbol, tf, int(need) + 1)[0]
                     hist = more if more.height > hist.height else hist
@@ -220,7 +220,7 @@ def create_app(
 
     @app.get("/api/instruments")
     def instruments_api(q: str = Query(""), limit: int = Query(30, ge=1, le=100)):
-        """Tìm coin trên Binance/OKX (perp USDT). q rỗng: danh sách mặc định trong cấu hình."""
+        """Search coins on Binance/OKX (USDT perps). Empty q: default list from the config."""
         return [_instrument_json(i, catalog.is_configured(i.id)) for i in catalog.search(q, limit)]
 
     @app.get("/api/instrument")
@@ -260,11 +260,12 @@ def create_app(
         symbol: str = Query("BTC-USDT-PERP"),
         exchange: str = Query("binance"),
     ):
-        """Chart 5m gộp mọi lớp phân tích + phiếu của các agent và hai kịch bản long/short."""
+        """5m chart combining every analysis layer + agent votes and the long/short scenarios."""
 
         def build():
-            # Phần hiển thị: nến 5m đầy đủ (curated nếu đủ, không thì REST). Phần lịch sử dài
-            # phía trước chỉ làm tập quỹ đạo cho dự báo: gộp từ nến 1m đã lưu, có thể thiếu nến.
+            # Display part: full 5m bars (curated if complete, else REST). The long history
+            # before it only serves as the forecast trajectory set:
+            # aggregated from stored 1m bars, may have gaps.
             hist, source = candles(exchange, symbol, desk.TF, 4)
             if hist.height < 60:
                 raise HTTPException(404, "not enough candles")
@@ -299,8 +300,8 @@ def create_app(
 
     @app.websocket("/ws/live")
     async def live_ws(ws: WebSocket):
-        """Client gửi {"op": "sub", "symbol", "exchange", "tfs": [...]}; server đẩy sự kiện
-        tick, mark, bar (nến đang chạy), close (nến vừa đóng), liq, status."""
+        """Client sends {"op": "sub", "symbol", "exchange", "tfs": [...]}; server pushes events
+        tick, mark, bar (running bar), close (just-closed bar), liq, status."""
         if hub is None:
             await ws.close(code=1013, reason="live data is not running (use `rinng live`)")
             return

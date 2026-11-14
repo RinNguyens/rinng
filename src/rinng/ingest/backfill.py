@@ -1,6 +1,6 @@
-"""Tải lịch sử: dump của Binance trước, REST lấp phần dump chưa có; OKX chỉ qua REST.
+"""History download: Binance dumps first, REST fills what dumps lack; OKX via REST only.
 
-Mọi thứ được ghi vào raw/; chạy `pipeline.curate` sau đó để đưa vào curated/.
+Everything is written to raw/; run `pipeline.curate` afterwards to move it into curated/.
 """
 
 import logging
@@ -23,7 +23,7 @@ BINANCE_DUMPS = ("klines_1m", "funding", "metrics")
 @dataclass
 class BackfillReport:
     downloaded: int = 0
-    missing: list[str] = field(default_factory=list)  # file sàn không có (404)
+    missing: list[str] = field(default_factory=list)  # files the exchange lacks (404)
     rest_rows: dict[str, int] = field(default_factory=dict)
 
 
@@ -74,7 +74,7 @@ def backfill_binance(
             _rest(
                 sink, report, "funding", ([Record("funding", inst.id, r) for r in p] for p in pages)
             )
-        # metrics/aggTrades/bookDepth: phần chưa có dump do collector thu.
+        # metrics/aggTrades/bookDepth: the part without dumps is captured by the collector.
     return report
 
 
@@ -88,7 +88,7 @@ def backfill_okx(
     pages = api.klines(symbol, "1m", _at(start), end)
     records = ([Record("ohlcv", inst.id, r, "1m") for r in page] for page in pages)
     _rest(sink, report, "ohlcv_1m", records)
-    # OKX chỉ giữ funding 3 tháng qua REST.
+    # OKX keeps only 3 months of funding via REST.
     f_start = max(_at(start), end - timedelta(days=90))
     pages = api.funding(symbol, f_start, end)
     _rest(sink, report, "funding", ([Record("funding", inst.id, r) for r in p] for p in pages))
@@ -103,7 +103,7 @@ def backfill(
     exchanges: tuple[str, ...] = ("binance",),
     datasets: tuple[str, ...] = BINANCE_DUMPS,
 ) -> dict[str, BackfillReport]:
-    """Chỉ lấy nến đã đóng: `end` mặc định là đầu phút hiện tại."""
+    """Only closed candles: `end` defaults to the start of the current minute."""
     paths = DataPaths(settings.data_dir)
     end = end or datetime.now(UTC).replace(second=0, microsecond=0)
     out = {}
@@ -111,9 +111,9 @@ def backfill(
         if inst.kind != "perp":
             continue
         if "binance" in exchanges and inst.binance:
-            log.info("binance %s từ %s", inst.id, start)
+            log.info("binance %s from %s", inst.id, start)
             out[f"binance:{inst.id}"] = backfill_binance(paths, inst, start, end, datasets=datasets)
         if "okx" in exchanges and inst.okx:
-            log.info("okx %s từ %s", inst.id, start)
+            log.info("okx %s from %s", inst.id, start)
             out[f"okx:{inst.id}"] = backfill_okx(paths, inst, start, end)
     return out

@@ -1,4 +1,4 @@
-"""Test giao diện chiến lược và baseline."""
+"""Tests for the strategy interface and baselines."""
 
 from datetime import timedelta
 
@@ -33,8 +33,8 @@ def test_validate_signals_fills_defaults():
     [
         ({"side": "buy"}, "side"),
         ({"side": "long", "size": 1.5}, "size"),
-        ({"side": "long", "stop": 110.0, "take_profit": 100.0}, "sai phía"),
-        ({"side": "short", "stop": 90.0, "take_profit": 100.0}, "sai phía"),
+        ({"side": "long", "stop": 110.0, "take_profit": 100.0}, "wrong side"),
+        ({"side": "short", "stop": 90.0, "take_profit": 100.0}, "wrong side"),
     ],
 )
 def test_validate_signals_rejects(row, msg):
@@ -43,13 +43,13 @@ def test_validate_signals_rejects(row, msg):
 
 
 def test_validate_signals_rejects_unsorted_and_off_grid():
-    with pytest.raises(ValueError, match="tăng dần"):
+    with pytest.raises(ValueError, match="ascending"):
         signals_frame([{"time": T0 + 2 * H, "side": "long"}, {"time": T0 + H, "side": "flat"}])
     ohlcv = make_ohlcv([100.0] * 5)
     ok = signals_frame([{"time": T0 + H, "side": "long"}])
     validate_signals(ok, ohlcv)
     off = signals_frame([{"time": T0 + H / 2, "side": "long"}])
-    with pytest.raises(ValueError, match="đóng nến"):
+    with pytest.raises(ValueError, match="candle close"):
         validate_signals(off, ohlcv)
 
 
@@ -66,12 +66,13 @@ def test_linear_regression_slope_and_side():
     assert np.isnan(slope[:39]).all()
     assert slope[39:] == pytest.approx(2.0)
     sig = lr.signals(up, None, None)
-    # Đủ 40 nến ở nến chỉ số 39, đóng lúc T0 + 40h; chỉ phát một lần vì chiều không đổi.
+    # 40 candles available at index 39, closing at T0 + 40h; emitted once since direction never
+    # changes.
     assert sig["time"].to_list() == [T0 + 40 * H]
     assert sig["side"].to_list() == ["long"]
     down = make_ohlcv([200.0 - i for i in range(45)])
     assert lr.signals(down, None, None)["side"].to_list() == ["short"]
-    flat = make_ohlcv([100.0] * 45)  # dốc = 0 → short (theo paper: ngược lại thì SHORT)
+    flat = make_ohlcv([100.0] * 45)  # slope = 0 → short (per the paper: otherwise SHORT)
     assert lr.signals(flat, None, None)["side"].to_list() == ["short"]
 
 

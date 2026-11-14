@@ -1,4 +1,4 @@
-"""Nến 1m từ WebSocket, LiveHub và WebSocket /ws/live."""
+"""1m candles from WebSocket, LiveHub and the /ws/live WebSocket."""
 
 import asyncio
 import json
@@ -14,7 +14,7 @@ from rinng.live.hub import LiveHub
 from rinng.store.paths import DataPaths
 from rinng.web.app import create_app
 
-T = 1_794_621_600_000  # 2026-11-14 02:00 UTC, đầu một nến 1h
+T = 1_794_621_600_000  # 2026-11-14 02:00 UTC, start of a 1h candle
 
 
 def _kline(t: int, close: float, closed: bool) -> str:
@@ -48,7 +48,7 @@ def test_parse_okx_candle():
         "data": [[str(T), "10", "12", "9", "11", "500", "5", "50", "0"]],
     }
     [r] = parse_okx(json.dumps(msg), {"BTC-USDT-SWAP": "BTC-USDT-PERP"}, {})
-    assert r.row["volume"] == 5.0  # đồng base, không phải số hợp đồng
+    assert r.row["volume"] == 5.0  # base currency, not contract count
     assert r.row["is_closed"] is False
 
 
@@ -80,7 +80,7 @@ def _rec(t: int, o: float, h: float, low: float, c: float, closed: bool) -> Reco
 
 @pytest.fixture
 def hub():
-    clock = iter(range(0, 10_000))  # mỗi lần gọi tăng 1 giây: không bị throttle
+    clock = iter(range(0, 10_000))  # each call advances 1 second: no throttling
     return LiveHub(["1h"], clock=lambda: float(next(clock)))
 
 
@@ -88,7 +88,7 @@ def test_forming_bar_merges_base_and_running_minute(hub):
     async def run():
         c = hub.connect()
         c.exchange, c.symbol, c.timeframes = "binance", "BTC-USDT-PERP", {"1h"}
-        # Nền: các nến 1m đã đóng trong giờ 02:00 (do updater báo).
+        # Base: closed 1m candles in the 02:00 hour (reported by the updater).
         hub.set_tail(
             "binance",
             "BTC-USDT-PERP",
@@ -133,7 +133,7 @@ def test_close_event_and_other_symbols_filtered(hub):
             "close": 1.0,
             "volume": 1.0,
         }
-        assert hub.set_tail("binance", "BTC-USDT-PERP", "1h", [prev]) is False  # lần đầu
+        assert hub.set_tail("binance", "BTC-USDT-PERP", "1h", [prev]) is False  # first time
         now = {**prev, "open_time": T}
         assert hub.set_tail("binance", "BTC-USDT-PERP", "1h", [prev, now]) is True
         hub.set_tail("binance", "ETH-USDT-PERP", "1h", [prev])

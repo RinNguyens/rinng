@@ -1,201 +1,201 @@
-# 03 — Pine Script và Smart Money Concepts (SMC)
+# 03 — Pine Script and Smart Money Concepts (SMC)
 
-> Ngày tra cứu: **2026-11-13**. Mọi số liệu về giới hạn, tên hàm và release notes đều lấy từ tài liệu TradingView đọc trong ngày này; TradingView thay đổi thường xuyên nên cần tra lại trước khi dựa vào.
+> Research date: **2026-11-13**. All figures on limits, function names and release notes come from TradingView docs read on that day; TradingView changes often, so re-check before relying on them.
 >
-> Quy ước đánh dấu:
-> - **[đã tra]** — đọc trực tiếp từ nguồn kèm URL trong phiên tra cứu này.
-> - **[trí nhớ]** — kiến thức nền của người viết, không mở lại trang nguồn trong phiên này; coi như cần kiểm tra lại khi dùng.
-> - **[chưa xác minh]** — không tìm được nguồn xác nhận, hoặc nguồn đọc được không nói rõ.
+> Markers:
+> - **[checked]** — read directly from a source, with URL, during this research session.
+> - **[memory]** — the writer's background knowledge, source page not reopened in this session; treat as needing verification before use.
+> - **[unverified]** — no confirming source found, or the source read was not explicit.
 >
-> Tài liệu này không phải lời khuyên đầu tư.
+> This document is not investment advice.
 
-## Mục lục
+## Contents
 
-- [Phần A — Pine Script v6](#phần-a--pine-script-v6)
-- [Phần B — Smart Money Concepts dưới dạng thuật toán](#phần-b--smart-money-concepts-dưới-dạng-thuật-toán)
-- [Phần C — Indicator "Dynamic SMC & Market Structure PRO"](#phần-c--indicator-dynamic-smc--market-structure-pro)
-- [Phần D — Đánh giá trung thực về SMC/ICT](#phần-d--đánh-giá-trung-thực-về-smcict)
-- [Danh sách điều chưa xác minh](#danh-sách-điều-chưa-xác-minh)
-- [Nguồn](#nguồn)
+- [Part A — Pine Script v6](#part-a--pine-script-v6)
+- [Part B — Smart Money Concepts as algorithms](#part-b--smart-money-concepts-as-algorithms)
+- [Part C — The "Dynamic SMC & Market Structure PRO" indicator](#part-c--the-dynamic-smc--market-structure-pro-indicator)
+- [Part D — An honest assessment of SMC/ICT](#part-d--an-honest-assessment-of-smcict)
+- [Unverified items](#unverified-items)
+- [Sources](#sources)
 
 ---
 
-# Phần A — Pine Script v6
+# Part A — Pine Script v6
 
-## A0. Phiên bản
+## A0. Version
 
-Phiên bản mới nhất là **Pine Script v6**. Trang release notes ghi rõ các cập nhật tương lai chỉ áp dụng cho v6 **[đã tra]**. Mỗi script khai báo phiên bản ở dòng đầu: `//@version=6`.
+The latest version is **Pine Script v6**. The release notes state that future updates apply only to v6 **[checked]**. Each script declares its version on the first line: `//@version=6`.
 
-Các thay đổi đáng chú ý trong 2025–2026 (theo release notes **[đã tra]**):
+Notable changes in 2025–2026 (per release notes **[checked]**):
 
-| Thời điểm | Thay đổi |
+| When | Change |
 |---|---|
-| 02/2025 | Bỏ giới hạn 550 scope; thêm biến `bid`, `ask` (chỉ có trên timeframe `"1T"`) |
-| 03/2025 | `box.set_xloc()`; vòng `for` đánh giá lại biên `to_num` trước mỗi lần lặp |
-| 06/2025 | Library được export hằng `const` |
-| 07/2025 | Tham số `active` cho mọi `input*()`; `syminfo.current_contract` |
-| 08/2025 | Giới hạn độ dài string tăng từ 4.096 lên 40.960 ký tự |
-| 09/2025 | Tham số `linestyle` cho `plot()` (`plot.linestyle_solid/dashed/dotted`) |
-| 10/2025 | Tham số `timeframe_bars_back` cho `time()` và `time_close()` |
-| 01/2026 | `request.footprint()` và hai kiểu `footprint`, `volume_row` (xem A9) |
-| 04/2026 | Multiline string với `"""` hoặc `'''`; sắp xếp collection chứa UDT bằng `sort_field` |
-| 07/2026 | `strategy()` có thêm `calc_on_every_history_tick`; giao diện Strategy Tester đổi tên nhiều mục (xem A8) |
-| 08/2026 | Từ khoá `once` (cấu trúc điều kiện chạy một lần); Pine Screener mở rộng |
-| 09/2026 | Table có thể chuyển xuống bottom panel |
+| 02/2025 | 550-scope limit removed; `bid`, `ask` variables added (only on the `"1T"` timeframe) |
+| 03/2025 | `box.set_xloc()`; `for` loops re-evaluate the `to_num` bound before each iteration |
+| 06/2025 | Libraries can export `const` constants |
+| 07/2025 | `active` parameter for all `input*()`; `syminfo.current_contract` |
+| 08/2025 | String length limit raised from 4,096 to 40,960 characters |
+| 09/2025 | `linestyle` parameter for `plot()` (`plot.linestyle_solid/dashed/dotted`) |
+| 10/2025 | `timeframe_bars_back` parameter for `time()` and `time_close()` |
+| 01/2026 | `request.footprint()` and the two types `footprint`, `volume_row` (see A9) |
+| 04/2026 | Multiline strings with `"""` or `'''`; sorting collections of UDTs with `sort_field` |
+| 07/2026 | `strategy()` gains `calc_on_every_history_tick`; many Strategy Tester UI items renamed (see A8) |
+| 08/2026 | `once` keyword (run-once conditional structure); Pine Screener expanded |
+| 09/2026 | Tables can be moved to the bottom panel |
 
-Điểm khác biệt lõi của v6 so với v5:
-- **Dynamic requests** bật mặc định: `request.*()` nhận tham số "series", gọi được trong `if`/vòng lặp/hàm export. Tắt bằng `dynamic_requests = false` trong khai báo **[đã tra]**.
-- `bool` không bao giờ là `na`; `int`/`float` không tự ép sang `bool`, phải dùng `bool()` **[đã tra]**.
-- `and`/`or` đánh giá lười (short-circuit) **[trí nhớ]** — có hệ quả thực tế: một lời gọi `ta.*` nằm sau `and` có thể không chạy trên mọi bar (xem A1.5 và Phần C).
-- Strategy: margin mặc định 100%, tham số `when` bị bỏ, vượt 9.000 trade thì cắt bớt trade cũ thay vì báo lỗi **[trí nhớ, phần 9.000 trade đã tra]**.
+Core differences of v6 vs v5:
+- **Dynamic requests** on by default: `request.*()` accepts "series" arguments and can be called inside `if`/loops/exported functions. Disable with `dynamic_requests = false` in the declaration **[checked]**.
+- `bool` is never `na`; `int`/`float` no longer implicitly cast to `bool`, use `bool()` **[checked]**.
+- `and`/`or` are lazily evaluated (short-circuit) **[memory]** — with a practical consequence: a `ta.*` call placed after `and` may not run on every bar (see A1.5 and Part C).
+- Strategy: default margin 100%, the `when` parameter removed, exceeding 9,000 trades trims the oldest trades instead of raising an error **[memory, the 9,000-trade part checked]**.
 
-## A1. Mô hình thực thi
+## A1. Execution model
 
-Nguồn: https://www.tradingview.com/pine-script-docs/language/execution-model/ **[đã tra]**
+Source: https://www.tradingview.com/pine-script-docs/language/execution-model/ **[checked]**
 
-### A1.1 Chạy theo từng bar
+### A1.1 Bar-by-bar execution
 
-Script không chạy một lần trên cả mảng dữ liệu. Nó chạy **lặp lại từ bar đầu tiên đến bar cuối**, mỗi bar đã đóng (historical) chạy đúng một lần. Sau mỗi lần chạy, giá trị của mọi biến được "commit" vào một time series đánh chỉ số theo `bar_index`.
+A script does not run once over the whole data array. It runs **repeatedly from the first bar to the last**; each closed (historical) bar runs exactly once. After each run, the value of every variable is "committed" to a time series indexed by `bar_index`.
 
-Hệ quả: gần như mọi biểu thức là một **series**. `close` không phải một số mà là "giá đóng cửa của bar đang xét".
+Consequence: almost every expression is a **series**. `close` is not a number but "the close of the bar being processed".
 
-### A1.2 History referencing bằng `[]`
+### A1.2 History referencing with `[]`
 
-- `x[0]` là bar hiện tại, `x[1]` là bar trước, `x[n]` là n bar trước. Không có dữ liệu thì trả `na`.
-- Biểu thức cũng có lịch sử: `(high - low)[1]` hợp lệ.
-- Không tham chiếu được tương lai (không có offset âm).
-- Historical buffer: tối đa **5.000** giá trị quá khứ cho phần lớn series, **10.000** cho `open/high/low/close/time` **[đã tra — trang limitations]**. Buffer tự co giãn theo offset lớn nhất script dùng; khi Pine đoán sai thì dùng `max_bars_back` (tham số của `indicator()`/`strategy()` hoặc hàm `max_bars_back(var, num)`) **[trí nhớ]**.
+- `x[0]` is the current bar, `x[1]` the previous bar, `x[n]` n bars back. Missing data returns `na`.
+- Expressions have history too: `(high - low)[1]` is valid.
+- You cannot reference the future (no negative offsets).
+- Historical buffer: at most **5,000** past values for most series, **10,000** for `open/high/low/close/time` **[checked — limitations page]**. The buffer auto-sizes to the largest offset the script uses; when Pine guesses wrong, use `max_bars_back` (a parameter of `indicator()`/`strategy()` or the function `max_bars_back(var, num)`) **[memory]**.
 
-### A1.3 `var` và `varip`
+### A1.3 `var` and `varip`
 
-- Không có từ khoá: biến được khởi tạo lại ở mỗi bar.
-- `var`: khởi tạo một lần, giữ giá trị qua các bar. Trên bar đang mở, mỗi tick nó quay về giá trị đã commit ở bar trước.
-- `varip`: giữ giá trị qua cả các tick trong cùng một bar. Chỉ có ý nghĩa trên realtime; gây repaint, không backtest được.
+- No keyword: the variable is re-initialized on every bar.
+- `var`: initialized once, keeps its value across bars. On the open bar, each tick it rolls back to the value committed on the previous bar.
+- `varip`: keeps its value across ticks within the same bar too. Only meaningful in realtime; causes repainting and cannot be backtested.
 
-### A1.4 Historical bar và realtime bar
+### A1.4 Historical bars and realtime bars
 
 | | Historical bar | Realtime bar |
 |---|---|---|
-| Số lần chạy | 1 lần, dùng OHLC cuối cùng | Indicator: mỗi tick một lần. Strategy: mặc định một lần lúc đóng bar |
-| `high/low/close` | Cố định | Thay đổi cho tới khi bar đóng |
-| Rollback | Không | Trước mỗi tick, trạng thái script quay về lần commit gần nhất |
+| Executions | Once, using the final OHLC | Indicator: once per tick. Strategy: by default once at bar close |
+| `high/low/close` | Fixed | Change until the bar closes |
+| Rollback | No | Before each tick, script state rolls back to the last commit |
 
-Rollback không hoàn tác: biến `varip`, Pine Logs, lệnh strategy đã gửi, alert đã bắn, runtime error.
+Rollback does not undo: `varip` variables, Pine Logs, strategy orders already sent, alerts already fired, runtime errors.
 
-Các `barstate.*` hay dùng: `barstate.ishistory`, `barstate.isrealtime`, `barstate.isnew`, `barstate.isconfirmed` (lần chạy cuối của bar), `barstate.islast`, `barstate.isfirst`, `barstate.islastconfirmedhistory` **[4 cái đầu đã tra, còn lại trí nhớ]**.
+Common `barstate.*`: `barstate.ishistory`, `barstate.isrealtime`, `barstate.isnew`, `barstate.isconfirmed` (the bar's last execution), `barstate.islast`, `barstate.isfirst`, `barstate.islastconfirmedhistory` **[first 4 checked, the rest memory]**.
 
-Script chạy lại toàn bộ khi: thêm/lưu script, refresh chart, đổi input, đổi symbol/timeframe, tạo lại alert... Sau khi chạy lại, các bar từng là realtime trở thành historical, nên kết quả có thể khác — đây là gốc rễ của repaint.
+The script re-runs entirely when: adding/saving the script, refreshing the chart, changing inputs, changing symbol/timeframe, re-creating an alert... After a re-run, bars that were realtime become historical, so results can differ — this is the root of repainting.
 
-### A1.5 Tính nhất quán của lời gọi hàm
+### A1.5 Function call consistency
 
-Các hàm có trạng thái lịch sử (`ta.*`, và mọi hàm dùng `[]` bên trong) nên được gọi ở **global scope, trên mọi bar**. Gọi trong `if`, trong nhánh `?:`, hoặc sau `and`/`or` thì lịch sử nội bộ của hàm bị thủng và kết quả sai lệch. Compiler có cảnh báo cho trường hợp này **[đã tra]**. Cách viết an toàn:
+Functions with historical state (`ta.*`, and any function using `[]` internally) should be called at **global scope, on every bar**. Calling them inside `if`, in a `?:` branch, or after `and`/`or` punches holes in the function's internal history and skews results. The compiler warns about this **[checked]**. Safe pattern:
 
 ```pine
-bool crossUp = ta.crossover(close, level)   // luôn tính ở global scope
+bool crossUp = ta.crossover(close, level)   // always computed at global scope
 if showStructure and crossUp
     // ...
 ```
 
-### A1.6 Repainting và cách tránh
+### A1.6 Repainting and how to avoid it
 
-Nguồn: https://www.tradingview.com/pine-script-docs/concepts/repainting/ **[đã tra]**
+Source: https://www.tradingview.com/pine-script-docs/concepts/repainting/ **[checked]**
 
-Repainting là khi hành vi trên historical khác realtime. Ba nhóm:
+Repainting is when behavior on historical bars differs from realtime. Three groups:
 
-**1. Tính toán historical khác realtime**
+**1. Historical calculations differ from realtime**
 
-| Nguyên nhân | Cách tránh |
+| Cause | Avoidance |
 |---|---|
-| Dùng `close/high/low` của bar chưa đóng | Thêm `and barstate.isconfirmed`, hoặc dùng giá trị `[1]`. Đổi lại: tín hiệu trễ một bar |
-| `request.security()` lấy higher timeframe trả giá trị chưa chốt | `request.security(sym, tf, expr[1], lookahead = barmerge.lookahead_on)` — phải có **cả hai** phần |
-| `request.security()` lấy timeframe thấp hơn chart | Dùng `request.security_lower_tf()` |
-| `lookahead_on` mà không có `[1]` | Rò rỉ tương lai. Không bao giờ dùng. Script kiểu này bị cấm publish |
-| `varip` | Không dùng cho logic cần backtest |
-| `barstate.isnew` | Dùng `barstate.isconfirmed` |
-| `timenow` | Không có cách sửa — bản chất là repaint |
-| Strategy với `calc_on_every_tick = true` | Tránh; chạy lúc đóng bar thì khớp với backtest |
+| Using `close/high/low` of an unclosed bar | Add `and barstate.isconfirmed`, or use `[1]` values. Trade-off: signals lag one bar |
+| `request.security()` on a higher timeframe returns unconfirmed values | `request.security(sym, tf, expr[1], lookahead = barmerge.lookahead_on)` — **both** parts are required |
+| `request.security()` on a timeframe lower than the chart | Use `request.security_lower_tf()` |
+| `lookahead_on` without `[1]` | Future leak. Never use it. Such scripts are banned from publishing |
+| `varip` | Do not use for logic that must be backtested |
+| `barstate.isnew` | Use `barstate.isconfirmed` |
+| `timenow` | No fix — repaints by nature |
+| Strategy with `calc_on_every_tick = true` | Avoid; running at bar close matches the backtest |
 
-**2. Vẽ vào quá khứ.** `ta.pivothigh(high, 5, 5)` chỉ biết pivot sau 5 bar, nhưng nếu vẽ tại `bar_index - 5` thì trên chart trông như biết ngay lúc đó. Mọi indicator SMC đều dính điểm này. Vẽ vào quá khứ để nhìn thì được, nhưng **logic giao dịch phải tính tại bar xác nhận**, không phải bar pivot.
+**2. Plotting in the past.** `ta.pivothigh(high, 5, 5)` only knows the pivot 5 bars later, but if drawn at `bar_index - 5` the chart makes it look known at that moment. Every SMC indicator has this issue. Drawing in the past is fine for viewing, but **trading logic must be computed at the confirmation bar**, not the pivot bar.
 
-**3. Dataset thay đổi.** Bar đầu tiên được nạp phụ thuộc gói tài khoản và timeframe, nên `ta.ema()`, `ta.barssince()`, `ta.valuewhen()` có thể ra khác nhau. Sàn cũng có thể sửa dữ liệu lịch sử.
+**3. Changing dataset.** The first loaded bar depends on account plan and timeframe, so `ta.ema()`, `ta.barssince()`, `ta.valuewhen()` can produce different results. Exchanges can also revise historical data.
 
-## A2. Kiểu dữ liệu và qualifier
+## A2. Types and qualifiers
 
-Nguồn: https://www.tradingview.com/pine-script-docs/language/type-system/ **[đã tra]**
+Source: https://www.tradingview.com/pine-script-docs/language/type-system/ **[checked]**
 
-**Qualifier** (yếu đến mạnh): `const` < `input` < `simple` < `series`.
+**Qualifiers** (weakest to strongest): `const` < `input` < `simple` < `series`.
 
-- `const`: biết lúc compile.
-- `input`: biết lúc người dùng chỉnh Settings.
-- `simple`: biết ở bar đầu tiên, sau đó không đổi (ví dụ `syminfo.mintick`).
-- `series`: có thể đổi theo từng bar.
+- `const`: known at compile time.
+- `input`: known when the user edits Settings.
+- `simple`: known on the first bar, then constant (e.g. `syminfo.mintick`).
+- `series`: may change bar to bar.
 
-Biểu thức thừa hưởng qualifier mạnh nhất trong các thành phần; không hạ qualifier được. Nhiều tham số yêu cầu qualifier yếu, ví dụ `length` của `ta.ema()` phải là "simple int", còn `ta.sma()` nhận "series int" **[trí nhớ]**.
+An expression inherits the strongest qualifier among its parts; qualifiers cannot be demoted. Many parameters require a weak qualifier, e.g. `length` of `ta.ema()` must be "simple int", while `ta.sma()` accepts "series int" **[memory]**.
 
-**Kiểu:**
-- Giá trị cơ bản: `int`, `float`, `bool`, `color`, `string`.
-- `enum` (khai báo bằng `enum`, dùng với `input.enum()`).
-- Kiểu tham chiếu (luôn là `series`): `plot`, `hline`, `line`, `linefill`, `box`, `polyline`, `label`, `table`, `chart.point`, `footprint`, `volume_row`.
-- Collection: `array<T>`, `matrix<T>`, `map<K, V>`.
-- UDT khai báo bằng `type`.
-- `void` cho hàm không trả giá trị; tuple chỉ dùng làm giá trị trả về của hàm/`request.security` **[trí nhớ]**.
-- `na` là "không có giá trị"; kiểm tra bằng `na(x)`, không so sánh `x == na`. `bool` không bao giờ `na`.
+**Types:**
+- Fundamental values: `int`, `float`, `bool`, `color`, `string`.
+- `enum` (declared with `enum`, used with `input.enum()`).
+- Reference types (always `series`): `plot`, `hline`, `line`, `linefill`, `box`, `polyline`, `label`, `table`, `chart.point`, `footprint`, `volume_row`.
+- Collections: `array<T>`, `matrix<T>`, `map<K, V>`.
+- UDTs declared with `type`.
+- `void` for functions returning nothing; tuples only as return values of functions/`request.security` **[memory]**.
+- `na` means "no value"; test with `na(x)`, not `x == na`. `bool` is never `na`.
 
-## A3. Khai báo script
+## A3. Script declaration
 
-Một script có đúng một trong ba lời khai báo **[trí nhớ, tên tham số đối chiếu với mã nguồn đã đọc]**:
+A script has exactly one of three declarations **[memory, parameter names cross-checked against source code read]**:
 
 ```pine
 //@version=6
-indicator("Tên", shorttitle = "Ngắn", overlay = true,
+indicator("Name", shorttitle = "Short", overlay = true,
      max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500,
      max_bars_back = 2000)
 ```
 
-- `indicator()` — tính toán và vẽ, không đặt lệnh. Có alert.
-- `strategy()` — thêm các hàm `strategy.*` và broker emulator để backtest (A8).
-- `library()` — chỉ chứa hàm/type/hằng được `export`, dùng lại qua `import user/LibName/version as alias`. Library không tự vẽ khi được import.
+- `indicator()` — computes and plots, places no orders. Supports alerts.
+- `strategy()` — adds `strategy.*` functions and a broker emulator for backtesting (A8).
+- `library()` — only contains `export`ed functions/types/constants, reused via `import user/LibName/version as alias`. A library does not plot when imported.
 
-## A4. Input
+## A4. Inputs
 
-Các hàm: `input()`, `input.int()`, `input.float()`, `input.bool()`, `input.string()`, `input.color()`, `input.source()`, `input.timeframe()`, `input.session()`, `input.symbol()`, `input.time()`, `input.price()`, `input.text_area()`, `input.enum()` **[trí nhớ; `input.int/float/bool/color/string/timeframe` thấy trong mã nguồn đã đọc]**.
+Functions: `input()`, `input.int()`, `input.float()`, `input.bool()`, `input.string()`, `input.color()`, `input.source()`, `input.timeframe()`, `input.session()`, `input.symbol()`, `input.time()`, `input.price()`, `input.text_area()`, `input.enum()` **[memory; `input.int/float/bool/color/string/timeframe` seen in source code read]**.
 
-Tham số chung thường gặp: `defval`, `title`, `minval`, `maxval`, `step`, `options`, `tooltip`, `inline`, `group`, `confirm`, `display`, và `active` (từ 07/2025 **[đã tra]**).
+Common parameters: `defval`, `title`, `minval`, `maxval`, `step`, `options`, `tooltip`, `inline`, `group`, `confirm`, `display`, and `active` (since 07/2025 **[checked]**).
 
-Giá trị trả về có qualifier `input`, trừ `input.source()` trả series.
+Return values have the `input` qualifier, except `input.source()` which returns series.
 
-## A5. Output: plot và drawing
+## A5. Output: plots and drawings
 
-| Nhóm | Hàm | Ghi chú |
+| Group | Function | Notes |
 |---|---|---|
-| Plot | `plot()`, `plotshape()`, `plotchar()`, `plotarrow()`, `plotcandle()`, `plotbar()`, `hline()`, `fill()`, `bgcolor()`, `barcolor()` | Tối đa **64 plot count** mỗi script; một lời gọi có thể tốn tới 7 **[đã tra]**. Phải gọi ở global scope |
-| Line | `line.new(x1, y1, x2, y2, xloc, extend, color, style, width)` | Mặc định giữ 50, tối đa 500 |
-| Box | `box.new(left, top, right, bottom, ...)` | Mặc định 50, tối đa 500 |
-| Label | `label.new(x, y, text, xloc, yloc, color, style, textcolor, size, ...)` | Mặc định 50, tối đa 500 |
-| Polyline | `polyline.new(points, curved, closed, xloc, line_color, fill_color, line_style, line_width)` nhận `array<chart.point>` | Mặc định 50, tối đa **100** |
+| Plot | `plot()`, `plotshape()`, `plotchar()`, `plotarrow()`, `plotcandle()`, `plotbar()`, `hline()`, `fill()`, `bgcolor()`, `barcolor()` | At most **64 plot count** per script; one call can cost up to 7 **[checked]**. Must be called at global scope |
+| Line | `line.new(x1, y1, x2, y2, xloc, extend, color, style, width)` | Default keeps 50, max 500 |
+| Box | `box.new(left, top, right, bottom, ...)` | Default 50, max 500 |
+| Label | `label.new(x, y, text, xloc, yloc, color, style, textcolor, size, ...)` | Default 50, max 500 |
+| Polyline | `polyline.new(points, curved, closed, xloc, line_color, fill_color, line_style, line_width)` takes `array<chart.point>` | Default 50, max **100** |
 | Linefill | `linefill.new(line1, line2, color)` | |
-| Table | `table.new(position, columns, rows, ...)` + `table.cell()` | Tối đa 9 table (mỗi vị trí một cái) |
+| Table | `table.new(position, columns, rows, ...)` + `table.cell()` | At most 9 tables (one per position) |
 
-Số liệu giới hạn **[đã tra]**; chữ ký hàm **[trí nhớ]**. Khi vượt giới hạn, Pine tự xoá drawing cũ nhất (garbage collection), nên không thể giữ toàn bộ lịch sử FVG/OB trên chart dài.
+Limit figures **[checked]**; function signatures **[memory]**. When a limit is exceeded, Pine deletes the oldest drawings (garbage collection), so you cannot keep the full FVG/OB history on a long chart.
 
-Toạ độ x: `xloc.bar_index` (mặc định) hoặc `xloc.bar_time`. Với `xloc.bar_index`, vẽ được tối đa 10.000 bar về quá khứ và 500 bar về tương lai **[đã tra]**.
+x coordinate: `xloc.bar_index` (default) or `xloc.bar_time`. With `xloc.bar_index`, you can draw at most 10,000 bars into the past and 500 bars into the future **[checked]**.
 
-Mẹo hiệu năng: tạo drawing một lần với `var` rồi cập nhật bằng `*.set_*()`; chỉ cập nhật table trong `if barstate.islast`.
+Performance tip: create drawings once with `var` and update them with `*.set_*()`; only update tables inside `if barstate.islast`.
 
-## A6. `request.security` và lookahead
+## A6. `request.security` and lookahead
 
-Nguồn: https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/ **[đã tra]**
+Source: https://www.tradingview.com/pine-script-docs/concepts/other-timeframes-and-data/ **[checked]**
 
 ```
 request.security(symbol, timeframe, expression, gaps, lookahead,
                  ignore_invalid_symbol, currency, calc_bars_count) → series <type>
 ```
 
-- `expression` có thể là số, bool, string, tuple, collection, UDT, hoặc lời gọi hàm.
-- `gaps`: mặc định `barmerge.gaps_off` (lấp bằng giá trị đã chốt gần nhất).
-- `lookahead`: mặc định `barmerge.lookahead_off`.
-  - Với higher timeframe, `lookahead_on` trên historical bar trả giá trị của HTF bar **chưa kết thúc** — tức là nhìn tương lai.
-  - Mẫu chuẩn không repaint:
+- `expression` can be a number, bool, string, tuple, collection, UDT, or a function call.
+- `gaps`: default `barmerge.gaps_off` (filled with the last confirmed value).
+- `lookahead`: default `barmerge.lookahead_off`.
+  - On a higher timeframe, `lookahead_on` on historical bars returns the value of an **unfinished** HTF bar — i.e. looking into the future.
+  - Standard non-repainting pattern:
 
 ```pine
 float htfClose = request.security(syminfo.tickerid, "240", close[1], lookahead = barmerge.lookahead_on)
@@ -203,25 +203,25 @@ float htfClose = request.security(syminfo.tickerid, "240", close[1], lookahead =
 [pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
 ```
 
-- Dynamic requests (v6): trên realtime bar chỉ lấy được dataset đã từng request trên historical.
-- Giới hạn: **40** lời gọi `request.*()` duy nhất mỗi script, **64** với gói Ultimate. Lời gọi trùng tham số được dùng lại và không tính thêm; lời gọi nằm trong library được import **có** tính. Tổng số phần tử tuple qua mọi `request.*()` tối đa 127 **[đã tra]**.
+- Dynamic requests (v6): on realtime bars you can only fetch datasets already requested on historical bars.
+- Limits: **40** unique `request.*()` calls per script, **64** on the Ultimate plan. Calls with identical arguments are reused and not counted again; calls inside an imported library **are** counted. Total tuple elements across all `request.*()` at most 127 **[checked]**.
 
-Các hàm cùng họ: `request.security_lower_tf()`, `request.footprint()`, `request.currency_rate()`, `request.dividends()`, `request.splits()`, `request.earnings()`, `request.financial()`, `request.economic()`, `request.seed()` **[đã tra]**.
+Sibling functions: `request.security_lower_tf()`, `request.footprint()`, `request.currency_rate()`, `request.dividends()`, `request.splits()`, `request.earnings()`, `request.financial()`, `request.economic()`, `request.seed()` **[checked]**.
 
-## A7. `ta.*`, collection, UDT, method
+## A7. `ta.*`, collections, UDTs, methods
 
-### A7.1 `ta.*` hay dùng **[trí nhớ; các hàm có dấu * thấy trong mã nguồn đã đọc]**
+### A7.1 Common `ta.*` **[memory; functions marked * seen in source code read]**
 
-| Mục đích | Hàm |
+| Purpose | Functions |
 |---|---|
-| Trung bình | `ta.sma`, `ta.ema`, `ta.rma`, `ta.wma`, `ta.vwma`, `ta.hma`, `ta.vwap` |
-| Biến động | `ta.atr`*, `ta.tr`*, `ta.stdev`, `ta.bb`, `ta.kc` |
-| Dao động | `ta.rsi`, `ta.macd`, `ta.stoch`, `ta.cci`, `ta.mfi` |
-| Cực trị | `ta.highest`*, `ta.lowest`*, `ta.highestbars`, `ta.lowestbars` |
-| Pivot | `ta.pivothigh(source, leftbars, rightbars)`*, `ta.pivotlow(...)`* — trả giá pivot tại bar xác nhận, còn lại là `na` |
-| Sự kiện | `ta.crossover`*, `ta.crossunder`*, `ta.cross`, `ta.change`*, `ta.barssince`, `ta.valuewhen` |
-| Tích luỹ | `ta.cum`* |
-| Xu hướng | `ta.supertrend`, `ta.dmi`, `ta.sar`, `ta.linreg` |
+| Averages | `ta.sma`, `ta.ema`, `ta.rma`, `ta.wma`, `ta.vwma`, `ta.hma`, `ta.vwap` |
+| Volatility | `ta.atr`*, `ta.tr`*, `ta.stdev`, `ta.bb`, `ta.kc` |
+| Oscillators | `ta.rsi`, `ta.macd`, `ta.stoch`, `ta.cci`, `ta.mfi` |
+| Extremes | `ta.highest`*, `ta.lowest`*, `ta.highestbars`, `ta.lowestbars` |
+| Pivots | `ta.pivothigh(source, leftbars, rightbars)`*, `ta.pivotlow(...)`* — return the pivot price on the confirmation bar, `na` otherwise |
+| Events | `ta.crossover`*, `ta.crossunder`*, `ta.cross`, `ta.change`*, `ta.barssince`, `ta.valuewhen` |
+| Cumulative | `ta.cum`* |
+| Trend | `ta.supertrend`, `ta.dmi`, `ta.sar`, `ta.linreg` |
 
 ### A7.2 Array, matrix, map
 
@@ -237,9 +237,9 @@ m.put("pdh", high)
 matrix<float> mx = matrix.new<float>(3, 3, 0.0)
 ```
 
-Giới hạn: 100.000 phần tử cho array/matrix; map tối đa 50.000 cặp key-value **[đã tra]**. Collection không chứa được collection khác trực tiếp — bọc trong UDT nếu cần. Vòng lặp: `for i = 0 to arr.size() - 1`, hoặc `for [i, v] in arr`. Mỗi vòng lặp không được chạy quá **500 ms** trên một bar **[đã tra]**.
+Limits: 100,000 elements for arrays/matrices; maps at most 50,000 key-value pairs **[checked]**. Collections cannot directly contain other collections — wrap in a UDT if needed. Loops: `for i = 0 to arr.size() - 1`, or `for [i, v] in arr`. Each loop may not run longer than **500 ms** on one bar **[checked]**.
 
-### A7.3 UDT và method
+### A7.3 UDTs and methods
 
 ```pine
 type Zone
@@ -255,11 +255,11 @@ var array<Zone> zones = array.new<Zone>()
 zones.push(Zone.new(high, low, bar_index))
 ```
 
-UDT là kiểu tham chiếu: gán `b = a` không sao chép, dùng `a.copy()` **[trí nhớ]**. Field của UDT dùng `[]` để lấy lịch sử có hạn chế — nên lưu lịch sử vào array thay vì dựa vào `obj.field[1]` **[trí nhớ]**.
+UDTs are reference types: `b = a` does not copy, use `a.copy()` **[memory]**. Using `[]` on UDT fields for history is restricted — store history in an array rather than relying on `obj.field[1]` **[memory]**.
 
 ## A8. Strategy tester
 
-Nguồn: https://www.tradingview.com/pine-script-docs/concepts/strategies/ **[đã tra một phần — trang bị cắt, xem ghi chú]**
+Source: https://www.tradingview.com/pine-script-docs/concepts/strategies/ **[partially checked — page was truncated, see note]**
 
 ```pine
 //@version=6
@@ -267,72 +267,72 @@ strategy("Demo", overlay = true,
      initial_capital = 10000,
      default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
      commission_type = strategy.commission.percent, commission_value = 0.05,
-     slippage = 2,                // đơn vị: tick
+     slippage = 2,                // unit: ticks
      pyramiding = 0,
      process_orders_on_close = false)
 ```
 
-**Lệnh** **[đã tra]**:
-- `strategy.entry()` — tuân theo `pyramiding`, tự đảo vị thế.
-- `strategy.order()` — bỏ qua pyramiding, không tự đảo.
-- `strategy.exit()` — take-profit/stop-loss theo tick (`profit`, `loss`) hoặc giá (`limit`, `stop`), trailing (`trail_price`/`trail_points` + `trail_offset`).
+**Orders** **[checked]**:
+- `strategy.entry()` — respects `pyramiding`, reverses positions automatically.
+- `strategy.order()` — ignores pyramiding, does not auto-reverse.
+- `strategy.exit()` — take-profit/stop-loss in ticks (`profit`, `loss`) or price (`limit`, `stop`), trailing (`trail_price`/`trail_points` + `trail_offset`).
 - `strategy.close()`, `strategy.close_all()`, `strategy.cancel()`, `strategy.cancel_all()`.
-- `strategy.risk.allow_entry_in()` và các hàm `strategy.risk.*` khác.
+- `strategy.risk.allow_entry_in()` and other `strategy.risk.*` functions.
 
-**Broker emulator** **[đã tra]**:
-- Lệnh tạo lúc đóng bar được khớp ở **open của bar kế tiếp** (mặc định).
-- Đường đi giá trong bar được giả định: nếu open gần high hơn thì open→high→low→close, ngược lại open→low→high→close.
-- Không có gap trong bar; gap giữa hai bar thì khớp tại open bar sau.
-- Bar Magnifier (nay gọi là "Bar detalization", gói Premium/Ultimate) dùng dữ liệu timeframe thấp hơn để khớp chính xác hơn, tối đa 200.000 bar LTF.
-- Giữ chi tiết tối đa **9.000** trade gần nhất; Deep Backtesting giữ 1.000.000.
+**Broker emulator** **[checked]**:
+- Orders created at bar close fill at the **next bar's open** (default).
+- The intrabar price path is assumed: if open is closer to high then open→high→low→close, otherwise open→low→high→close.
+- No gaps within a bar; a gap between two bars fills at the next bar's open.
+- Bar Magnifier (now called "Bar detalization", Premium/Ultimate plans) uses lower-timeframe data for more accurate fills, up to 200,000 LTF bars.
+- Keeps details for at most the **9,000** most recent trades; Deep Backtesting keeps 1,000,000.
 
-**Mặc định cần biết** **[trí nhớ — trang đọc được không tới phần này]**: `initial_capital = 1000000`, `default_qty_type = strategy.fixed` với số lượng 1, commission = 0, `slippage = 0`, `pyramiding = 1` (**[đã tra]**: trang docs ghi mặc định là 1), `margin_long = margin_short = 100`.
+**Defaults to know** **[memory — the page as read did not reach this part]**: `initial_capital = 1000000`, `default_qty_type = strategy.fixed` with quantity 1, commission = 0, `slippage = 0`, `pyramiding = 1` (**[checked]**: the docs state the default is 1), `margin_long = margin_short = 100`.
 
-**Cập nhật 07/2026** **[đã tra]**: `calc_on_every_history_tick` (chạy script trên từng tick lịch sử, Premium/Ultimate); giao diện có menu "Script execution", "Bar detalization", "Heikin Ashi mode" (ứng với `fill_orders_on_standard_ohlc`), "Limit order execution" (`backtest_fill_limits_assumption`), và "Long/Short leverage" thay cho ô margin.
+**07/2026 update** **[checked]**: `calc_on_every_history_tick` (runs the script on each historical tick, Premium/Ultimate); the UI has "Script execution", "Bar detalization", "Heikin Ashi mode" (maps to `fill_orders_on_standard_ohlc`), "Limit order execution" (`backtest_fill_limits_assumption`), and "Long/Short leverage" replacing the margin field.
 
-### Các bẫy backtest
+### Backtest pitfalls
 
-1. **Commission và slippage bằng 0 theo mặc định.** Với crypto perp phải đặt phí taker thật và slippage; funding rate **không** được mô phỏng **[trí nhớ]**.
-2. **Lookahead qua `request.security`** (A6) và qua việc vẽ pivot vào quá khứ rồi dùng luôn bar pivot làm tín hiệu.
-3. **`process_orders_on_close = true`** khớp ngay tại close của bar tín hiệu — lạc quan, ngoài đời không khớp được đúng giá đó.
-4. **TP và SL cùng nằm trong một bar**: kết quả phụ thuộc giả định đường đi giá ở trên. Bar càng lớn sai càng nhiều.
-5. **Limit order khớp ngay khi giá chạm**: ngoài đời cần giá đi xuyên qua. Dùng `backtest_fill_limits_assumption`.
-6. **Chart không chuẩn** (Heikin Ashi, Renko, Kagi, Range...): giá tổng hợp, kết quả thường phi thực tế **[đã tra]**.
-7. **Số bar lịch sử có hạn** (A10) → mẫu nhỏ trên timeframe thấp.
-8. **Mặc định dùng 100% equity hoặc số lượng cố định** làm méo đường equity.
-9. **Tối ưu tham số trên cùng một đoạn dữ liệu** — TradingView không có walk-forward sẵn **[trí nhớ]**.
-10. **`calc_on_every_tick`** làm realtime khác historical.
+1. **Commission and slippage are zero by default.** For crypto perps, set real taker fees and slippage; funding rates are **not** simulated **[memory]**.
+2. **Lookahead via `request.security`** (A6) and via plotting pivots in the past and then using the pivot bar itself as the signal.
+3. **`process_orders_on_close = true`** fills right at the signal bar's close — optimistic; in reality you can't get exactly that price.
+4. **TP and SL both inside one bar**: the result depends on the price-path assumption above. The bigger the bar, the larger the error.
+5. **Limit orders fill as soon as price touches**: in reality price must trade through. Use `backtest_fill_limits_assumption`.
+6. **Non-standard charts** (Heikin Ashi, Renko, Kagi, Range...): synthetic prices, results are usually unrealistic **[checked]**.
+7. **Limited historical bars** (A10) → small samples on low timeframes.
+8. **Defaulting to 100% equity or a fixed quantity** distorts the equity curve.
+9. **Optimizing parameters on the same data segment** — TradingView has no built-in walk-forward **[memory]**.
+10. **`calc_on_every_tick`** makes realtime differ from historical.
 
-## A9. Volume profile trong Pine
+## A9. Volume profile in Pine
 
-**Không có hàm `ta.*` trả về volume profile.** Các indicator Volume Profile có sẵn của TradingView (Visible Range, Session, Fixed Range...) là built-in đóng; script không đọc được giá trị của chúng **[trí nhớ; trang FAQ đã tra không nhắc tới hàm nào như vậy]**. Có ba hướng:
+**There is no `ta.*` function that returns a volume profile.** TradingView's built-in Volume Profile indicators (Visible Range, Session, Fixed Range...) are closed built-ins; scripts cannot read their values **[memory; the FAQ page checked mentions no such function]**. Three approaches:
 
-### (1) `request.footprint()` — mới từ 01/2026 **[đã tra]**
+### (1) `request.footprint()` — new since 01/2026 **[checked]**
 
 ```
 request.footprint(ticks_per_row, va_percent, imbalance_percent) → series footprint
 ```
 
-- `ticks_per_row`: "simple int", mỗi hàng cao `ticks_per_row * syminfo.mintick`.
-- `va_percent`: mặc định 70. `imbalance_percent`: mặc định 300.
-- Trả ID `footprint` của bar hiện tại, hoặc `na` — phải kiểm tra `na` trước khi dùng.
-- Hàm của `footprint`: `total_volume()`, `buy_volume()`, `sell_volume()`, `delta()`, `poc()`, `vah()`, `val()` (ba hàm cuối trả `volume_row`), `rows()` (trả `array<volume_row>` theo giá tăng dần).
-- Hàm của `volume_row`: `up_price()`, `down_price()`, `buy_volume()`, `sell_volume()`, `delta()`, `total_volume()`, `has_buy_imbalance()`, `has_sell_imbalance()`.
-- Hạn chế: chỉ gói **Premium/Ultimate**; **một** lời gọi duy nhất mỗi script; trên timeframe ≥ 1D tổng volume có thể lệch so với `volume`.
-- Đây là profile **theo từng bar** (footprint), không phải profile cho một khoảng tuỳ ý. Muốn profile cho cả session thì phải tự cộng dồn các hàng. Độ sâu lịch sử: **[chưa xác minh]**.
+- `ticks_per_row`: "simple int", each row is `ticks_per_row * syminfo.mintick` tall.
+- `va_percent`: default 70. `imbalance_percent`: default 300.
+- Returns the current bar's `footprint` ID, or `na` — check for `na` before use.
+- `footprint` functions: `total_volume()`, `buy_volume()`, `sell_volume()`, `delta()`, `poc()`, `vah()`, `val()` (the last three return `volume_row`), `rows()` (returns `array<volume_row>` in ascending price order).
+- `volume_row` functions: `up_price()`, `down_price()`, `buy_volume()`, `sell_volume()`, `delta()`, `total_volume()`, `has_buy_imbalance()`, `has_sell_imbalance()`.
+- Restrictions: **Premium/Ultimate** plans only; **one** unique call per script; on timeframes ≥ 1D total volume may differ from `volume`.
+- This is a **per-bar** profile (footprint), not a profile over an arbitrary range. For a whole-session profile you must aggregate rows yourself. History depth: **[unverified]**.
 
-### (2) `request.security_lower_tf()` — tự xây profile **[đã tra chữ ký]**
+### (2) `request.security_lower_tf()` — build your own profile **[signature checked]**
 
 ```
 request.security_lower_tf(symbol, timeframe, expression, ignore_invalid_symbol,
                           currency, ignore_invalid_timeframe, calc_bars_count) → array<type>
 ```
 
-Trả về **một array cho mỗi chart bar**, mỗi phần tử ứng với một intrabar. Cách làm thông dụng: lấy `close` và `volume` của intrabar (ví dụ 1 phút), chia khoảng giá thành N bin, cộng volume vào bin tương ứng.
+Returns **one array per chart bar**, each element one intrabar. The usual approach: take intrabar `close` and `volume` (e.g. 1 minute), split the price range into N bins, add volume to the matching bin.
 
 ```pine
 //@version=6
-indicator("LTF volume theo bar", overlay = false)
+indicator("LTF volume per bar", overlay = false)
 string ltf = input.timeframe("1", "Lower timeframe")
 array<float> ltfClose = request.security_lower_tf(syminfo.tickerid, ltf, close)
 array<float> ltfVol   = request.security_lower_tf(syminfo.tickerid, ltf, volume)
@@ -344,51 +344,51 @@ if ltfClose.size() > 1
             upVol += ltfVol.get(i)
         else
             dnVol += ltfVol.get(i)
-plot(upVol - dnVol, "Delta xấp xỉ", style = plot.style_columns)
+plot(upVol - dnVol, "Approx. delta", style = plot.style_columns)
 ```
 
-### Giới hạn dữ liệu intrabar **[đã tra]**
+### Intrabar data limits **[checked]**
 
-- Tổng intrabar lấy được: **100.000** (Basic/Essential/Plus/Premium), **125.000** (Expert), **200.000** (Ultimate).
-- Hệ quả: chart 1H lấy intrabar 1 phút thì chỉ có khoảng 100.000 / 60 ≈ 1.666 bar có dữ liệu. Các bar cũ hơn trả array rỗng.
-- Volume gán cho mức giá chỉ là **xấp xỉ**: ta biết volume của intrabar, không biết nó phân bố thế nào trong khoảng high–low của intrabar đó. Phân loại mua/bán theo chiều nến cũng là xấp xỉ, không phải aggressor thật.
-- Với crypto, volume là của **một sàn** theo symbol đang chọn, không phải toàn thị trường.
+- Total intrabars available: **100,000** (Basic/Essential/Plus/Premium), **125,000** (Expert), **200,000** (Ultimate).
+- Consequence: a 1H chart with 1-minute intrabars only has about 100,000 / 60 ≈ 1,666 bars with data. Older bars return empty arrays.
+- Volume assigned to price levels is only an **approximation**: we know an intrabar's volume, not how it was distributed across that intrabar's high–low range. Classifying buy/sell by candle direction is also an approximation, not the true aggressor.
+- For crypto, volume is from **one exchange** for the selected symbol, not the whole market.
 
-### (3) Tính ở ngoài bằng Python
+### (3) Compute externally in Python
 
-Với dữ liệu trade/aggTrade từ sàn, volume profile và delta tính chính xác hơn nhiều. Đây là lựa chọn nên dùng cho nghiên cứu nghiêm túc.
+With trade/aggTrade data from the exchange, volume profile and delta are far more accurate. This is the option to use for serious research.
 
-## A10. Giới hạn
+## A10. Limits
 
-Nguồn: https://www.tradingview.com/pine-script-docs/writing/limitations/ **[đã tra]**
+Source: https://www.tradingview.com/pine-script-docs/writing/limitations/ **[checked]**
 
-| Hạng mục | Giới hạn |
+| Item | Limit |
 |---|---|
-| Thời gian compile | 2 phút; 3 cảnh báo liên tiếp thì bị khoá compile 1 giờ |
-| Thời gian chạy script | Tuỳ gói; trang docs không nêu số, trỏ sang trang pricing — **[chưa xác minh con số]** |
-| Một vòng lặp trên một bar | 500 ms |
-| Plot | 64 plot count |
-| Line / box / label | Mặc định 50, tối đa 500 mỗi loại |
-| Polyline | Mặc định 50, tối đa 100 |
+| Compile time | 2 minutes; 3 consecutive warnings lock compilation for 1 hour |
+| Script run time | Depends on plan; docs give no number, point to the pricing page — **[number unverified]** |
+| One loop on one bar | 500 ms |
+| Plots | 64 plot count |
+| Line / box / label | Default 50, max 500 each |
+| Polyline | Default 50, max 100 |
 | Table | 9 |
-| `request.*()` duy nhất | 40 (Ultimate: 64) |
-| `request.footprint()` | 1 lời gọi; cần Premium/Ultimate |
-| Intrabar | 100K / 125K (Expert) / 200K (Ultimate) |
-| Phần tử tuple qua `request.*()` | 127 |
-| Compiled token | 100.256 mỗi script; tổng library import 1 triệu |
-| Biến mỗi scope | 1.000 |
-| Collection | 100.000 phần tử; map 50.000 cặp |
-| Historical buffer (`max_bars_back`) | 5.000; riêng OHLC và `time` là 10.000 |
-| Drawing với `xloc.bar_index` | 10.000 bar quá khứ, 500 bar tương lai |
-| Số chart bar | Ultimate 40.000; Expert 25.000; Premium 20.000; Essential/Plus 10.000; còn lại 5.000 |
-| Lệnh strategy | 9.000 (Deep Backtesting: 1.000.000) |
-| Độ dài string | 40.960 ký tự |
+| Unique `request.*()` | 40 (Ultimate: 64) |
+| `request.footprint()` | 1 call; needs Premium/Ultimate |
+| Intrabars | 100K / 125K (Expert) / 200K (Ultimate) |
+| Tuple elements via `request.*()` | 127 |
+| Compiled tokens | 100,256 per script; total imported libraries 1 million |
+| Variables per scope | 1,000 |
+| Collections | 100,000 elements; map 50,000 pairs |
+| Historical buffer (`max_bars_back`) | 5,000; OHLC and `time` 10,000 |
+| Drawing with `xloc.bar_index` | 10,000 bars past, 500 bars future |
+| Chart bars | Ultimate 40,000; Expert 25,000; Premium 20,000; Essential/Plus 10,000; others 5,000 |
+| Strategy orders | 9,000 (Deep Backtesting: 1,000,000) |
+| String length | 40,960 characters |
 
-## A11. Code mẫu (tự viết, cú pháp v6)
+## A11. Sample code (self-written, v6 syntax)
 
-> Ba đoạn dưới đây do người viết tài liệu tự soạn theo cú pháp v6, **chưa được compile trên TradingView trong phiên này** — cần dán vào Pine Editor để kiểm tra trước khi dùng.
+> The three snippets below were written by the author in v6 syntax and **have not been compiled on TradingView in this session** — paste them into the Pine Editor to check before use.
 
-### A11.1 Pivot swing high/low có nhãn HH/HL/LH/LL
+### A11.1 Swing high/low pivots labeled HH/HL/LH/LL
 
 ```pine
 //@version=6
@@ -402,8 +402,8 @@ float pl = ta.pivotlow(low, len, len)
 var float lastPh = na
 var float lastPl = na
 
-// Lưu ý: pivot chỉ được biết tại bar hiện tại, tức là trễ `len` bar.
-// Nhãn được vẽ lùi về bar pivot để dễ nhìn; logic giao dịch phải dùng bar hiện tại.
+// Note: a pivot is only known at the current bar, i.e. `len` bars late.
+// Labels are drawn back at the pivot bar for readability; trading logic must use the current bar.
 if not na(ph)
     string tagH = na(lastPh) ? "H" : ph > lastPh ? "HH" : "LH"
     label.new(bar_index - len, ph, tagH, style = label.style_label_down, size = size.tiny)
@@ -415,19 +415,19 @@ if not na(pl)
     lastPl := pl
 ```
 
-### A11.2 Phát hiện Fair Value Gap
+### A11.2 Fair Value Gap detection
 
 ```pine
 //@version=6
 indicator("FVG", overlay = true, max_boxes_count = 500)
 
-float minAtrMult = input.float(0.25, "Kích thước tối thiểu (x ATR)", minval = 0.0, step = 0.05)
-int   extendBars = input.int(20, "Kéo dài (bar)", minval = 1)
+float minAtrMult = input.float(0.25, "Minimum size (x ATR)", minval = 0.0, step = 0.05)
+int   extendBars = input.int(20, "Extend (bars)", minval = 1)
 
 float atr = ta.atr(14)
 
-// Mẫu 3 nến: nến [2], nến [1] (nến giữa), nến [0].
-// Chỉ đánh giá khi bar đã đóng để không repaint.
+// 3-candle pattern: candle [2], candle [1] (middle candle), candle [0].
+// Only evaluate on closed bars to avoid repainting.
 float bullGap = low - high[2]
 float bearGap = low[2] - high
 
@@ -446,11 +446,11 @@ alertcondition(bullFvg, "Bullish FVG", "Bullish FVG {{ticker}} {{interval}}")
 alertcondition(bearFvg, "Bearish FVG", "Bearish FVG {{ticker}} {{interval}}")
 ```
 
-### A11.3 BOS/CHoCH đơn giản, kèm alert JSON cho webhook
+### A11.3 Simple BOS/CHoCH with JSON alerts for webhooks
 
 ```pine
 //@version=6
-indicator("BOS / CHoCH đơn giản", overlay = true, max_lines_count = 500, max_labels_count = 500)
+indicator("Simple BOS / CHoCH", overlay = true, max_lines_count = 500, max_labels_count = 500)
 
 int len = input.int(5, "Pivot length", minval = 1)
 
@@ -463,7 +463,7 @@ var bool  highBroken   = true
 var float swingLow     = na
 var int   swingLowBar  = na
 var bool  lowBroken    = true
-var int   trend        = 0      // 1 = bullish, -1 = bearish, 0 = chưa xác định
+var int   trend        = 0      // 1 = bullish, -1 = bearish, 0 = undetermined
 
 if not na(ph)
     swingHigh    := ph
@@ -475,7 +475,7 @@ if not na(pl)
     swingLowBar := bar_index - len
     lowBroken   := false
 
-// Phá vỡ xác nhận bằng giá đóng cửa của bar đã đóng.
+// Break confirmed by the close of a closed bar.
 bool breakUp   = barstate.isconfirmed and not highBroken and not na(swingHigh) and close > swingHigh
 bool breakDown = barstate.isconfirmed and not lowBroken  and not na(swingLow)  and close < swingLow
 
@@ -502,63 +502,63 @@ if breakDown
     lowBroken := true
 ```
 
-Hạn chế cố ý của mẫu này: chỉ theo dõi một swing high và một swing low gần nhất, không phân biệt internal/swing structure, không yêu cầu displacement. Lần phá vỡ đầu tiên (khi `trend == 0`) được gắn nhãn BOS.
+Deliberate limitations of this sample: it tracks only the most recent swing high and swing low, does not distinguish internal/swing structure, and does not require displacement. The first break (when `trend == 0`) is labeled BOS.
 
-## A12. Alert và webhook
+## A12. Alerts and webhooks
 
-Nguồn: https://www.tradingview.com/pine-script-docs/concepts/alerts/ và https://www.tradingview.com/support/solutions/43000529348-about-webhooks/ **[đã tra]**
+Sources: https://www.tradingview.com/pine-script-docs/concepts/alerts/ and https://www.tradingview.com/support/solutions/43000529348-about-webhooks/ **[checked]**
 
-**Ba cách phát alert:**
+**Three ways to fire alerts:**
 
-| Cách | Dùng ở đâu | Nội dung message |
+| Method | Where | Message content |
 |---|---|---|
-| `alert(message, freq)` | Indicator và strategy | "series string" — tự dựng được JSON động |
-| `alertcondition(condition, title, message)` | Chỉ indicator; phải gọi ở global scope | "const string" + placeholder: `{{ticker}}`, `{{exchange}}`, `{{interval}}`, `{{time}}`, `{{timenow}}`, `{{open}}`, `{{high}}`, `{{low}}`, `{{close}}`, `{{volume}}`, `{{plot_0}}`…`{{plot_19}}`, `{{plot("tên")}}` |
-| Order fill của strategy | Strategy | Tham số `alert_message` của `strategy.entry/order/exit/close`, lấy ra bằng placeholder `{{strategy.order.alert_message}}` trong ô Message |
+| `alert(message, freq)` | Indicators and strategies | "series string" — can build dynamic JSON |
+| `alertcondition(condition, title, message)` | Indicators only; must be called at global scope | "const string" + placeholders: `{{ticker}}`, `{{exchange}}`, `{{interval}}`, `{{time}}`, `{{timenow}}`, `{{open}}`, `{{high}}`, `{{low}}`, `{{close}}`, `{{volume}}`, `{{plot_0}}`…`{{plot_19}}`, `{{plot("name")}}` |
+| Strategy order fills | Strategies | The `alert_message` parameter of `strategy.entry/order/exit/close`, retrieved with the `{{strategy.order.alert_message}}` placeholder in the Message field |
 
-`freq`: `alert.freq_once_per_bar` (mặc định), `alert.freq_once_per_bar_close`, `alert.freq_all`.
+`freq`: `alert.freq_once_per_bar` (default), `alert.freq_once_per_bar_close`, `alert.freq_all`.
 
-Điểm cần nhớ:
-- Code chỉ tạo **alert event**. Người dùng phải tự bấm "Create Alert" trên giao diện; script không tự tạo alert được.
-- Alert chỉ bắn trên **realtime bar**, chạy trên server TradingView.
-- Alert lưu **bản chụp** script + input + symbol + timeframe tại lúc tạo. Sửa script xong phải tạo lại alert.
+Key points:
+- Code only creates **alert events**. The user must click "Create Alert" in the UI; a script cannot create alerts by itself.
+- Alerts only fire on **realtime bars**, running on TradingView's servers.
+- An alert stores a **snapshot** of script + inputs + symbol + timeframe at creation time. After editing the script you must re-create the alert.
 
-**Webhook:**
-- TradingView gửi **HTTP POST**, body là message của alert.
-- Message là JSON hợp lệ thì header là `application/json`, còn lại là `text/plain`.
-- Chỉ chấp nhận cổng **80 và 443**.
-- Server phải trả lời trong **3 giây**, quá thì request bị huỷ.
-- IP nguồn (để allowlist): `52.89.214.238`, `34.212.75.30`, `54.218.53.128`, `52.32.178.7`.
-- Không hỗ trợ IPv6.
-- Tài khoản phải bật **2FA**.
-- Trang webhook không nêu yêu cầu gói trả phí và không mô tả cơ chế tự gửi lại — **[chưa xác minh]** cả hai. Nên giả định là **không có retry**.
+**Webhooks:**
+- TradingView sends an **HTTP POST** whose body is the alert message.
+- If the message is valid JSON the header is `application/json`, otherwise `text/plain`.
+- Only ports **80 and 443** are accepted.
+- The server must respond within **3 seconds**, otherwise the request is cancelled.
+- Source IPs (for allowlisting): `52.89.214.238`, `34.212.75.30`, `54.218.53.128`, `52.32.178.7`.
+- No IPv6 support.
+- The account must have **2FA** enabled.
+- The webhook page does not state a paid-plan requirement nor describe any resend mechanism — both **[unverified]**. Assume **no retry**.
 
-## A13. Điều Pine không làm được, và cách nối với Python
+## A13. What Pine cannot do, and how to connect to Python
 
-**Không làm được** **[trí nhớ, trừ mục có ghi chú]**:
-- Không gọi HTTP/API bên ngoài, không socket, không đọc/ghi file, không database. Dữ liệu ngoài duy nhất đưa vào được là qua `request.seed()` (repo GitHub do người dùng duy trì **[đã tra tên hàm]**) hoặc dán tay vào input.
-- Không đặt lệnh thật trực tiếp; chỉ phát alert.
-- Không truy cập order book, không có tick lịch sử đầy đủ (ngoài footprint và timeframe `"1T"`).
-- Không lưu trạng thái giữa các lần chạy; mỗi lần reload là tính lại từ đầu.
-- Không import thư viện ngoài hệ sinh thái Pine, không machine learning ngoài những gì tự viết bằng Pine.
-- Không đọc giá trị của indicator built-in đóng (ví dụ Volume Profile); không đọc drawing người dùng vẽ tay.
-- Không tự tạo alert, không tự đổi symbol/timeframe của chart.
-- Bị chặn bởi các giới hạn ở A10 — không phù hợp cho nghiên cứu trên dữ liệu lớn.
+**Cannot do** **[memory, except items noted]**:
+- No external HTTP/API calls, no sockets, no file read/write, no database. The only external data inputs are `request.seed()` (a user-maintained GitHub repo **[function name checked]**) or pasting into inputs by hand.
+- No direct live order placement; only alerts.
+- No order book access, no full historical ticks (apart from footprint and the `"1T"` timeframe).
+- No state persisted between runs; every reload recomputes from scratch.
+- No imports outside the Pine ecosystem, no machine learning beyond what you write in Pine yourself.
+- Cannot read values of closed built-in indicators (e.g. Volume Profile); cannot read drawings the user made by hand.
+- Cannot create alerts or change the chart's symbol/timeframe by itself.
+- Bound by the limits in A10 — unsuitable for research on large datasets.
 
-**Nối với Python — kiến trúc khuyến nghị:**
+**Connecting to Python — recommended architecture:**
 
 ```
-TradingView (Pine: alert() tạo JSON)
-        │  HTTP POST, cổng 443, phải trả lời < 3 giây
+TradingView (Pine: alert() builds JSON)
+        │  HTTP POST, port 443, must respond < 3 seconds
         ▼
 Webhook receiver (FastAPI / Cloudflare Worker)
-   1. Kiểm tra secret trong body  2. Ghi vào queue  3. Trả 200 ngay
+   1. Check secret in body  2. Write to queue  3. Return 200 immediately
         ▼
-Worker Python: kiểm tra lại tín hiệu bằng dữ liệu sàn → quản lý rủi ro → đặt lệnh qua API sàn
+Python worker: re-check the signal with exchange data → risk management → place orders via exchange API
 ```
 
 ```python
-# Giả mã receiver — không phải code production
+# Receiver pseudocode — not production code
 from fastapi import FastAPI, Request, HTTPException
 import asyncio, hmac, os
 
@@ -571,27 +571,27 @@ async def tv(req: Request):
     data = await req.json()
     if not hmac.compare_digest(str(data.get("secret", "")), SECRET):
         raise HTTPException(403)
-    await queue.put(data)          # xử lý nặng làm ở worker khác
-    return {"ok": True}            # trả lời ngay, tránh timeout 3 giây
+    await queue.put(data)          # heavy processing happens in another worker
+    return {"ok": True}            # respond immediately, avoid the 3-second timeout
 ```
 
-Lưu ý thiết kế:
-- TradingView không ký request. Xác thực bằng secret trong body cộng allowlist IP. Trang webhook khuyên không đưa thông tin nhạy cảm vào body — nên secret này chỉ là mã nhận diện tín hiệu, **không phải API key của sàn**.
-- Làm **idempotent**: dùng `symbol + tf + time + event` làm khoá để chống tín hiệu trùng.
-- Phía Python phải **tự kiểm tra lại** tín hiệu bằng dữ liệu của sàn; coi alert là gợi ý, không phải lệnh.
-- Webhook có thể rớt. Cần cơ chế đối soát (ví dụ Python tự tính lại tín hiệu theo chu kỳ).
-- Cách vững hơn về lâu dài: tính toàn bộ tín hiệu bằng Python trên dữ liệu sàn, chỉ dùng Pine để trực quan hoá và đối chiếu.
+Design notes:
+- TradingView does not sign requests. Authenticate with a secret in the body plus an IP allowlist. The webhook page advises against putting sensitive information in the body — so this secret is just a signal identifier, **not an exchange API key**.
+- Make it **idempotent**: use `symbol + tf + time + event` as a key to reject duplicate signals.
+- The Python side must **re-check** signals with exchange data; treat alerts as hints, not orders.
+- Webhooks can be dropped. A reconciliation mechanism is needed (e.g. Python periodically recomputes signals).
+- The more robust long-term approach: compute all signals in Python on exchange data, use Pine only for visualization and cross-checking.
 
 ---
 
-# Phần B — Smart Money Concepts dưới dạng thuật toán
+# Part B — Smart Money Concepts as algorithms
 
-**Lời dẫn quan trọng.** SMC/ICT là hệ thuật ngữ của giới trader, không có định nghĩa chuẩn. Cùng một tên gọi nhưng mỗi tác giả và mỗi indicator cài một quy tắc khác. Tài liệu này chọn định nghĩa **tính được bằng code**, nêu tham số và các biến thể. Hai cài đặt mã nguồn mở dùng làm mốc đối chiếu:
+**Important preface.** SMC/ICT is trader jargon with no standard definitions. The same name is implemented with different rules by each author and indicator. This document picks definitions that are **computable in code**, and lists parameters and variants. Two open-source implementations serve as reference points:
 
-- **LuxAlgo — Smart Money Concepts [LuxAlgo]** (Pine v5, bản cập nhật 2025-09-23, giấy phép **CC BY-NC-SA 4.0** ghi trong mã nguồn — không dùng cho mục đích thương mại) **[đã tra mã nguồn]**: https://www.tradingview.com/script/CnB3fSph-Smart-Money-Concepts-SMC-LuxAlgo/
-- **`smartmoneyconcepts`** (Python, PyPI bản 0.0.27 phát hành 2026-04-03) **[đã tra README và PyPI]**: https://github.com/joshyattridge/smart-money-concepts — giấy phép: PyPI để trống trường license, repo có file LICENSE nhưng loại giấy phép **[chưa xác minh]**.
+- **LuxAlgo — Smart Money Concepts [LuxAlgo]** (Pine v5, updated 2025-09-23, license **CC BY-NC-SA 4.0** stated in the source — no commercial use) **[source checked]**: https://www.tradingview.com/script/CnB3fSph-Smart-Money-Concepts-SMC-LuxAlgo/
+- **`smartmoneyconcepts`** (Python, PyPI version 0.0.27 released 2026-04-03) **[README and PyPI checked]**: https://github.com/joshyattridge/smart-money-concepts — license: PyPI leaves the license field empty, the repo has a LICENSE file but the license type is **[unverified]**.
 
-Ký hiệu chung cho giả mã: `df` là pandas DataFrame có cột `open, high, low, close, volume`, index là thời gian UTC tăng dần. Các hàm dưới đây là **giả mã minh hoạ**, chưa được chạy kiểm thử.
+Common notation for pseudocode: `df` is a pandas DataFrame with columns `open, high, low, close, volume`, indexed by ascending UTC time. The functions below are **illustrative pseudocode**, not run or tested.
 
 ```python
 import numpy as np
@@ -600,23 +600,23 @@ import pandas as pd
 def atr(df: pd.DataFrame, n: int = 14) -> pd.Series:
     pc = df.close.shift(1)
     tr = pd.concat([df.high - df.low, (df.high - pc).abs(), (df.low - pc).abs()], axis=1).max(axis=1)
-    return tr.ewm(alpha=1 / n, adjust=False).mean()      # Wilder (tương đương ta.rma)
+    return tr.ewm(alpha=1 / n, adjust=False).mean()      # Wilder (equivalent to ta.rma)
 ```
 
 ## B1. Market structure
 
 ### B1.1 Swing high / swing low
 
-**Định nghĩa (fractal/pivot):** bar `i` là swing high nếu `high[i]` là lớn nhất trong cửa sổ `[i-L, i+R]`. Swing low tương tự với `low`. Swing chỉ **được biết tại bar `i+R`**.
+**Definition (fractal/pivot):** bar `i` is a swing high if `high[i]` is the maximum within the window `[i-L, i+R]`. Swing low likewise with `low`. A swing is only **known at bar `i+R`**.
 
-**Tham số:** `L`, `R` (thường bằng nhau).
+**Parameters:** `L`, `R` (usually equal).
 
-**Biến thể:**
-- `ta.pivothigh(high, L, R)` của Pine.
-- LuxAlgo dùng "leg": tại bar `t`, nếu `high[t-size]` lớn hơn giá cao nhất của `size` bar sau nó thì bắt đầu một leg giảm và `high[t-size]` là swing high. Chỉ xét phía phải, và chỉ ghi nhận khi leg đổi chiều **[đã tra mã nguồn]**.
-- `smartmoneyconcepts`: `swing_highs_lows(ohlc, swing_length=50)`, cao/thấp nhất trong `swing_length` nến trước và sau **[đã tra]**.
-- ZigZag theo ngưỡng % hoặc theo bội số ATR (không phụ thuộc số bar).
-- Xử lý hoà (hai bar cùng high) khác nhau giữa các cài đặt.
+**Variants:**
+- Pine's `ta.pivothigh(high, L, R)`.
+- LuxAlgo uses "legs": at bar `t`, if `high[t-size]` is greater than the highest high of the `size` bars after it, a down leg starts and `high[t-size]` is a swing high. Only the right side is considered, and it is recorded only when the leg changes direction **[source checked]**.
+- `smartmoneyconcepts`: `swing_highs_lows(ohlc, swing_length=50)`, highest/lowest within `swing_length` candles before and after **[checked]**.
+- ZigZag by % threshold or ATR multiple (independent of bar count).
+- Tie handling (two bars with the same high) differs between implementations.
 
 ```python
 def swings(df, n=5):
@@ -626,18 +626,18 @@ def swings(df, n=5):
     out = pd.DataFrame(index=df.index)
     out["swing_high"] = df.high.where(is_sh)
     out["swing_low"] = df.low.where(is_sl)
-    # CHỐNG LOOKAHEAD: swing tại vị trí i chỉ dùng được từ vị trí i + n
+    # ANTI-LOOKAHEAD: a swing at position i is only usable from position i + n
     out["sh_known"] = out.swing_high.shift(n)
     out["sl_known"] = out.swing_low.shift(n)
     return out
 ```
 
-### B1.2 Phân loại HH / HL / LH / LL
+### B1.2 HH / HL / LH / LL classification
 
-So mỗi swing với swing **cùng loại** liền trước: swing high cao hơn → HH, thấp hơn → LH; swing low cao hơn → HL, thấp hơn → LL.
+Compare each swing with the previous swing **of the same type**: higher swing high → HH, lower → LH; higher swing low → HL, lower → LL.
 
-- Uptrend: chuỗi HH + HL. Downtrend: chuỗi LH + LL.
-- Biến thể: bắt buộc swing high và low xen kẽ (nếu hai swing high liên tiếp thì giữ cái cao hơn); dùng ngưỡng bằng nhau để tách riêng equal high/low (B5).
+- Uptrend: sequence of HH + HL. Downtrend: sequence of LH + LL.
+- Variants: force alternating swing highs and lows (if two swing highs in a row, keep the higher); use an equality threshold to separate equal highs/lows (B5).
 
 ```python
 def classify(sw):
@@ -648,44 +648,44 @@ def classify(sw):
     return pd.Series(lab_h, index=sh.index[1:]), pd.Series(lab_l, index=sl.index[1:])
 ```
 
-### B1.3 Internal structure và swing structure
+### B1.3 Internal structure and swing structure
 
-Cùng một thuật toán, chạy với hai độ dài:
-- **Swing structure**: độ dài lớn. LuxAlgo mặc định **50**, tối thiểu 10 **[đã tra]**.
-- **Internal structure**: độ dài nhỏ. LuxAlgo dùng hằng số **5**, không chỉnh được **[đã tra mã nguồn]**.
+Same algorithm, run with two lengths:
+- **Swing structure**: long length. LuxAlgo default **50**, minimum 10 **[checked]**.
+- **Internal structure**: short length. LuxAlgo uses a constant **5**, not adjustable **[source checked]**.
 
-LuxAlgo còn thêm điều kiện: internal pivot chỉ tính khi mức của nó **khác** mức swing pivot hiện tại, và có "Confluence Filter" tuỳ chọn để lọc phá vỡ internal kém ý nghĩa **[đã tra]**.
+LuxAlgo also adds a condition: an internal pivot only counts when its level **differs** from the current swing pivot level, plus an optional "Confluence Filter" to drop less meaningful internal breaks **[checked]**.
 
-Biến thể khác: dùng timeframe thấp hơn làm internal, timeframe hiện tại làm swing.
+Other variant: use a lower timeframe as internal and the current timeframe as swing.
 
 ## B2. Break of Structure (BOS)
 
-**Định nghĩa:** giá phá qua swing gần nhất **theo chiều xu hướng hiện tại**.
-- Bullish BOS: đang bullish, `close > swing_high` gần nhất chưa bị phá.
-- Bearish BOS: đang bearish, `close < swing_low` gần nhất chưa bị phá.
+**Definition:** price breaks the most recent swing **in the direction of the current trend**.
+- Bullish BOS: trend is bullish, `close >` the most recent unbroken `swing_high`.
+- Bearish BOS: trend is bearish, `close <` the most recent unbroken `swing_low`.
 
-**Tham số và biến thể:**
-- Xác nhận bằng **close** (chặt) hay **wick** (`high > level`, lỏng). `smartmoneyconcepts` có `close_break=True` **[đã tra]**; LuxAlgo dùng `ta.crossover(close, level)` **[đã tra]**.
-- Mỗi swing chỉ được phá một lần (cờ `crossed`).
-- Yêu cầu thêm displacement (B8) để lọc phá vỡ yếu.
-- Đệm tối thiểu: `close > level + k * ATR`.
+**Parameters and variants:**
+- Confirm by **close** (strict) or **wick** (`high > level`, loose). `smartmoneyconcepts` has `close_break=True` **[checked]**; LuxAlgo uses `ta.crossover(close, level)` **[checked]**.
+- Each swing can be broken only once (a `crossed` flag).
+- Additionally require displacement (B8) to filter weak breaks.
+- Minimum buffer: `close > level + k * ATR`.
 
 ## B3. Change of Character (CHoCH) / Market Structure Shift (MSS)
 
-**Định nghĩa:** giá phá qua swing gần nhất **ngược chiều xu hướng hiện tại**.
-- Bullish CHoCH: đang bearish, `close > swing_high` gần nhất.
-- Bearish CHoCH: đang bullish, `close < swing_low` gần nhất.
+**Definition:** price breaks the most recent swing **against the current trend**.
+- Bullish CHoCH: trend is bearish, `close >` the most recent `swing_high`.
+- Bearish CHoCH: trend is bullish, `close <` the most recent `swing_low`.
 
-Như vậy BOS và CHoCH là **cùng một sự kiện phá vỡ**, chỉ khác nhãn tuỳ trạng thái xu hướng trước đó. Sau sự kiện, xu hướng đặt theo chiều phá vỡ.
+So BOS and CHoCH are **the same break event**, labeled differently depending on the prior trend state. After the event, the trend is set to the direction of the break.
 
-**Biến thể:**
-- **MSS**: nhiều người dùng đồng nghĩa với CHoCH. Một số phân biệt: CHoCH là phá vỡ ngược chiều đầu tiên (kể cả ở internal structure), MSS đòi hỏi phá vỡ có displacement và/hoặc xảy ra sau một liquidity sweep. Không có chuẩn chung.
-- Phá vỡ đầu tiên khi chưa có xu hướng: gọi là BOS (LuxAlgo và indicator ở Phần C đều làm vậy **[đã tra]**).
-- Bản chặt: CHoCH bullish yêu cầu swing bị phá phải là **LH tạo ra LL gần nhất**, không phải swing high bất kỳ.
+**Variants:**
+- **MSS**: many treat it as a synonym of CHoCH. Some distinguish: CHoCH is the first counter-trend break (including in internal structure), MSS requires a break with displacement and/or after a liquidity sweep. No common standard.
+- The first break when there is no trend yet: labeled BOS (both LuxAlgo and the Part C indicator do this **[checked]**).
+- Strict version: a bullish CHoCH requires the broken swing to be **the LH that produced the most recent LL**, not any swing high.
 
 ```python
 def bos_choch(df, sw, close_break=True):
-    """Trả về list sự kiện. Dùng sh_known/sl_known nên không lookahead."""
+    """Returns a list of events. Uses sh_known/sl_known, so no lookahead."""
     events, trend = [], 0
     hi_lvl = lo_lvl = None
     hi_idx = lo_idx = None
@@ -693,7 +693,7 @@ def bos_choch(df, sw, close_break=True):
     dn_src = df.close if close_break else df.low
     for i in range(len(df)):
         if not np.isnan(sw.sh_known.iat[i]):
-            hi_lvl, hi_idx = sw.sh_known.iat[i], i     # i là bar XÁC NHẬN swing
+            hi_lvl, hi_idx = sw.sh_known.iat[i], i     # i is the swing CONFIRMATION bar
         if not np.isnan(sw.sl_known.iat[i]):
             lo_lvl, lo_idx = sw.sl_known.iat[i], i
         if hi_lvl is not None and up_src.iat[i] > hi_lvl:
@@ -711,49 +711,49 @@ def bos_choch(df, sw, close_break=True):
 
 ### B4.1 Order block (OB)
 
-**Định nghĩa phổ biến:** nến ngược chiều cuối cùng trước một đợt giá mạnh gây ra BOS/CHoCH.
-- Bullish OB: nến giảm (`close < open`) cuối cùng trước đợt tăng phá swing high. Vùng = `[low, high]` của nến đó.
-- Bearish OB: nến tăng cuối cùng trước đợt giảm phá swing low.
+**Common definition:** the last opposite-colored candle before a strong move that causes a BOS/CHoCH.
+- Bullish OB: the last down candle (`close < open`) before the rally that breaks a swing high. Zone = that candle's `[low, high]`.
+- Bearish OB: the last up candle before the drop that breaks a swing low.
 
-**Tham số và biến thể:**
-- Vùng lấy theo **toàn bộ nến** (wick–wick), theo **thân nến**, hay từ open tới wick.
-- Cách chọn nến:
-  - "Nến ngược chiều cuối cùng" (định nghĩa sách vở).
-  - **LuxAlgo**: khi có phá vỡ, lấy bar có **low thấp nhất** (bullish) hoặc **high cao nhất** (bearish) trong đoạn từ swing pivot tới bar phá vỡ, không quan tâm màu nến. Kèm bộ lọc biến động: bar có `high - low >= 2 × ATR(200)` (hoặc 2 × trung bình cộng dồn của true range) bị coi là bar biến động lớn và đảo high/low khi xét, để không bị chọn làm OB **[đã tra mã nguồn]**.
-  - **`smartmoneyconcepts`**: `ob(ohlc, swing_highs_lows, close_mitigation=False)`, trả thêm `OBVolume` (volume nến đó cộng hai nến trước) và `Percentage` **[đã tra]**.
-- Điều kiện kèm theo tuỳ chọn: phải có displacement, phải để lại FVG, phải nằm trong discount (bullish) hay premium (bearish), phải quét liquidity trước đó.
-- Giới hạn số OB còn hiệu lực (LuxAlgo hiển thị 5 mỗi loại, lưu tối đa 100 **[đã tra]**).
+**Parameters and variants:**
+- Zone taken from the **whole candle** (wick–wick), the **body**, or open to wick.
+- Candle selection:
+  - "Last opposite candle" (textbook definition).
+  - **LuxAlgo**: on a break, take the bar with the **lowest low** (bullish) or **highest high** (bearish) between the swing pivot and the break bar, regardless of candle color. Plus a volatility filter: bars with `high - low >= 2 × ATR(200)` (or 2 × the cumulative mean of true range) are treated as high-volatility bars and have their high/low swapped when evaluated, so they are not picked as OBs **[source checked]**.
+  - **`smartmoneyconcepts`**: `ob(ohlc, swing_highs_lows, close_mitigation=False)`, also returns `OBVolume` (that candle's volume plus the two previous candles) and `Percentage` **[checked]**.
+- Optional extra conditions: must have displacement, must leave an FVG, must lie in discount (bullish) or premium (bearish), must have swept liquidity first.
+- Cap on active OBs (LuxAlgo shows 5 of each type, stores at most 100 **[checked]**).
 
 ### B4.2 Mitigation
 
-Hai nghĩa khác nhau, cần ghi rõ đang dùng nghĩa nào:
-1. **Chạm/quay lại (tap):** giá quay về chạm vùng OB — bullish OB: `low <= ob.top`. Thường là điều kiện vào lệnh.
-2. **Vô hiệu (invalidation):** giá xuyên hẳn qua vùng — bullish OB: `low < ob.bottom` (theo wick) hoặc `close < ob.bottom` (theo close). LuxAlgo gọi cái này là mitigation và **xoá** OB; tuỳ chọn nguồn là `High/Low` (mặc định) hoặc `Close` **[đã tra]**.
+Two different meanings; state which one you use:
+1. **Touch/return (tap):** price returns to touch the OB zone — bullish OB: `low <= ob.top`. Usually the entry condition.
+2. **Invalidation:** price trades fully through the zone — bullish OB: `low < ob.bottom` (by wick) or `close < ob.bottom` (by close). LuxAlgo calls this mitigation and **deletes** the OB; the source option is `High/Low` (default) or `Close` **[checked]**.
 
-Biến thể: mitigation một phần (chạm 50% vùng), số lần chạm tối đa trước khi coi vùng là "đã dùng".
+Variants: partial mitigation (touching 50% of the zone), maximum number of touches before the zone is considered "used".
 
 ### B4.3 Breaker block
 
-**Định nghĩa:** một OB đã bị **vô hiệu** (giá đóng cửa xuyên qua) thì đổi vai trò: bullish OB bị phá trở thành vùng kháng cự (bearish breaker), và ngược lại. Tín hiệu là khi giá quay lại test vùng đó từ phía bên kia.
+**Definition:** an OB that has been **invalidated** (closed through) flips roles: a broken bullish OB becomes resistance (bearish breaker), and vice versa. The signal is when price returns to test the zone from the other side.
 
-**Biến thể:** bản ICT chặt yêu cầu OB gốc phải nằm trong một cấu trúc đã quét liquidity trước khi bị phá (khác với "mitigation block" là trường hợp không có quét liquidity) — định nghĩa này khó mã hoá và không thống nhất **[trí nhớ]**.
+**Variants:** the strict ICT version requires the original OB to sit in a structure that swept liquidity before being broken (as opposed to a "mitigation block", the case without a liquidity sweep) — this definition is hard to encode and inconsistent **[memory]**.
 
 ```python
 def order_blocks(df, events, max_lookback=50):
     obs = []
     for e in events.itertuples():
         lo = max(0, e.i - max_lookback)
-        seg = df.iloc[lo:e.i]                         # các bar TRƯỚC bar phá vỡ
+        seg = df.iloc[lo:e.i]                         # bars BEFORE the break bar
         opp = seg[seg.close < seg.open] if e.side == 1 else seg[seg.close > seg.open]
         if opp.empty:
             continue
-        j = df.index.get_loc(opp.index[-1])           # nến ngược chiều cuối cùng
+        j = df.index.get_loc(opp.index[-1])           # last opposite candle
         obs.append(dict(side=e.side, top=df.high.iat[j], bottom=df.low.iat[j],
-                        bar=j, active_from=e.i))      # chỉ dùng được SAU bar phá vỡ
+                        bar=j, active_from=e.i))      # only usable AFTER the break bar
     return pd.DataFrame(obs)
 
 def track_ob(df, ob, close_invalidation=True):
-    """Trả về (vị trí chạm đầu tiên, vị trí bị vô hiệu) sau khi OB có hiệu lực."""
+    """Returns (first touch position, invalidation position) after the OB becomes active."""
     tapped = invalid = None
     for i in range(ob.active_from + 1, len(df)):
         h, l, c = df.high.iat[i], df.low.iat[i], df.close.iat[i]
@@ -770,25 +770,25 @@ def track_ob(df, ob, close_invalidation=True):
                 invalid = i
                 break
     return tapped, invalid
-# Breaker: OB có invalid != None → đổi side = -side, có hiệu lực từ bar invalid.
+# Breaker: OB with invalid != None → flip side = -side, active from the invalid bar.
 ```
 
 ## B5. Fair Value Gap (FVG) / imbalance
 
-**Định nghĩa (mẫu 3 nến, chỉ số t là nến mới nhất):**
-- Bullish FVG: `low[t] > high[t-2]`. Vùng = `[high[t-2], low[t]]`.
-- Bearish FVG: `high[t] < low[t-2]`. Vùng = `[high[t], low[t-2]]`.
+**Definition (3-candle pattern, index t is the newest candle):**
+- Bullish FVG: `low[t] > high[t-2]`. Zone = `[high[t-2], low[t]]`.
+- Bearish FVG: `high[t] < low[t-2]`. Zone = `[high[t], low[t-2]]`.
 
-Biết được tại lúc **đóng nến t**.
+Known at the **close of candle t**.
 
-**Tham số và biến thể:**
-- Điều kiện thêm cho nến giữa: `close[t-1] > high[t-2]` (LuxAlgo **[đã tra]**), hoặc nến giữa phải cùng chiều (`smartmoneyconcepts` **[đã tra]**).
-- Kích thước tối thiểu: theo ATR, theo % giá, hoặc ngưỡng tự động. LuxAlgo "Auto Threshold": biến động % của nến giữa phải lớn hơn 2 lần trung bình cộng dồn của trị tuyệt đối biến động % **[đã tra]**.
-- Tính trên timeframe khác (LuxAlgo có input `Timeframe`).
-- Gộp các FVG liền nhau (`join_consecutive` của `smartmoneyconcepts`).
-- **Lấp (fill/mitigation):** chạm mép, lấp 50% ("consequent encroachment" theo cách gọi ICT), hay lấp toàn bộ.
-- **Inverse FVG (IFVG):** FVG bị giá đóng cửa xuyên qua thì đổi vai trò, tương tự breaker.
-- Thuật ngữ liên quan: "imbalance", "inefficiency", "liquidity void" (khoảng trống lớn gồm nhiều nến). Một số người gọi riêng "volume imbalance" là khoảng hở giữa thân hai nến liền nhau — định nghĩa khác, đừng trộn.
+**Parameters and variants:**
+- Extra condition on the middle candle: `close[t-1] > high[t-2]` (LuxAlgo **[checked]**), or the middle candle must be in the same direction (`smartmoneyconcepts` **[checked]**).
+- Minimum size: by ATR, by % of price, or an automatic threshold. LuxAlgo "Auto Threshold": the middle candle's % change must exceed 2 × the cumulative mean of absolute % changes **[checked]**.
+- Computed on another timeframe (LuxAlgo has a `Timeframe` input).
+- Merge consecutive FVGs (`join_consecutive` in `smartmoneyconcepts`).
+- **Fill/mitigation:** touching the edge, filling 50% ("consequent encroachment" in ICT terms), or filling completely.
+- **Inverse FVG (IFVG):** an FVG closed through flips roles, like a breaker.
+- Related terms: "imbalance", "inefficiency", "liquidity void" (a large gap spanning several candles). Some use "volume imbalance" specifically for the gap between the bodies of two adjacent candles — a different definition, don't mix them.
 
 ```python
 def fvg(df, min_atr_mult=0.0, atr_n=14):
@@ -801,7 +801,7 @@ def fvg(df, min_atr_mult=0.0, atr_n=14):
     out["fvg"] = np.select([bull, bear], [1, -1], 0)
     out["top"] = np.where(bull, df.low, np.where(bear, df.low.shift(2), np.nan))
     out["bottom"] = np.where(bull, df.high.shift(2), np.where(bear, df.high, np.nan))
-    return out   # dòng tại t: FVG được biết khi nến t đóng
+    return out   # row at t: the FVG is known when candle t closes
 
 def fvg_fill_index(df, t, side, top, bottom, mode="full"):
     level = {"touch": top if side == 1 else bottom,
@@ -814,36 +814,36 @@ def fvg_fill_index(df, t, side, top, bottom, mode="full"):
 
 ## B6. Liquidity
 
-Giả thuyết nền: lệnh dừng lỗ tập trung phía trên các đỉnh và phía dưới các đáy dễ thấy; giá có xu hướng tìm đến các vùng này.
+Underlying hypothesis: stop-loss orders cluster above obvious highs and below obvious lows; price tends to seek out these areas.
 
-### B6.1 Buy-side và sell-side liquidity
+### B6.1 Buy-side and sell-side liquidity
 
-- **Buy-side liquidity (BSL):** vùng phía **trên** các đỉnh (swing high, equal highs, đỉnh ngày/tuần trước, đỉnh session) — nơi có buy stop.
-- **Sell-side liquidity (SSL):** vùng phía **dưới** các đáy — nơi có sell stop.
+- **Buy-side liquidity (BSL):** the area **above** highs (swing highs, equal highs, previous day/week highs, session highs) — where buy stops sit.
+- **Sell-side liquidity (SSL):** the area **below** lows — where sell stops sit.
 
-Về mặt thuật toán, đây chỉ là **danh sách mức giá** kèm cờ "đã bị quét chưa". Nguồn mức giá: swing (B1), equal highs/lows, previous day/week/month high/low, session high/low.
+Algorithmically, this is just a **list of price levels** with a "swept yet?" flag. Level sources: swings (B1), equal highs/lows, previous day/week/month high/low, session high/low.
 
 ### B6.2 Equal highs / equal lows (EQH / EQL)
 
-**Định nghĩa:** hai (hoặc nhiều) swing high có giá chênh nhau dưới một ngưỡng.
+**Definition:** two (or more) swing highs whose prices differ by less than a threshold.
 
-**Tham số và biến thể:**
-- Ngưỡng theo ATR: LuxAlgo dùng `|level1 - level2| < 0.1 × ATR(200)`, với pivot độ dài 3 ("Bars Confirmation") **[đã tra]**.
-- Ngưỡng theo %: `smartmoneyconcepts.liquidity(..., range_percent=0.01)` **[đã tra]**.
-- Số lần chạm tối thiểu (2, 3...), khoảng cách tối thiểu/tối đa giữa các lần chạm.
-- Yêu cầu giá ở giữa chưa vượt qua mức đó.
+**Parameters and variants:**
+- ATR threshold: LuxAlgo uses `|level1 - level2| < 0.1 × ATR(200)`, with pivot length 3 ("Bars Confirmation") **[checked]**.
+- % threshold: `smartmoneyconcepts.liquidity(..., range_percent=0.01)` **[checked]**.
+- Minimum number of touches (2, 3...), minimum/maximum distance between touches.
+- Require that price in between has not exceeded the level.
 
 ### B6.3 Liquidity sweep / stop hunt
 
-**Định nghĩa:** giá vượt qua một mức liquidity rồi quay lại.
-- Quét BSL: `high[t] > level` **và** `close[t] < level`.
-- Quét SSL: `low[t] < level` **và** `close[t] > level`.
+**Definition:** price exceeds a liquidity level and then comes back.
+- BSL sweep: `high[t] > level` **and** `close[t] < level`.
+- SSL sweep: `low[t] < level` **and** `close[t] > level`.
 
-**Biến thể:**
-- Cho phép quay lại trong `k` nến thay vì ngay trong một nến.
-- Giới hạn độ xuyên tối đa (`high - level <= m × ATR`) để phân biệt với breakout thật.
-- Nếu **close** vượt hẳn qua mức thì đó là BOS/breakout, không phải sweep.
-- "Liquidity grab" / "stop hunt" / "raid" / "Judas swing": cùng ý, khác tên.
+**Variants:**
+- Allow the return within `k` candles instead of within one candle.
+- Cap the maximum penetration (`high - level <= m × ATR`) to distinguish from a real breakout.
+- If the **close** goes fully past the level, it is a BOS/breakout, not a sweep.
+- "Liquidity grab" / "stop hunt" / "raid" / "Judas swing": same idea, different names.
 
 ```python
 def equal_levels(sw, a, thr_atr=0.1, kind="high"):
@@ -853,14 +853,14 @@ def equal_levels(sw, a, thr_atr=0.1, kind="high"):
         if abs(s.iat[k] - s.iat[k - 1]) < thr_atr * a.loc[s.index[k]]:
             level = max(s.iat[k], s.iat[k - 1]) if kind == "high" else min(s.iat[k], s.iat[k - 1])
             rows.append(dict(level=level, first=s.index[k - 1], second=s.index[k]))
-    return pd.DataFrame(rows)   # nhớ cộng độ trễ xác nhận pivot trước khi dùng làm tín hiệu
+    return pd.DataFrame(rows)   # remember to add the pivot confirmation lag before using as a signal
 
 def sweeps(df, level, known_pos, side, max_pen_atr=None, a=None):
-    """side=+1: quét buy-side (trên đỉnh). side=-1: quét sell-side (dưới đáy)."""
+    """side=+1: buy-side sweep (above highs). side=-1: sell-side sweep (below lows)."""
     out = []
     for i in range(known_pos + 1, len(df)):
         h, l, c = df.high.iat[i], df.low.iat[i], df.close.iat[i]
-        if side == 1 and c > level:   # close vượt hẳn → breakout, mức hết hiệu lực
+        if side == 1 and c > level:   # close fully past → breakout, level no longer valid
             break
         if side == -1 and c < level:
             break
@@ -869,27 +869,27 @@ def sweeps(df, level, known_pos, side, max_pen_atr=None, a=None):
             pen = (h - level) if side == 1 else (level - l)
             if max_pen_atr is None or pen <= max_pen_atr * a.iat[i]:
                 out.append(i)
-            break                      # mỗi mức chỉ tính lần quét đầu tiên
+            break                      # each level counts only its first sweep
     return out
 ```
 
-## B7. Premium / discount zone và equilibrium
+## B7. Premium / discount zones and equilibrium
 
-**Định nghĩa:** chọn một **dealing range** `[L, H]`. Equilibrium `EQ = (H + L) / 2`. Trên EQ là premium (ưu tiên bán), dưới EQ là discount (ưu tiên mua).
+**Definition:** pick a **dealing range** `[L, H]`. Equilibrium `EQ = (H + L) / 2`. Above EQ is premium (favor selling), below EQ is discount (favor buying).
 
-Vị trí chuẩn hoá: `pos = (close - L) / (H - L)`, nằm trong 0..1.
+Normalized position: `pos = (close - L) / (H - L)`, in 0..1.
 
-**Tham số và biến thể — phần chủ quan nhất là chọn range:**
-- Swing high và swing low gần nhất của swing structure, có cập nhật khi giá tạo cực trị mới (LuxAlgo: "trailing" top/bottom **[đã tra]**).
-- Cao nhất/thấp nhất trong N bar gần nhất (indicator ở Phần C dùng cách này với N = 35 **[đã tra]**).
-- Range của ngày/tuần trước, hoặc của session.
-- Chia vùng: LuxAlgo vẽ premium là 5% trên cùng của range, equilibrium là dải 47,5%–52,5%, discount là 5% dưới cùng **[đã tra mã nguồn]**. Biến thể ICT "Optimal Trade Entry" (OTE) dùng vùng hồi 62%–79% **[trí nhớ]**.
+**Parameters and variants — the most subjective part is choosing the range:**
+- The most recent swing high and swing low of the swing structure, updated as price makes new extremes (LuxAlgo: "trailing" top/bottom **[checked]**).
+- Highest/lowest of the last N bars (the Part C indicator does this with N = 35 **[checked]**).
+- Previous day/week range, or the session range.
+- Zone split: LuxAlgo draws premium as the top 5% of the range, equilibrium as the 47.5%–52.5% band, discount as the bottom 5% **[source checked]**. The ICT "Optimal Trade Entry" (OTE) variant uses the 62%–79% retracement zone **[memory]**.
 
 ```python
 def premium_discount(df, sw):
     H = sw.sh_known.ffill()
     L = sw.sl_known.ffill()
-    # tuỳ chọn: nới range khi giá vượt ra ngoài (trailing extremes)
+    # optional: widen the range when price moves outside it (trailing extremes)
     rng = (H - L).where(H > L)
     pos = (df.close - L) / rng
     eq = (H + L) / 2
@@ -899,17 +899,17 @@ def premium_discount(df, sw):
 
 ## B8. Displacement
 
-**Định nghĩa:** một hoặc vài nến liên tiếp cùng chiều, thân lớn, wick nhỏ, thể hiện giá di chuyển mạnh một chiều.
+**Definition:** one or a few consecutive same-direction candles with large bodies and small wicks, showing a strong one-directional move.
 
-**Quy tắc tính được:**
-- `body = |close - open| >= k × ATR(n)` (ví dụ k = 1,5), **và**
-- `body / (high - low) >= r` (ví dụ r = 0,7).
+**Computable rule:**
+- `body = |close - open| >= k × ATR(n)` (e.g. k = 1.5), **and**
+- `body / (high - low) >= r` (e.g. r = 0.7).
 
-**Biến thể:** dùng độ lệch chuẩn của thân nến thay cho ATR; yêu cầu để lại FVG; yêu cầu phá một swing (tức là kèm BOS/CHoCH); tính tổng trên 2–3 nến liên tiếp cùng chiều; thêm điều kiện volume lớn hơn trung bình.
+**Variants:** use the standard deviation of bodies instead of ATR; require leaving an FVG; require breaking a swing (i.e. accompanied by BOS/CHoCH); sum over 2–3 consecutive same-direction candles; add an above-average volume condition.
 
 ```python
 def displacement(df, k=1.5, r=0.7, n=14):
-    a = atr(df, n).shift(1)                      # ATR của bar trước, tránh tự tham chiếu
+    a = atr(df, n).shift(1)                      # previous bar's ATR, avoids self-reference
     body = (df.close - df.open).abs()
     rng = (df.high - df.low).replace(0, np.nan)
     ok = (body >= k * a) & (body / rng >= r)
@@ -918,21 +918,21 @@ def displacement(df, k=1.5, r=0.7, n=14):
 
 ## B9. Inducement (IDM)
 
-Khái niệm khó mã hoá nhất và ít thống nhất nhất.
+The hardest concept to encode and the least consistent.
 
-**Định nghĩa khả dụng:** trong một xu hướng tăng, sau khi có BOS, **đáy hồi nhỏ gần nhất** (internal swing low) nằm phía trên vùng quan tâm (OB/FVG của swing structure) là inducement. Lý thuyết cho rằng giá sẽ quét đáy nhỏ đó trước rồi mới chạm vùng quan tâm; lệnh chỉ hợp lệ **sau khi inducement đã bị quét**.
+**Workable definition:** in an uptrend, after a BOS, the **most recent minor pullback low** (internal swing low) lying above the area of interest (swing-structure OB/FVG) is the inducement. The theory says price will sweep that minor low first before reaching the area of interest; an entry is only valid **after the inducement has been swept**.
 
-**Thuật toán:**
-1. Xác định trend và swing gần nhất bằng swing structure (độ dài lớn).
-2. Trong leg hiện tại, tìm internal swing gần nhất ngược chiều trend (bullish: internal swing low gần nhất tính từ đỉnh).
-3. IDM = mức giá đó.
-4. "IDM taken" khi `low < IDM` (bullish) hoặc `high > IDM` (bearish).
+**Algorithm:**
+1. Determine the trend and most recent swing using swing structure (long length).
+2. Within the current leg, find the most recent internal swing against the trend (bullish: the most recent internal swing low counting from the high).
+3. IDM = that price level.
+4. "IDM taken" when `low < IDM` (bullish) or `high > IDM` (bearish).
 
-**Biến thể:** dùng pullback đầu tiên sau BOS thay vì pullback gần nhất; định nghĩa pullback hợp lệ theo nến (nến phá đáy nến trước) thay vì theo pivot; yêu cầu quét bằng wick hay cho phép close.
+**Variants:** use the first pullback after the BOS instead of the most recent; define a valid pullback by candles (a candle breaking the previous candle's low) instead of by pivots; require a wick sweep or allow a close.
 
 ```python
 def inducement(df, sw_internal, trend, leg_start_pos, now_pos):
-    """trend=+1: IDM là internal swing low gần nhất trong leg (đã được xác nhận trước now_pos)."""
+    """trend=+1: IDM is the most recent internal swing low in the leg (confirmed before now_pos)."""
     col = "sl_known" if trend == 1 else "sh_known"
     s = sw_internal[col].iloc[leg_start_pos:now_pos + 1].dropna()
     return None if s.empty else float(s.iloc[-1])
@@ -943,29 +943,29 @@ def idm_taken(df, idm, trend, from_pos):
     return hit[0] if len(hit) else None
 ```
 
-## B10. Kill zones / session
+## B10. Kill zones / sessions
 
-**Định nghĩa:** các khung giờ cố định trong ngày, cho là có thanh khoản và biến động cao. Về thuật toán chỉ là bộ lọc thời gian, cộng với việc ghi lại high/low của session để làm mức liquidity.
+**Definition:** fixed time windows in the day believed to have high liquidity and volatility. Algorithmically it is just a time filter, plus recording session high/low as liquidity levels.
 
-**Khung giờ thường được trích dẫn (giờ New York)** — **[chưa xác minh: lấy từ trí nhớ, các nguồn đưa khung giờ khác nhau]**:
+**Commonly cited windows (New York time)** — **[unverified: from memory, sources give different windows]**:
 
-| Kill zone | Giờ New York (xấp xỉ) |
+| Kill zone | New York time (approx.) |
 |---|---|
 | Asian | 20:00 – 00:00 |
 | London open | 02:00 – 05:00 |
-| New York (AM) | 07:00 – 10:00 (có nguồn ghi 08:30 – 11:00) |
+| New York (AM) | 07:00 – 10:00 (some sources say 08:30 – 11:00) |
 | London close | 10:00 – 12:00 |
 
-`smartmoneyconcepts.sessions()` có sẵn các lựa chọn Sydney, Tokyo, London, New York, Asian kill zone, London open kill zone, New York kill zone, London close kill zone và Custom **[đã tra tên]**; giờ cụ thể thư viện dùng **[chưa xác minh]**.
+`smartmoneyconcepts.sessions()` offers Sydney, Tokyo, London, New York, Asian kill zone, London open kill zone, New York kill zone, London close kill zone and Custom **[names checked]**; the exact hours the library uses are **[unverified]**.
 
-**Lưu ý:**
-- Luôn tính theo múi giờ có DST (`America/New_York`, `Europe/London`), không dùng offset UTC cố định.
-- Kill zone sinh ra từ forex và chỉ số Mỹ. Crypto giao dịch 24/7; hiệu ứng theo giờ có tồn tại (trùng giờ mở cửa chứng khoán Mỹ, giờ chốt funding...) nhưng phải **đo trên dữ liệu của chính mình**, không mặc định áp khung giờ forex.
-- Trong Pine: `time(timeframe.period, "0200-0500", "America/New_York")` trả `na` khi ngoài session **[trí nhớ về tham số timezone]**.
+**Notes:**
+- Always compute in a DST-aware timezone (`America/New_York`, `Europe/London`), not a fixed UTC offset.
+- Kill zones come from forex and US indices. Crypto trades 24/7; time-of-day effects exist (US equity open, funding settlement times...) but must be **measured on your own data**, not assumed from forex windows.
+- In Pine: `time(timeframe.period, "0200-0500", "America/New_York")` returns `na` outside the session **[memory on the timezone parameter]**.
 
 ```python
 def in_session(df, start="02:00", end="05:00", tz="America/New_York"):
-    local = df.index.tz_convert(tz)           # index phải có timezone (UTC)
+    local = df.index.tz_convert(tz)           # index must be timezone-aware (UTC)
     t = local.strftime("%H:%M")
     return (t >= start) & (t < end) if start < end else (t >= start) | (t < end)
 
@@ -973,204 +973,204 @@ def session_levels(df, mask, tz="America/New_York"):
     day = df.index.tz_convert(tz).date
     g = df[mask].groupby(day[mask])
     return pd.DataFrame({"sess_high": g.high.max(), "sess_low": g.low.min()})
-    # Chỉ được dùng các mức này SAU khi session kết thúc.
+    # Only use these levels AFTER the session ends.
 ```
 
-## B11. Bảng tóm tắt tham số
+## B11. Parameter summary table
 
-| Khái niệm | Tham số chính | Điểm mơ hồ cần chốt trước khi test |
+| Concept | Main parameters | Ambiguities to settle before testing |
 |---|---|---|
-| Swing | `L`, `R` | Xử lý hoà; độ trễ xác nhận |
-| Internal / swing | Hai độ dài (5 / 50) | Có lọc trùng mức không |
-| BOS / CHoCH | close hay wick; đệm ATR | Nhãn cho lần phá đầu tiên; swing nào được tính |
-| Order block | Cách chọn nến; body hay wick | Bộ lọc displacement/FVG |
-| Mitigation | Chạm hay vô hiệu; close hay wick | Số lần chạm cho phép |
-| FVG | Kích thước tối thiểu; điều kiện nến giữa | Thế nào là "đã lấp" |
-| EQH / EQL | Ngưỡng (ATR hay %); số lần chạm | Khoảng cách giữa hai đỉnh |
-| Sweep | Số nến để quay lại; độ xuyên tối đa | Ranh giới sweep và breakout |
-| Premium / discount | Cách chọn range | Range tĩnh hay trailing |
-| Displacement | `k`, `r`, `n` | Một nến hay nhiều nến |
-| Inducement | Độ dài internal | Pullback nào được tính |
-| Kill zone | Khung giờ, múi giờ | Có áp cho crypto không |
+| Swing | `L`, `R` | Tie handling; confirmation lag |
+| Internal / swing | Two lengths (5 / 50) | Filter duplicate levels or not |
+| BOS / CHoCH | close or wick; ATR buffer | Label of the first break; which swing counts |
+| Order block | Candle selection; body or wick | Displacement/FVG filter |
+| Mitigation | Touch or invalidation; close or wick | Number of touches allowed |
+| FVG | Minimum size; middle-candle condition | What counts as "filled" |
+| EQH / EQL | Threshold (ATR or %); number of touches | Distance between the two highs |
+| Sweep | Candles allowed to return; max penetration | Boundary between sweep and breakout |
+| Premium / discount | Range selection | Static or trailing range |
+| Displacement | `k`, `r`, `n` | One candle or several |
+| Inducement | Internal length | Which pullback counts |
+| Kill zone | Time window, timezone | Apply to crypto or not |
 
 ---
 
-# Phần C — Indicator "Dynamic SMC & Market Structure PRO"
+# Part C — The "Dynamic SMC & Market Structure PRO" indicator
 
 URL: https://www.tradingview.com/script/j5Sp5u7i-Dynamic-SMC-Market-Structure-PRO/
 
-## C1. Thông tin chung **[đã tra — đọc trang và mã nguồn]**
+## C1. Overview **[checked — page and source read]**
 
 | | |
 |---|---|
-| Tác giả | ACE_Chart_Logic |
-| Ngày publish | 2026-08-03, phiên bản 1.0, chưa có bản cập nhật |
-| Loại | Open-source indicator, `overlay = true` |
-| Phiên bản Pine | `//@version=6` |
-| Giấy phép | Dòng đầu mã nguồn ghi **Mozilla Public License 2.0** |
-| Độ dài | Khoảng 240 dòng, một file, không import library |
-| Khai báo | `max_lines_count = 500`, `max_boxes_count = 100`, `max_labels_count = 500` |
+| Author | ACE_Chart_Logic |
+| Published | 2026-08-03, version 1.0, no updates yet |
+| Type | Open-source indicator, `overlay = true` |
+| Pine version | `//@version=6` |
+| License | First line of the source says **Mozilla Public License 2.0** |
+| Length | About 240 lines, one file, no library imports |
+| Declaration | `max_lines_count = 500`, `max_boxes_count = 100`, `max_labels_count = 500` |
 
-Chữ "PRO" chỉ là tên gọi; đây là script miễn phí, mã mở. Trang mô tả có ghi rõ mục đích giáo dục và không đưa tín hiệu giao dịch.
+"PRO" is just a name; this is a free, open-source script. The description states it is for educational purposes and gives no trading signals.
 
-## C2. Giấy phép và quy tắc tái sử dụng
+## C2. License and reuse rules
 
-- Script open-source trên TradingView mặc định theo **MPL 2.0**; tác giả có thể ghi giấy phép khác trong mã nguồn. Script này dùng mặc định.
-- **Script Publishing Rules của TradingView được ưu tiên hơn giấy phép** mà tác giả chọn, kể cả MPL 2.0. Các điểm chính **[đã tra]**:
-  - Dùng lại code open-source để **publish** trên TradingView thì script mới phải open-source, trừ khi có sự cho phép rõ ràng của tác giả (và phải chứng minh được), hoặc code đó thuộc public domain và chỉ chiếm một phần script.
-  - Phải **ghi công tác giả** trong phần mô tả (hoặc release notes nếu thêm khi cập nhật); khuyến nghị ghi cả trong comment mã nguồn.
-  - Phần dùng lại chỉ nên là một phần của script và phải có **cải tiến đáng kể**. Đổi style, đổi input, đổi tên biến, sắp xếp lại code, chuyển phiên bản Pine **không** được tính là cải tiến.
-  - Cấm bắt chước script của tác giả khác; đạo code có thể bị cấm vĩnh viễn.
-  - Dùng trong sản phẩm trả phí (vendor) phải xin phép tác giả và nói rõ mục đích.
-  - Dùng riêng (không publish) thì tự do.
-- Áp dụng cho dự án này: đọc để hiểu và tự cài lại bằng Python là an toàn. Nếu sao chép đoạn code Pine vào sản phẩm phân phối thì phải tuân thủ MPL 2.0 (giữ thông báo giấy phép, công bố mã của các file đã sửa); nếu publish lại trên TradingView thì theo Script Publishing Rules ở trên. Đây là tóm tắt, không phải tư vấn pháp lý.
-- Vì lý do đó, tài liệu này **không chép nguyên văn** mã nguồn, chỉ mô tả logic.
+- Open-source scripts on TradingView default to **MPL 2.0**; authors may state another license in the source. This script uses the default.
+- **TradingView's Script Publishing Rules take precedence over the license** the author chooses, including MPL 2.0. Key points **[checked]**:
+  - Reusing open-source code to **publish** on TradingView requires the new script to be open-source, unless you have the author's explicit (and provable) permission, or the code is public domain and only part of the script.
+  - You must **credit the author** in the description (or release notes if added in an update); crediting in source comments is also recommended.
+  - Reused code should only be part of the script and must have **significant improvements**. Changing style, inputs, variable names, rearranging code, or converting Pine versions does **not** count as improvement.
+  - Imitating another author's script is banned; plagiarism can lead to a permanent ban.
+  - Use in paid (vendor) products requires the author's permission and a clear statement of purpose.
+  - Private use (not published) is unrestricted.
+- For this project: reading to understand and reimplementing in Python is safe. Copying Pine code into a distributed product requires MPL 2.0 compliance (keep the license notice, publish source of modified files); republishing on TradingView follows the Script Publishing Rules above. This is a summary, not legal advice.
+- For that reason, this document **does not copy the source verbatim**, only describes the logic.
 
-## C3. Indicator vẽ gì
+## C3. What the indicator draws
 
-1. Nhãn hình mũi tên tại **major swing high/low**.
-2. Đường nét đứt và chữ **BOS / CHoCH**.
-3. Hộp **SUPPLY / DEMAND**, tự xoá khi giá đóng cửa xuyên qua.
-4. Đường **PDH / PDL** (đỉnh/đáy ngày hôm trước), tự xoá khi bị quét.
-5. Đường **Asia session high/low**, tự xoá khi bị quét.
-6. Đường **0.50 EQ**.
-7. **Bảng dashboard** 2 cột × 4 dòng ở góc trên phải.
+1. Arrow labels at **major swing highs/lows**.
+2. Dashed lines and **BOS / CHoCH** text.
+3. **SUPPLY / DEMAND** boxes, auto-deleted when price closes through them.
+4. **PDH / PDL** lines (previous day high/low), auto-deleted when swept.
+5. **Asia session high/low** lines, auto-deleted when swept.
+6. A **0.50 EQ** line.
+7. A 2-column × 4-row **dashboard table** in the top-right corner.
 
-Không có: FVG, equal highs/lows, internal structure, order block theo nghĩa chặt, kill zone London/New York, và **không có alert nào** (không có `alert()` hay `alertcondition()`).
+Not included: FVG, equal highs/lows, internal structure, order blocks in the strict sense, London/New York kill zones, and **no alerts at all** (no `alert()` or `alertcondition()`).
 
-## C4. Input **[đã tra mã nguồn]**
+## C4. Inputs **[source checked]**
 
-| Nhóm | Input | Mặc định | Ràng buộc |
+| Group | Input | Default | Constraint |
 |---|---|---|---|
 | Major Swing Extremes | Show Major Swing High/Low Shapes | true | |
 | | Major Swing Lookback Sensitivity | 20 | 5–100 |
-| | Màu high / low | đỏ / xanh | |
+| | High / low color | red / green | |
 | Smart Money Structure | Show BOS & CHoCH Lines | true | |
 | | Structure Sensitivity (Pivot Length) | 8 | ≥ 3 |
-| | Màu bullish / bearish | xanh / đỏ | |
+| | Bullish / bearish color | green / red | |
 | Supply & Demand | Show Dynamic Supply & Demand Zones | true | |
 | | Max Active Zones Per Side | 4 | 1–10 |
 | | Zone Transparency | 80 | 0–100 |
-| | Màu supply / demand | đỏ / xanh | |
+| | Supply / demand color | red / green | |
 | PDH & PDL | Show Active PDH / PDL | true | |
-| | Màu PDH / PDL | cyan / vàng | |
+| | PDH / PDL color | cyan / yellow | |
 | Session | Show Session High/Low Lines | true | |
-| | Màu Asia | xanh nhạt | |
+| | Asia color | light blue | |
 | | Clutter Distance Threshold (Pips / Gold $) | 15.0 | ≥ 1 |
 | Fibonacci 0.5 EQ | Show 0.5 Equilibrium Line | true | |
 | | Equilibrium Lookback Range | 35 | ≥ 10 |
-| | Màu EQ | tím | |
+| | EQ color | purple | |
 | Dashboard | Show Information Panel | true | |
 
-Các tham số **cứng trong code, không chỉnh được**: độ dài pivot của supply/demand (6/6), giờ Asia session (`0000-0600`, thứ Hai–thứ Sáu), ATR(14), timeframe "D" cho PDH/PDL.
+Parameters **hard-coded, not adjustable**: supply/demand pivot length (6/6), Asia session hours (`0000-0600`, Monday–Friday), ATR(14), "D" timeframe for PDH/PDL.
 
-## C5. Logic từng khối
+## C5. Logic per block
 
-**1. Major swing.** Pivot high/low với cùng độ dài hai bên (mặc định 20). Khi pivot được xác nhận, vẽ nhãn lùi về đúng bar pivot, lệch ra 0,3 × ATR(14). Chỉ để nhìn, không tham gia logic khác.
+**1. Major swing.** Pivot high/low with equal length on both sides (default 20). When a pivot is confirmed, a label is drawn back at the pivot bar, offset by 0.3 × ATR(14). Visual only, not used by other logic.
 
-**2. BOS / CHoCH.** Một bộ pivot riêng (mặc định 8). Script chỉ nhớ **một** pivot high và **một** pivot low gần nhất; pivot mới ghi đè pivot cũ, không phân loại HH/HL/LH/LL. Khi giá đóng cửa cắt lên pivot high đang nhớ: nếu trạng thái xu hướng đang là giảm thì gắn nhãn CHoCH, còn lại (kể cả chưa có xu hướng) gắn BOS; đặt xu hướng thành tăng; xoá mức vừa bị phá. Chiều giảm đối xứng. Đây đúng là định nghĩa tối giản ở B2/B3.
+**2. BOS / CHoCH.** A separate pivot set (default 8). The script remembers only **one** pivot high and **one** pivot low (the most recent); a new pivot overwrites the old one, no HH/HL/LH/LL classification. When the close crosses above the remembered pivot high: if the trend state is bearish it labels CHoCH, otherwise (including no trend) BOS; sets the trend to bullish; clears the broken level. The bearish side is symmetric. This is exactly the minimal definition in B2/B3.
 
-**3. Supply / demand.** Pivot cố định 6/6. Tại mỗi pivot high, vẽ hộp supply từ **high của nến pivot xuống mép trên thân nến** (tức là phần wick trên); tại pivot low, hộp demand từ **mép dưới thân nến xuống low** (wick dưới). Giữ tối đa N hộp mỗi bên theo kiểu FIFO. Mỗi bar: nếu `close` vượt lên trên đỉnh hộp supply thì xoá hộp; nếu `close` xuống dưới đáy hộp demand thì xoá; còn lại kéo dài hộp sang phải 12 bar.
+**3. Supply / demand.** Fixed 6/6 pivot. At each pivot high, draws a supply box from the **pivot candle's high down to the top of its body** (i.e. the upper wick); at a pivot low, a demand box from the **bottom of the body down to the low** (lower wick). Keeps at most N boxes per side, FIFO. Each bar: if `close` goes above the top of a supply box, delete it; if `close` goes below the bottom of a demand box, delete it; otherwise extend the box 12 bars to the right.
 
-**4. PDH / PDL.** Lấy high và low của ngày hôm trước qua `request.security` trên timeframe "D" với offset `[1]` và `lookahead_on` — đúng mẫu không repaint ở A6. Mỗi ngày mới thì đặt lại. Trong ngày, nếu `high` vượt PDH thì đánh dấu "đã quét" và ẩn đường; tương tự với PDL. Đường được xoá và vẽ lại ở mỗi bar.
+**4. PDH / PDL.** Gets the previous day's high and low via `request.security` on the "D" timeframe with offset `[1]` and `lookahead_on` — exactly the non-repainting pattern in A6. Resets each new day. Intraday, if `high` exceeds PDH it is marked "swept" and the line is hidden; same for PDL. Lines are deleted and redrawn every bar.
 
-**5. Asia session.** Session `0000-0600`, thứ Hai–thứ Sáu, theo **múi giờ của sàn/symbol** (không truyền tham số timezone). Trong session thì cộng dồn high/low. Sau đó, nếu giá vượt qua mức thì xoá đường và bỏ mức. Đường bị ẩn nếu nằm quá gần PDH/PDL; ngưỡng = input × `syminfo.mintick` × 10 (forex) hoặc × 100 (loại khác).
+**5. Asia session.** Session `0000-0600`, Monday–Friday, in the **exchange/symbol timezone** (no timezone argument passed). During the session it accumulates high/low. Afterwards, if price exceeds a level, the line is deleted and the level dropped. A line is hidden if it is too close to PDH/PDL; threshold = input × `syminfo.mintick` × 10 (forex) or × 100 (other).
 
-**6. Equilibrium.** Trung điểm của giá cao nhất và thấp nhất trong 35 bar gần nhất. Chỉ vẽ ở bar cuối.
+**6. Equilibrium.** Midpoint of the highest high and lowest low over the last 35 bars. Drawn only on the last bar.
 
-**7. Dashboard.** Bốn dòng: Structure Trend (BULLISH/BEARISH/NEUTRAL), Pricing Zone (PREMIUM nếu `close` > EQ, ngược lại DISCOUNT), PDH/PDL State, và số zone supply/demand đang hoạt động.
+**7. Dashboard.** Four rows: Structure Trend (BULLISH/BEARISH/NEUTRAL), Pricing Zone (PREMIUM if `close` > EQ, otherwise DISCOUNT), PDH/PDL State, and the count of active supply/demand zones.
 
-## C6. Nhận xét kỹ thuật
+## C6. Technical observations
 
-Các nhận xét sau rút ra từ **đọc mã nguồn**, chưa chạy script trên chart để kiểm chứng.
+The following observations come from **reading the source**; the script was not run on a chart to verify them.
 
-1. **Vẽ vào quá khứ.** Nhãn major swing xuất hiện trễ 20 bar nhưng được đặt tại bar pivot; hộp supply/demand trễ 6 bar. Nhìn lại lịch sử sẽ thấy "đẹp" hơn thực tế. Đây là dạng repaint "plotting in the past" (A1.6).
-2. **Không chờ đóng bar.** Điều kiện BOS/CHoCH không có `barstate.isconfirmed`, nên trên bar đang chạy nhãn có thể hiện rồi biến mất.
-3. **`ta.crossover`/`ta.crossunder` nằm sau `and`.** Với cơ chế đánh giá lười của v6, hàm có thể không được gọi trên mọi bar (khi tắt input hoặc khi chưa có pivot), vi phạm khuyến nghị ở A1.5. Mức độ ảnh hưởng thực tế **[chưa xác minh]**. Ngoài ra, việc cắt qua một mức vừa đổi giá trị (pivot mới ghi đè) có thể bỏ sót phá vỡ khi pivot mới hình thành mà giá đã ở phía trên nó.
-4. **Trạng thái xu hướng gắn với công tắc hiển thị.** Tắt "Show BOS & CHoCH Lines" thì xu hướng trên dashboard cũng ngừng cập nhật.
-5. **"Supply/demand" không phải order block.** Vùng chỉ là wick của nến pivot, không yêu cầu displacement, không theo dõi mitigation theo nghĩa chạm vùng; chỉ có vô hiệu theo close.
-6. **Equilibrium không dựa trên swing.** Mô tả nói "across recent swings" nhưng code dùng cao/thấp nhất của 35 bar — một cửa sổ trượt, nên mức EQ và nhãn premium/discount trôi theo từng bar.
-7. **Session cứng, không hợp crypto.** Giờ tính theo múi giờ của symbol; với cặp crypto thường là UTC nên `0000-0600` không trùng "Asia session" theo nghĩa thông dụng. Bộ lọc ngày bỏ qua cuối tuần trong khi crypto chạy 24/7. Ngưỡng "pip" được thiết kế cho forex/vàng, vô nghĩa với phần lớn cặp crypto.
-8. **Không có alert**, nên không nối webhook được nếu không sửa code.
-9. **Nhãn dashboard "PDH Swept" được ưu tiên** khi cả PDH và PDL đều đã bị quét.
-10. **Hiệu năng:** xoá và tạo lại line/label ở mỗi bar thay vì dùng `set_*`; chấp nhận được với script nhỏ.
+1. **Plotting in the past.** Major swing labels appear 20 bars late but are placed at the pivot bar; supply/demand boxes lag 6 bars. Looking back at history makes it look "better" than reality. This is the "plotting in the past" form of repainting (A1.6).
+2. **No wait for bar close.** BOS/CHoCH conditions lack `barstate.isconfirmed`, so on the live bar labels can appear and then disappear.
+3. **`ta.crossover`/`ta.crossunder` after `and`.** With v6 lazy evaluation, the function may not be called on every bar (when the input is off or no pivot exists yet), violating the guidance in A1.5. Practical impact **[unverified]**. Also, crossing a level that just changed value (new pivot overwriting) can miss breaks when a new pivot forms while price is already above it.
+4. **Trend state tied to a display toggle.** Turning off "Show BOS & CHoCH Lines" also stops the dashboard trend from updating.
+5. **"Supply/demand" is not an order block.** The zone is just the pivot candle's wick, requires no displacement, does not track mitigation in the touch sense; only close-based invalidation.
+6. **Equilibrium is not swing-based.** The description says "across recent swings" but the code uses the highest/lowest of 35 bars — a sliding window, so the EQ level and premium/discount label drift every bar.
+7. **Hard-coded session, unsuited to crypto.** Hours use the symbol's timezone; for crypto pairs that is usually UTC, so `0000-0600` does not match the "Asia session" in the usual sense. The day filter skips weekends although crypto runs 24/7. The "pip" threshold is designed for forex/gold and is meaningless for most crypto pairs.
+8. **No alerts**, so it cannot be connected to webhooks without modifying the code.
+9. **The dashboard label "PDH Swept" takes priority** when both PDH and PDL have been swept.
+10. **Performance:** deletes and recreates lines/labels every bar instead of using `set_*`; acceptable for a small script.
 
-**Kết luận:** đây là một ví dụ nhập môn gọn và dễ đọc về cách ghép các khối SMC cơ bản bằng Pine v6, phù hợp để tham khảo cấu trúc code. Nó không phải cài đặt SMC đầy đủ và không nên dùng nguyên trạng làm nguồn tín hiệu, nhất là cho crypto. Bản LuxAlgo đầy đủ hơn nhiều về mặt khái niệm, nhưng giấy phép của nó cấm dùng thương mại.
-
----
-
-# Phần D — Đánh giá trung thực về SMC/ICT
-
-## D1. Bằng chứng thực nghiệm: yếu
-
-- Hai lượt tìm kiếm trong phiên này (từ khoá về nghiên cứu thực nghiệm, arXiv/SSRN cho "order block", "fair value gap", "smart money concepts") **không tìm thấy nghiên cứu bình duyệt nào** kiểm định SMC/ICT như một hệ thống. Kết quả gần như toàn bài của broker, blog, và quảng cáo công cụ. Không tìm thấy khác với không tồn tại, nhưng nếu có thì cũng không dễ thấy.
-- Chính trang indicator SMC của LuxAlgo cũng ghi rằng các khái niệm này không bảo đảm phản ánh thanh khoản tổ chức và **không có dữ liệu chứng minh tính hợp lệ** **[đã tra]**.
-- Các con số lan truyền kiểu "FVG được lấp 70% số lần" không truy được nguồn gốc **[chưa xác minh]**. Kể cả đúng, tỷ lệ lấp cao không đồng nghĩa có lợi nhuận: giá dao động ngẫu nhiên cũng quay lại lấp phần lớn khoảng trống nhỏ. Phải so với baseline.
-- Câu chuyện nền ("tổ chức săn stop của nhỏ lẻ", "nến này là lệnh của ngân hàng") **không kiểm chứng được** bằng dữ liệu OHLCV. Nó không cần đúng để mẫu hình có giá trị, nhưng cũng không được coi là bằng chứng.
-
-## D2. Những gì có nền tảng học thuật gần kề **[trí nhớ — chưa tra lại trong phiên này, cần kiểm tra trích dẫn trước khi dùng]**
-
-- **Lệnh stop tập trung quanh các mức dễ thấy và gây chuỗi phản ứng giá:** Osler (2003, 2005) trên thị trường FX. Đây là phần gần nhất với ý tưởng "liquidity".
-- **Mẫu hình kỹ thuật có chứa một ít thông tin:** Lo, Mamaysky & Wang (2000).
-- **Lợi nhuận của phân tích kỹ thuật phần lớn biến mất sau khi tính chi phí và hiệu chỉnh data snooping:** Sullivan, Timmermann & White (1999); tổng quan của Park & Irwin (2007).
-- **Hiệu ứng theo giờ trong ngày** (biến động và thanh khoản theo session) là có thật và được ghi nhận rộng rãi — nhưng biến động cao không tự tạo ra lợi thế về hướng.
-- **Kiểm định nhiều lần và overfitting backtest:** Bailey & López de Prado (Deflated Sharpe Ratio, Probability of Backtest Overfitting); Harvey, Liu & Zhu (2016).
-
-Tóm lại: một số **thành phần** của SMC trùng với hiện tượng vi cấu trúc thị trường đã được nghiên cứu (cụm stop, hiệu ứng session, quán tính sau biến động mạnh). **Hệ thống** SMC như được dạy thì chưa có kiểm định độc lập đáng tin.
-
-## D3. Rủi ro chủ quan và hindsight
-
-1. **Định nghĩa co giãn.** Phần B cho thấy mỗi khái niệm có nhiều biến thể. Người vẽ tay chọn biến thể nào khớp với kết quả đã biết.
-2. **Hindsight từ pivot.** Swing chỉ biết sau `R` bar, nhưng trên chart được vẽ tại bar pivot. Mọi ví dụ "đẹp" đều dùng thông tin tương lai.
-3. **Không thể bác bỏ.** Setup thất bại thì được giải thích lại ("đó là inducement", "liquidity chưa bị lấy hết", "sai timeframe"). Một lý thuyết giải thích được mọi kết cục thì không dự báo được gì.
-4. **Thiên lệch chọn mẫu.** Nội dung giáo dục chỉ trưng ví dụ thắng.
-5. **Quá nhiều bậc tự do.** Timeframe × độ dài swing × loại vùng × bộ lọc × session → luôn tìm được tổ hợp có backtest đẹp.
-6. **Thị trường khác nhau.** Khái niệm sinh ra từ forex và chỉ số Mỹ. Crypto có cấu trúc khác: 24/7, perp với funding và liquidation cascade, thanh khoản phân mảnh giữa các sàn.
-7. **Động cơ thương mại.** Phần lớn nguồn SMC bán khoá học, tín hiệu hoặc indicator.
-
-## D4. Cách kiểm định
-
-1. **Chốt định nghĩa bằng code trước khi nhìn kết quả.** Ghi lại tham số, không sửa sau khi thấy PnL.
-2. **Chống lookahead.** Mọi tín hiệu tính tại bar xác nhận (`i + R`), vào lệnh từ open của bar kế tiếp. Viết test tự động: cắt dữ liệu tại `t`, tín hiệu trước `t` không được thay đổi khi thêm dữ liệu sau `t`.
-3. **Event study trước, strategy sau.** Với mỗi sự kiện (FVG, sweep, CHoCH...), đo phân phối lợi suất tương lai ở các horizon 1, 5, 20, 50 bar, cùng MFE/MAE. So với:
-   - baseline vô điều kiện (mọi bar);
-   - baseline khớp điều kiện (cùng giờ trong ngày, cùng mức biến động, cùng chiều trend);
-   - sự kiện "giả" (ví dụ vùng ngẫu nhiên cùng kích thước).
-4. **Chi phí thực tế:** phí taker/maker, spread, slippage, funding rate với perp. Nhiều lợi thế nhỏ biến mất ở bước này.
-5. **Out-of-sample đúng nghĩa:** walk-forward, hoặc purged/combinatorial cross-validation có embargo. Giữ riêng một đoạn dữ liệu cuối, chỉ dùng một lần.
-6. **Hiệu chỉnh kiểm định nhiều lần:** ghi lại **tất cả** biến thể đã thử; dùng Deflated Sharpe Ratio hoặc White's Reality Check / SPA; hoặc Bonferroni/FDR cho event study.
-7. **Độ vững:** kết quả phải giữ được khi đổi nhẹ tham số, đổi symbol, đổi sàn, đổi giai đoạn (bull/bear/sideway). Lợi thế chỉ tồn tại ở một điểm tham số là overfit.
-8. **Kích thước mẫu và phụ thuộc:** các sự kiện chồng lấn không độc lập; dùng block bootstrap để tính khoảng tin cậy.
-9. **Phân rã:** kiểm tra xem lợi thế đến từ khái niệm SMC hay từ yếu tố đã biết (trend-following, lọc biến động, hiệu ứng giờ). Nếu bỏ phần SMC mà kết quả không đổi thì SMC không đóng góp gì.
-10. **Forward test** bằng paper trading hoặc vốn nhỏ trước khi tin.
-
-**Khuyến nghị cho dự án:** coi các khái niệm SMC là **bộ sinh feature** (khoảng cách tới mức liquidity gần nhất, có FVG chưa lấp không, vị trí trong dealing range, vừa có sweep không...) để đưa vào quy trình kiểm định định lượng — không coi là chiến lược có sẵn lợi thế. Giả thuyết mặc định là **không có lợi thế** cho tới khi dữ liệu out-of-sample sau chi phí chứng minh ngược lại.
+**Conclusion:** this is a compact, readable introductory example of assembling basic SMC blocks in Pine v6, good as a reference for code structure. It is not a complete SMC implementation and should not be used as-is as a signal source, especially for crypto. The LuxAlgo version is far more complete conceptually, but its license forbids commercial use.
 
 ---
 
-# Danh sách điều chưa xác minh
+# Part D — An honest assessment of SMC/ICT
 
-1. **Code mẫu Pine (A11, A9) và giả mã Python (Phần B)** chưa được compile/chạy.
-2. **Mặc định của `strategy()`** (`initial_capital`, `default_qty_type`, commission, slippage, margin) — viết theo trí nhớ; trang docs đọc được chỉ xác nhận `pyramiding` mặc định là 1.
-3. **Thời gian chạy tối đa của script theo từng gói** — trang limitations không nêu con số.
-4. **Độ sâu lịch sử của `request.footprint()`**; danh sách đầy đủ các hàm `footprint.*`/`volume_row.*` (chỉ liệt kê những hàm thấy trong docs).
-5. **Webhook:** có yêu cầu gói trả phí không; có cơ chế retry không.
-6. **Chữ ký đầy đủ** của các hàm drawing, danh sách `input.*`, danh sách `ta.*`, hành vi `and`/`or` lười của v6, tham số timezone của `time()` — viết theo trí nhớ, chưa đối chiếu Reference Manual trong phiên này.
-7. **Pine không có hàm đọc Volume Profile built-in** — kết luận dựa trên trí nhớ và việc không thấy hàm nào trong các trang đã đọc; chưa rà toàn bộ Reference Manual.
-8. **Khung giờ kill zone ICT** và giờ cụ thể mà `smartmoneyconcepts.sessions()` dùng.
-9. **Giấy phép của `smartmoneyconcepts`** (PyPI để trống).
-10. **Ảnh hưởng thực tế của `ta.crossover` sau `and`** trong indicator ở Phần C — suy luận từ đọc code, chưa chạy.
-11. **Các trích dẫn học thuật ở D2** — theo trí nhớ, chưa tra lại.
-12. **Con số "FVG lấp ~70%"** và mọi tỷ lệ thắng SMC lan truyền trên mạng — không truy được nguồn.
-13. Định nghĩa ICT "chặt" của breaker block, OTE 62–79%, MSS so với CHoCH — theo trí nhớ, các nguồn không thống nhất.
-14. Các trang docs dài bị công cụ đọc cắt bớt (release notes, strategies, execution model, type system, other timeframes) — có thể sót thay đổi nằm ở phần chưa đọc.
+## D1. Empirical evidence: weak
+
+- Two searches in this session (keywords on empirical research, arXiv/SSRN for "order block", "fair value gap", "smart money concepts") **found no peer-reviewed study** testing SMC/ICT as a system. Results were almost entirely broker articles, blogs, and tool advertising. Not finding is not the same as not existing, but if such studies exist they are not easy to find.
+- LuxAlgo's own SMC indicator page states that these concepts are not guaranteed to reflect institutional liquidity and that **there is no data proving their validity** **[checked]**.
+- Widely circulated figures like "FVGs get filled 70% of the time" cannot be traced to a source **[unverified]**. Even if true, a high fill rate does not imply profit: randomly fluctuating prices also return to fill most small gaps. Compare against a baseline.
+- The underlying story ("institutions hunt retail stops", "this candle is a bank order") is **not verifiable** with OHLCV data. It need not be true for a pattern to have value, but it cannot be taken as evidence either.
+
+## D2. Closely related findings with an academic basis **[memory — not re-checked in this session, verify citations before use]**
+
+- **Stop orders cluster around obvious levels and trigger price cascades:** Osler (2003, 2005) on the FX market. This is the closest to the "liquidity" idea.
+- **Technical patterns carry a little information:** Lo, Mamaysky & Wang (2000).
+- **Technical analysis profits largely vanish after costs and data-snooping adjustment:** Sullivan, Timmermann & White (1999); review by Park & Irwin (2007).
+- **Intraday time-of-day effects** (volatility and liquidity by session) are real and widely documented — but high volatility does not by itself create a directional edge.
+- **Multiple testing and backtest overfitting:** Bailey & López de Prado (Deflated Sharpe Ratio, Probability of Backtest Overfitting); Harvey, Liu & Zhu (2016).
+
+In short: some **components** of SMC overlap with studied market microstructure phenomena (stop clusters, session effects, momentum after strong moves). The SMC **system** as taught has no credible independent testing.
+
+## D3. Subjectivity and hindsight risks
+
+1. **Elastic definitions.** Part B shows each concept has many variants. A hand-drawer picks whichever variant fits the known outcome.
+2. **Pivot hindsight.** A swing is only known after `R` bars, but on the chart it is drawn at the pivot bar. Every "pretty" example uses future information.
+3. **Unfalsifiable.** Failed setups are reinterpreted ("that was inducement", "liquidity wasn't fully taken", "wrong timeframe"). A theory that explains every outcome predicts nothing.
+4. **Selection bias.** Educational content shows only winning examples.
+5. **Too many degrees of freedom.** Timeframe × swing length × zone type × filters × session → you can always find a combination with a nice backtest.
+6. **Different markets.** The concepts come from forex and US indices. Crypto is structured differently: 24/7, perps with funding and liquidation cascades, liquidity fragmented across exchanges.
+7. **Commercial incentives.** Most SMC sources sell courses, signals or indicators.
+
+## D4. How to test
+
+1. **Fix definitions in code before looking at results.** Record parameters, don't change them after seeing PnL.
+2. **Prevent lookahead.** Compute every signal at the confirmation bar (`i + R`), enter at the next bar's open. Write an automated test: truncate data at `t`; signals before `t` must not change when data after `t` is added.
+3. **Event study first, strategy later.** For each event (FVG, sweep, CHoCH...), measure the distribution of forward returns at horizons of 1, 5, 20, 50 bars, plus MFE/MAE. Compare against:
+   - an unconditional baseline (all bars);
+   - a condition-matched baseline (same time of day, same volatility level, same trend direction);
+   - "fake" events (e.g. random zones of the same size).
+4. **Realistic costs:** taker/maker fees, spread, slippage, funding rate for perps. Many small edges vanish here.
+5. **True out-of-sample:** walk-forward, or purged/combinatorial cross-validation with an embargo. Hold out a final data segment and use it only once.
+6. **Multiple-testing correction:** record **all** variants tried; use the Deflated Sharpe Ratio or White's Reality Check / SPA; or Bonferroni/FDR for event studies.
+7. **Robustness:** results must hold under small parameter changes, other symbols, other exchanges, other regimes (bull/bear/sideways). An edge that exists at only one parameter point is overfit.
+8. **Sample size and dependence:** overlapping events are not independent; use block bootstrap for confidence intervals.
+9. **Decomposition:** check whether the edge comes from the SMC concept or from known factors (trend-following, volatility filtering, time-of-day effects). If removing the SMC part leaves results unchanged, SMC contributes nothing.
+10. **Forward test** with paper trading or small capital before trusting it.
+
+**Recommendation for the project:** treat SMC concepts as **feature generators** (distance to the nearest liquidity level, whether an unfilled FVG exists, position in the dealing range, whether a sweep just occurred...) to feed into a quantitative testing pipeline — not as strategies with a built-in edge. The default hypothesis is **no edge** until out-of-sample, after-cost data proves otherwise.
 
 ---
 
-# Nguồn
+# Unverified items
+
+1. **Pine sample code (A11, A9) and Python pseudocode (Part B)** have not been compiled/run.
+2. **`strategy()` defaults** (`initial_capital`, `default_qty_type`, commission, slippage, margin) — written from memory; the docs page as read only confirms `pyramiding` defaults to 1.
+3. **Maximum script run time per plan** — the limitations page gives no number.
+4. **History depth of `request.footprint()`**; the full list of `footprint.*`/`volume_row.*` functions (only those seen in the docs are listed).
+5. **Webhooks:** whether a paid plan is required; whether there is a retry mechanism.
+6. **Full signatures** of drawing functions, the `input.*` list, the `ta.*` list, v6 lazy `and`/`or` behavior, the timezone parameter of `time()` — written from memory, not cross-checked against the Reference Manual in this session.
+7. **Pine has no function to read the built-in Volume Profile** — conclusion based on memory and not seeing any such function in the pages read; the full Reference Manual was not reviewed.
+8. **ICT kill zone hours** and the exact hours `smartmoneyconcepts.sessions()` uses.
+9. **License of `smartmoneyconcepts`** (empty on PyPI).
+10. **Practical impact of `ta.crossover` after `and`** in the Part C indicator — inferred from reading code, not run.
+11. **Academic citations in D2** — from memory, not re-checked.
+12. **The "FVG fills ~70%" figure** and all SMC win rates circulating online — no traceable source.
+13. The "strict" ICT definition of breaker blocks, OTE 62–79%, MSS vs CHoCH — from memory, sources disagree.
+14. Long docs pages were truncated by the reading tool (release notes, strategies, execution model, type system, other timeframes) — changes in unread parts may be missed.
+
+---
+
+# Sources
 
 **Pine Script (TradingView)**
-- Trang chủ docs: https://www.tradingview.com/pine-script-docs/welcome/
+- Docs home: https://www.tradingview.com/pine-script-docs/welcome/
 - Release notes: https://www.tradingview.com/pine-script-docs/release-notes/
 - Execution model: https://www.tradingview.com/pine-script-docs/language/execution-model/
 - Type system: https://www.tradingview.com/pine-script-docs/language/type-system/
@@ -1181,19 +1181,19 @@ Tóm lại: một số **thành phần** của SMC trùng với hiện tượng 
 - Alerts: https://www.tradingview.com/pine-script-docs/concepts/alerts/
 - Limitations: https://www.tradingview.com/pine-script-docs/writing/limitations/
 - Publishing scripts: https://www.tradingview.com/pine-script-docs/writing/publishing/
-- Reference Manual v6: https://www.tradingview.com/pine-script-reference/v6/ (không đọc trực tiếp trong phiên này)
+- Reference Manual v6: https://www.tradingview.com/pine-script-reference/v6/ (not read directly in this session)
 - About webhooks: https://www.tradingview.com/support/solutions/43000529348-about-webhooks/
 - Script publishing rules: https://www.tradingview.com/support/solutions/43000590599-script-publishing-rules/
 - Vendor requirements: https://www.tradingview.com/support/solutions/43000549951-vendor-requirements/
 - Mozilla Public License 2.0: https://mozilla.org/MPL/2.0/
 
-**Indicator và thư viện SMC**
+**SMC indicators and libraries**
 - Dynamic SMC & Market Structure PRO (ACE_Chart_Logic): https://www.tradingview.com/script/j5Sp5u7i-Dynamic-SMC-Market-Structure-PRO/
 - Smart Money Concepts (SMC) [LuxAlgo]: https://www.tradingview.com/script/CnB3fSph-Smart-Money-Concepts-SMC-LuxAlgo/
 - CC BY-NC-SA 4.0: https://creativecommons.org/licenses/by-nc-sa/4.0/
 - `smartmoneyconcepts` (GitHub): https://github.com/joshyattridge/smart-money-concepts
 - `smartmoneyconcepts` (PyPI): https://pypi.org/project/smartmoneyconcepts/
 
-**Kết quả tìm kiếm về bằng chứng (không phải nguồn học thuật)**
-- XS.com — bài giải thích SMC, nêu chưa có nghiên cứu bình duyệt: https://www.xs.com/en/test-blog/smc-smart-money-concepts-explained/
-- MQL5 blog — khó khăn khi biến order block thành quy tắc cho EA: https://www.mql5.com/en/blogs/post/779413
+**Search results on evidence (not academic sources)**
+- XS.com — SMC explainer, notes there is no peer-reviewed research: https://www.xs.com/en/test-blog/smc-smart-money-concepts-explained/
+- MQL5 blog — difficulties turning order blocks into EA rules: https://www.mql5.com/en/blogs/post/779413

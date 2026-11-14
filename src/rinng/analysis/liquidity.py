@@ -1,34 +1,36 @@
-"""Thanh khoản dạng Events (docs/03-pine-script-va-smc.md mục B6).
+"""Liquidity as Events (docs/03-pine-script-and-smc.md section B6).
 
-Ký hiệu như `smc`: swing từ `structure.swings(length=L)`, swing ở nến s được biết lúc đóng nến
-s+L (known_index = s+L); `close_time(i)` = open_time[i] + độ dài nến. Mọi quét/so sánh chỉ xét
-nến SAU known_index của mức giá, nên mức chỉ được dùng khi đã biết.
+Notation as in `smc`: swings from `structure.swings(length=L)`; a swing at candle s is known when
+candle s+L closes (known_index = s+L); `close_time(i)` = open_time[i] + candle duration. All
+sweeps/comparisons only consider candles AFTER the level's known_index, so a level is only used once
+known.
 
-Vùng thanh khoản (`liquidity_levels`, `swing_length`=5):
-- Mỗi swing high là một mức buy-side liquidity (kind liquidity_bsl) — vùng trên đỉnh cũ, nơi
-  đặt buy stop; mỗi swing low là sell-side (liquidity_ssl). price_low = price_high = mức.
-- event_time = nến swing, known_at = known_at của swing.
-- invalidated_at = close_time của nến đầu tiên sau known_index có high > mức (BSL) hoặc
-  low < mức (SSL), tức thanh khoản đã bị lấy bằng wick.
+Liquidity levels (`liquidity_levels`, `swing_length`=5):
+- Each swing high is a buy-side liquidity level (kind liquidity_bsl): the zone above an old high
+  where buy stops sit; each swing low is sell-side (liquidity_ssl). price_low = price_high = level.
+- event_time = swing candle, known_at = the swing's known_at.
+- invalidated_at = close_time of the first candle after known_index with high > level (BSL) or
+  low < level (SSL), i.e. liquidity taken by a wick.
 
 Equal highs / lows (`equal_levels`, `tolerance_atr`=0.1, `atr_length`=14, `max_lookback`=100):
-- Khi swing high k được biết, gom các swing high p trước đó (cùng loại) thỏa:
-  index_k - index_p <= max_lookback; |giá_p - giá_k| <= tolerance_atr × ATR[known_index_k];
-  và không nến nào nằm giữa p và k có high > max(giá_p, giá_k) (mức chưa bị lấy). Cần ít nhất
-  một p, tức cụm >= 2 swing. Equal lows đối xứng với low.
-- kind eqh/eql, event_time = nến swing k, known_at = known_at của swing k, vùng =
-  [min, max] giá các swing trong cụm.
-- invalidated_at = close_time của nến đầu tiên sau known_index_k có high > đỉnh vùng (eqh)
-  hoặc low < đáy vùng (eql).
+- When swing high k becomes known, collect earlier swing highs p (same kind) satisfying:
+  index_k - index_p <= max_lookback; |price_p - price_k| <= tolerance_atr × ATR[known_index_k];
+  and no candle between p and k has high > max(price_p, price_k) (level not yet taken). At least
+  one p is required, i.e. a cluster of >= 2 swings. Equal lows are symmetric on low.
+- kind eqh/eql, event_time = swing candle k, known_at = known_at of swing k, zone =
+  [min, max] of the swing prices in the cluster.
+- invalidated_at = close_time of the first candle after known_index_k with high > zone top (eqh)
+  or low < zone bottom (eql).
 
 Liquidity sweep (`sweeps`, `max_bars`=1):
-- Với mỗi mức swing (BSL/SSL), nến i đầu tiên sau known_index có wick xuyên mức (high > mức
-  với BSL, low < mức với SSL) là nến xuyên. Nếu trong max_bars nến tính từ i (i .. i+max_bars-1)
-  có nến r đóng lại bên trong (close <= mức với BSL, close >= mức với SSL) thì là sweep; ngược
-  lại là breakout, không sinh sự kiện. Mỗi mức chỉ xét lần xuyên đầu tiên.
-- kind sweep_bsl/sweep_ssl, event_time = nến xuyên i, known_at = close_time(r). Vùng từ mức
-  tới cực trị của các nến i..r. Sweep cụm equal highs/lows được bao hàm qua swing cao/thấp nhất
-  trong cụm.
+- For each swing level (BSL/SSL), the first candle i after known_index whose wick pierces the level
+  (high > level for BSL, low < level for SSL) is the piercing candle. If within max_bars candles
+  from i (i .. i+max_bars-1) some candle r closes back inside (close <= level for BSL, close >=
+  level for SSL) it is a sweep; otherwise it is a breakout and no event is emitted. Only the first
+  pierce of each level is considered.
+- kind sweep_bsl/sweep_ssl, event_time = piercing candle i, known_at = close_time(r). Zone spans
+  from the level to the extreme of candles i..r. Sweeps of equal high/low clusters are covered via
+  the highest/lowest swing in the cluster.
 """
 
 from typing import Any
@@ -46,7 +48,7 @@ _SIDE = {"swing_high": ("bsl", 1), "swing_low": ("ssl", -1)}
 
 
 def _taken(bars: _Bars, start: int, level: float, side: int) -> int | None:
-    """Nến đầu tiên >= start có wick vượt mức (side=1 phía trên, -1 phía dưới)."""
+    """First candle >= start whose wick crosses the level (side=1 above, -1 below)."""
     for i in range(start, bars.n):
         if (side == 1 and bars.h[i] > level) or (side == -1 and bars.l[i] < level):
             return i
@@ -144,7 +146,7 @@ def sweeps(ohlcv: pl.DataFrame, swing_length: int = 5, max_bars: int = 1) -> pl.
     attrs: {"level", "level_index", "level_time", "bars", "penetration"}.
     """
     if max_bars < 1:
-        raise ValueError("max_bars phải >= 1")
+        raise ValueError("max_bars must be >= 1")
     bars = _Bars(ohlcv)
     phash = params_hash(
         MODULE, {"fn": "sweeps", "swing_length": swing_length, "max_bars": max_bars}
@@ -161,7 +163,7 @@ def sweeps(ohlcv: pl.DataFrame, swing_length: int = 5, max_bars: int = 1) -> pl.
                 back = r
                 break
         if back is None:
-            continue  # breakout: đóng ngoài mức suốt max_bars nến
+            continue  # breakout: closed outside the level for all max_bars candles
         if side == 1:
             extreme = float(bars.h[i : back + 1].max())
             low, high, pen = level, extreme, extreme - level

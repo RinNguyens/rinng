@@ -1,4 +1,4 @@
-"""Indicator so với cài đặt numpy độc lập và với giá trị tính tay."""
+"""Indicators versus an independent numpy implementation and hand-computed values."""
 
 from datetime import timedelta
 
@@ -9,7 +9,7 @@ from rinng.analysis.indicators import anchored_vwap, atr, compute, vwap_daily
 from rinng.analysis.testing import assert_no_lookahead
 from tests.analysis.helpers import T0, make_ohlcv, random_walk
 
-# ---------- cài đặt tham chiếu bằng numpy, viết từ công thức ----------
+# ---------- numpy reference implementations, written from the formulas ----------
 
 
 def ref_sma(x, n):
@@ -20,7 +20,7 @@ def ref_sma(x, n):
 
 
 def ref_ema(x, n):
-    """EMA seed bằng SMA của n giá trị hợp lệ đầu tiên (bỏ NaN ở đầu)."""
+    """EMA seeded with the SMA of the first n valid values (skipping leading NaN)."""
     out = np.full(len(x), np.nan)
     start = int(np.flatnonzero(~np.isnan(x))[0])
     seed = start + n - 1
@@ -32,7 +32,7 @@ def ref_ema(x, n):
 
 
 def ref_wilder(x, n, first):
-    """Trung bình Wilder: seed = trung bình x[first-n+1 .. first]."""
+    """Wilder average: seed = mean of x[first-n+1 .. first]."""
     out = np.full(len(x), np.nan)
     out[first] = x[first - n + 1 : first + 1].mean()
     for i in range(first + 1, len(x)):
@@ -105,7 +105,7 @@ def test_rsi_atr_adx(walk):
     _, f, a = walk
     close_valid(col(f, "rsi"), ref_rsi(a["close"], 14))
     close_valid(col(f, "atr"), ref_atr(a["high"], a["low"], a["close"], 14))
-    # ADX: cách seed của TA-Lib có thể khác nhẹ; so phần đuôi sau khi đã hội tụ.
+    # ADX: TA-Lib seeding may differ slightly; compare the tail after convergence.
     close_valid(col(f, "adx"), ref_adx(a["high"], a["low"], a["close"], 14), tail=200, rtol=1e-6)
     assert np.isnan(col(f, "adx")[:27]).all()
 
@@ -130,7 +130,7 @@ def test_roc_stoch_willr_bbands_obv(walk):
     raw_k = 100 * (c - ll) / (hh - ll)
     k = roll(raw_k, 3, np.mean)
     d = roll(k, 3, np.mean)
-    k[np.isnan(d)] = np.nan  # TA-Lib: %K và %D cùng bắt đầu khi %D có giá trị
+    k[np.isnan(d)] = np.nan  # TA-Lib: %K and %D both start when %D has a value
     close_valid(col(f, "stoch_k"), k)
     close_valid(col(f, "stoch_d"), d)
     close_valid(col(f, "willr"), -100 * (hh - c) / (hh - ll))
@@ -148,17 +148,17 @@ def test_roc_stoch_willr_bbands_obv(walk):
 
 
 def test_small_hand_values():
-    # ROC và Williams %R tính tay trên chuỗi ngắn.
+    # ROC and Williams %R computed by hand on a short series.
     closes = [10.0, 11.0, 12.0, 11.0, 13.0]
     o = make_ohlcv(closes, highs=[10.5, 11.5, 12.5, 12.0, 13.5], lows=[9.5, 10.5, 11.5, 10.5, 12])
     f = compute(o, {"roc": 2, "willr": 3})
     assert f["roc"].to_list()[:2] == [None, None]
     assert f["roc"][2] == pytest.approx(20.0)  # 12/10 - 1
     assert f["roc"][4] == pytest.approx(100 * (13 / 12 - 1))
-    # nến 3: HH = 12.5, LL = 10.5 → -100 × (12.5 - 11) / 2 = -75
+    # candle 3: HH = 12.5, LL = 10.5 → -100 × (12.5 - 11) / 2 = -75
     assert f["willr"][3] == pytest.approx(-75.0)
     assert f["willr"][1] is None
-    # ATR(2) tay: TR từ nến 1 = [1.5, 1.5, 1.5, 2.5]; seed ở nến 2 = (1.5 + 1.5) / 2
+    # ATR(2) by hand: TR from candle 1 = [1.5, 1.5, 1.5, 2.5]; seed at candle 2 = (1.5 + 1.5) / 2
     a = atr(o, 2)
     assert np.isnan(a[:2]).all()
     assert a[2] == pytest.approx(1.5)
@@ -167,7 +167,7 @@ def test_small_hand_values():
 
 
 def test_vwap_daily_resets_at_utc_midnight():
-    # khung 12h: nến 0, 1 thuộc ngày 1; nến 2, 3 thuộc ngày 2.
+    # 12h timeframe: candles 0, 1 belong to day 1; candles 2, 3 to day 2.
     o = make_ohlcv(
         [10.0, 20.0, 30.0, 40.0],
         highs=[10.0, 20.0, 30.0, 40.0],
@@ -185,13 +185,13 @@ def test_vwap_daily_resets_at_utc_midnight():
 def test_vwap_typical_price_and_zero_volume():
     o = make_ohlcv([10.0, 12.0], highs=[12.0, 15.0], lows=[9.0, 9.0], volumes=[0.0, 2.0])
     v = vwap_daily(o).to_list()
-    assert v[0] is None  # tổng volume = 0
+    assert v[0] is None  # total volume = 0
     assert v[1] == pytest.approx((15 + 9 + 12) / 3)
 
 
 def test_anchored_vwap():
     o = make_ohlcv([10.0, 20.0, 30.0, 40.0], volumes=[5.0, 1.0, 1.0, 2.0])
-    # typical = close vì high/low = max/min(open, close): nến 2 có open 20, close 30
+    # typical = close since high/low = max/min(open, close): candle 2 has open 20, close 30
     highs, lows, closes = (o[c].to_list() for c in ("high", "low", "close"))
     tp = [(h + lo + c) / 3 for h, lo, c in zip(highs, lows, closes, strict=True)]
     v = anchored_vwap(o, T0 + timedelta(hours=1, minutes=30)).to_list()

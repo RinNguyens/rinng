@@ -1,12 +1,12 @@
-"""raw/ → curated/. Chạy lại bao nhiêu lần cũng được.
+"""raw/ → curated/. Safe to rerun any number of times.
 
-Hai loại file thô:
-- File dump zip: raw/binance/dumps/{dump}/{SYMBOL trên sàn}/{tên}.zip
-- File Parquet do collector/backfill ghi, đã đúng schema:
-  raw/{exchange}/{bảng}[_{khung}]/{symbol chuẩn}/date=YYYY-MM-DD/*.parquet
+Two kinds of raw files:
+- Zip dump files: raw/binance/dumps/{dump}/{exchange SYMBOL}/{name}.zip
+- Parquet files written by collector/backfill, already in schema:
+  raw/{exchange}/{table}[_{timeframe}]/{canonical symbol}/date=YYYY-MM-DD/*.parquet
 
-Mỗi file đã xử lý được ghi vào manifest với batch_id = "raw:<đường dẫn tương đối>", lần sau
-bỏ qua. File Parquet được gộp theo thư mục ngày để ghi curated ít lần hơn.
+Each processed file is recorded in the manifest with batch_id = "raw:<relative path>" and
+skipped next time. Parquet files are grouped by day directory to write curated less often.
 """
 
 import logging
@@ -32,7 +32,7 @@ def _table_name(directory: str) -> str:
     base = directory.rsplit("_", 1)[0]
     if base in TABLES:
         return base
-    raise KeyError(f"không nhận ra bảng từ thư mục raw {directory!r}")
+    raise KeyError(f"cannot infer table from raw directory {directory!r}")
 
 
 def _record(paths: DataPaths, file: Path, tbl_name: str, frame: pl.DataFrame, source: str) -> None:
@@ -55,9 +55,9 @@ def _record(paths: DataPaths, file: Path, tbl_name: str, frame: pl.DataFrame, so
 
 
 def curate(paths: DataPaths, settings: Settings, *, only: set[str] | None = None) -> dict[str, int]:
-    """Xử lý mọi file thô chưa có trong manifest. Trả về số dòng đã gộp theo bảng.
+    """Process every raw file not yet in the manifest. Returns merged row counts per table.
 
-    `only`: chỉ xử lý file Parquet của các bảng này và bỏ qua dump (dùng khi chạy live).
+    `only`: process only Parquet files of these tables and skip dumps (used in live mode).
     """
     done = set(catalog.read_meta(paths, "manifest")["batch_id"].to_list())
     venue_to_id = {i.binance: i.id for i in settings.instruments if i.binance}
@@ -70,7 +70,7 @@ def curate(paths: DataPaths, settings: Settings, *, only: set[str] | None = None
         name, venue_symbol = file.parent.parent.name, file.parent.name
         symbol = venue_to_id.get(venue_symbol)
         if symbol is None:
-            log.warning("bỏ qua %s: %s không có trong cấu hình", file.name, venue_symbol)
+            log.warning("skipping %s: %s not in config", file.name, venue_symbol)
             continue
         frames = dumps.parse(name, file.read_bytes(), symbol)
         for tbl_name, frame in frames.items():

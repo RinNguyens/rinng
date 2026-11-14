@@ -1,9 +1,9 @@
-"""Danh mục hợp đồng perp USDT đang giao dịch trên Binance và OKX, để tìm một coin bất kỳ.
+"""Catalog of trading USDT perp contracts on Binance and OKX, for looking up any coin.
 
-Instrument trong cấu hình (watchlist) luôn đứng trước và giữ nguyên tên. Coin khác được suy ra
-từ danh mục: id chuẩn "{BASE}-USDT-PERP", tên trên Binance "{BASE}USDT", trên OKX
-"{BASE}-USDT-SWAP". Binance gộp một số coin giá nhỏ thành "1000PEPE"...; khi đó base khác OKX
-("PEPE") và hai bên là hai mục riêng. Danh mục được cache trong bộ nhớ một giờ.
+Configured instruments (watchlist) always come first and keep their names. Other coins are derived
+from the catalog: canonical id "{BASE}-USDT-PERP", Binance name "{BASE}USDT", OKX
+"{BASE}-USDT-SWAP". Binance groups some cheap coins as "1000PEPE"...; then the base differs from OKX
+("PEPE") and the two are separate entries. The catalog is cached in memory for one hour.
 """
 
 import re
@@ -18,12 +18,12 @@ _MULTIPLIER = re.compile(r"^(1000000|100000|10000|1000|1M)(?=[A-Z])")
 
 
 def icon_symbol(base: str) -> str:
-    """Mã dùng để tìm icon: bỏ hệ số nhân của Binance (1000PEPE → PEPE)."""
+    """Symbol used for icon lookup: strips the Binance multiplier (1000PEPE → PEPE)."""
     return _MULTIPLIER.sub("", base)
 
 
 def fetch_binance() -> dict[str, str]:
-    """base → symbol trên Binance USDⓈ-M (perp USDT đang giao dịch)."""
+    """base → symbol on Binance USDⓈ-M (trading USDT perps)."""
     from rinng.exchanges.binance import Binance
 
     api = Binance()
@@ -38,11 +38,11 @@ def fetch_binance() -> dict[str, str]:
 
 
 def fetch_okx() -> dict[str, str]:
-    """base → instId trên OKX (swap USDT đang giao dịch). Một request công khai, gọi thẳng."""
+    """base → instId on OKX (trading USDT swaps). One public request, called directly."""
     import certifi
     import httpx
 
-    # IPv4: đường IPv6 tới www.okx.com có thể treo hàng chục giây trước khi rơi về IPv4.
+    # IPv4: the IPv6 route to www.okx.com can hang for tens of seconds before falling back to IPv4.
     transport = httpx.HTTPTransport(local_address="0.0.0.0", verify=certifi.where())
     with httpx.Client(transport=transport, timeout=15) as client:
         r = client.get("https://www.okx.com/api/v5/public/instruments", params={"instType": "SWAP"})
@@ -78,7 +78,7 @@ class Catalog:
             for ex, fetch in self.fetchers.items():
                 try:
                     venues[ex] = fetch()
-                except Exception:  # một sàn lỗi vẫn tìm được trên sàn kia
+                except Exception:  # if one exchange fails, the other is still searchable
                     venues[ex] = {}
             items: dict[str, Instrument] = {}
             for base in sorted(set().union(*venues.values())):
@@ -102,7 +102,7 @@ class Catalog:
         return any(i.id == symbol for i in self.settings.instruments)
 
     def resolve(self, symbol: str) -> Instrument:
-        """Instrument theo id chuẩn: cấu hình trước, rồi danh mục sàn. Không có thì KeyError."""
+        """Instrument by canonical id: config first, then the catalog. KeyError if missing."""
         for inst in self.settings.instruments:
             if inst.id == symbol:
                 return inst
@@ -112,7 +112,7 @@ class Catalog:
         return inst
 
     def search(self, query: str, limit: int = 30) -> list[Instrument]:
-        """Khớp base hoặc tên: trùng hẳn trước, rồi bắt đầu bằng, rồi chứa."""
+        """Match base or name: exact first, then prefix, then substring."""
         q = query.strip().upper().replace("/", "").removesuffix("USDT").removesuffix("-")
         pool: dict[str, Instrument] = {i.id: i for i in self._listed().values()}
         pool.update({i.id: i for i in self.settings.instruments})

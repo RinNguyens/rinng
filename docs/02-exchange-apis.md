@@ -1,350 +1,350 @@
-# 02 — Exchange APIs: Binance và OKX
+# 02 — Exchange APIs: Binance and OKX
 
-> Ngày tra cứu: **2026-11-13**. Mọi con số dưới đây lấy từ tài liệu chính thức hiện hành hoặc từ lời gọi thật tới API công khai trong ngày này. API sàn thay đổi thường xuyên: trước khi code, mở lại URL nguồn ở từng mục.
+> Lookup date: **2026-11-13**. Every figure below comes from the current official documentation or from real calls to public APIs on that day. Exchange APIs change often: before coding, reopen the source URL in each section.
 
-## 0. Cách đọc tài liệu này
+## 0. How to read this document
 
-Ký hiệu độ tin cậy:
+Confidence markers:
 
-| Ký hiệu | Nghĩa |
+| Marker | Meaning |
 |---|---|
-| **[docs]** | Đọc trực tiếp từ tài liệu chính thức (URL ghi kèm). |
-| **[live]** | Đã gọi thử endpoint công khai ngày 2026-11-13 và nhận kết quả đúng như mô tả. |
-| **[chưa xác minh]** | Không mở được trang nguồn, trang bị cắt, hoặc chỉ suy ra. Không dựa vào khi chưa tự kiểm. |
+| **[docs]** | Read directly from the official documentation (URL given). |
+| **[live]** | Called the public endpoint on 2026-11-13 and got the result exactly as described. |
+| **[unverified]** | Source page could not be opened, was truncated, or this is only inferred. Do not rely on it without checking yourself. |
 
-Ba thay đổi lớn so với kiến thức cũ (dễ làm hỏng code viết theo trí nhớ):
+Three major changes compared with older knowledge (easy to break code written from memory):
 
-1. **Binance Futures WebSocket đã tách base URL** thành `/public`, `/market`, `/private`. URL cũ `wss://fstream.binance.com/ws/...` chỉ còn nhận được dữ liệu nhóm public (depth, bookTicker); `markPrice`, `kline`, `aggTrade`, `forceOrder` phải đi qua `/market`. [docs]
-2. **OKX đổi REST host sang `https://openapi.okx.com`** và bỏ `checksum` của order book (giá trị cố định 0), thay bằng `seqId`/`prevSeqId`. [docs]
-3. **Binance gộp COIN-M vào hạ tầng USDⓈ-M** (hiệu lực dần từ 2026-06-24): `fapi` và `dapi` dùng chung một quỹ rate limit 2400 weight/phút/IP. [docs]
+1. **Binance Futures WebSocket split its base URL** into `/public`, `/market`, `/private`. The old URL `wss://fstream.binance.com/ws/...` only receives public-group data (depth, bookTicker); `markPrice`, `kline`, `aggTrade`, `forceOrder` must go through `/market`. [docs]
+2. **OKX moved its REST host to `https://openapi.okx.com`** and dropped the order book `checksum` (fixed value 0), replacing it with `seqId`/`prevSeqId`. [docs]
+3. **Binance merged COIN-M into the USDⓈ-M infrastructure** (rolling out from 2026-06-24): `fapi` and `dapi` share one rate limit pool of 2400 weight/minute/IP. [docs]
 
-Trang tài liệu Binance cũng đã chuyển sang cấu trúc mới (`/en/docs/products/...` và `/en/docs/catalog/...`); các link kiểu cũ `/docs/derivatives/...` tự chuyển hướng. Bản toàn văn dạng text: <https://developers.binance.com/en/docs/llms-full.txt>, mục lục endpoint: <https://developers.binance.com/en/docs/llms.txt>.
+The Binance docs site has also moved to a new structure (`/en/docs/products/...` and `/en/docs/catalog/...`); old-style links `/docs/derivatives/...` redirect automatically. Full-text version: <https://developers.binance.com/en/docs/llms-full.txt>, endpoint index: <https://developers.binance.com/en/docs/llms.txt>.
 
 ---
 
 ## 1. Binance
 
-### 1.1 Base URL và phiên bản
+### 1.1 Base URLs and versions
 
-| Sản phẩm | REST mainnet | Tiền tố / phiên bản | WebSocket market data mainnet |
+| Product | REST mainnet | Prefix / version | WebSocket market data mainnet |
 |---|---|---|---|
-| Spot | `https://api.binance.com` (dự phòng: `api-gcp`, `api1`–`api4`) | `/api/v3` | `wss://stream.binance.com:9443` hoặc `:443` |
-| Spot, chỉ market data công khai | `https://data-api.binance.vision` | `/api/v3` | `wss://data-stream.binance.vision` |
-| USDⓈ-M Futures | `https://fapi.binance.com` | `/fapi/v1` (một số `/fapi/v2`, `/fapi/v3`), thống kê ở `/futures/data` | `wss://fstream.binance.com` + `/public`, `/market`, `/private` |
-| COIN-M Futures | `https://dapi.binance.com` | `/dapi/v1`, thống kê ở `/futures/data` | `wss://dstream.binance.com` |
+| Spot | `https://api.binance.com` (fallbacks: `api-gcp`, `api1`–`api4`) | `/api/v3` | `wss://stream.binance.com:9443` or `:443` |
+| Spot, public market data only | `https://data-api.binance.vision` | `/api/v3` | `wss://data-stream.binance.vision` |
+| USDⓈ-M Futures | `https://fapi.binance.com` | `/fapi/v1` (some `/fapi/v2`, `/fapi/v3`), statistics under `/futures/data` | `wss://fstream.binance.com` + `/public`, `/market`, `/private` |
+| COIN-M Futures | `https://dapi.binance.com` | `/dapi/v1`, statistics under `/futures/data` | `wss://dstream.binance.com` |
 
-| Môi trường thử | REST | WebSocket |
+| Test environment | REST | WebSocket |
 |---|---|---|
-| Spot Testnet | `https://testnet.binance.vision/api` (dự phòng `https://api1.testnet.binance.vision/api`) | `wss://stream.testnet.binance.vision` |
+| Spot Testnet | `https://testnet.binance.vision/api` (fallback `https://api1.testnet.binance.vision/api`) | `wss://stream.testnet.binance.vision` |
 | Spot Demo Mode | `https://demo-api.binance.com/api` | `wss://demo-stream.binance.com` (`/ws`, `/stream`), WS API `wss://demo-ws-api.binance.com/ws-api/v3` |
 | USDⓈ-M Futures testnet | `https://demo-fapi.binance.com` | `wss://demo-fstream.binance.com` |
 | COIN-M Futures testnet | `https://demo-dapi.binance.com` | `wss://demo-dstream.binance.com` |
 
-Nguồn [docs]:
+Sources [docs]:
 - Spot REST: <https://developers.binance.com/en/docs/products/spot/rest-api>
 - Spot testnet: <https://developers.binance.com/en/docs/products/spot/testnet/general-info>
 - Spot demo mode: <https://developers.binance.com/en/docs/products/spot/demo-mode/general-info>
 - USDⓈ-M: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info>
 - COIN-M: <https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/general-info>
 
-Ghi chú:
-- `api1`–`api4` "có thể nhanh hơn nhưng kém ổn định hơn". [docs]
-- `data-api.binance.vision` chỉ phục vụ endpoint có security type `NONE` (klines, depth, aggTrades, ticker, exchangeInfo, ping, time...). Trả về header `X-MBX-USED-WEIGHT-1M` như host chính. [docs][live]
-- Các host testnet/demo ở trên đều trả `{}` cho `ping`. [live]
-- Timestamp: mili giây theo mặc định. Riêng Spot có thể xin micro giây bằng header `X-MBX-TIME-UNIT: MICROSECOND` (REST) hoặc tham số `timeUnit=MICROSECOND` (WebSocket). Futures chỉ có mili giây. [docs]
-- Dữ liệu trả theo thứ tự **tăng dần** (cũ trước, mới sau). [docs]
+Notes:
+- `api1`–`api4` "may be faster but less stable". [docs]
+- `data-api.binance.vision` only serves endpoints with security type `NONE` (klines, depth, aggTrades, ticker, exchangeInfo, ping, time...). It returns the `X-MBX-USED-WEIGHT-1M` header like the main host. [docs][live]
+- All testnet/demo hosts above return `{}` for `ping`. [live]
+- Timestamps: milliseconds by default. Spot alone can request microseconds via the header `X-MBX-TIME-UNIT: MICROSECOND` (REST) or the parameter `timeUnit=MICROSECOND` (WebSocket). Futures is milliseconds only. [docs]
+- Data is returned in **ascending** order (oldest first, newest last). [docs]
 
-### 1.2 Spot — endpoint dữ liệu thị trường công khai
+### 1.2 Spot — public market data endpoints
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/market> (bản cũ: <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>)
+Source [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/market> (old version: <https://developers.binance.com/docs/binance-spot-api-docs/rest-api/market-data-endpoints>)
 
-| Dữ liệu | Endpoint | Weight | Tham số chính | Giới hạn mỗi lần gọi |
+| Data | Endpoint | Weight | Main parameters | Per-call limit |
 |---|---|---|---|---|
-| Klines | `GET /api/v3/klines` | 2 | `symbol`*, `interval`*, `startTime`, `endTime`, `timeZone` (mặc định `0` = UTC), `limit` | mặc định 500, tối đa **1000** |
-| Klines cho biểu đồ | `GET /api/v3/uiKlines` | 2 | như trên | 500 / 1000 |
-| Order book | `GET /api/v3/depth` | 5 (limit 1–100), 25 (101–500), 50 (501–1000), 250 (1001–5000) | `symbol`*, `limit` | mặc định 100, tối đa **5000** |
-| Trades gần nhất | `GET /api/v3/trades` | 25 | `symbol`*, `limit` | 500 / 1000 |
-| Trades cũ | `GET /api/v3/historicalTrades` | 25 | `symbol`*, `limit`, `fromId` | 500 / 1000 |
+| Klines | `GET /api/v3/klines` | 2 | `symbol`*, `interval`*, `startTime`, `endTime`, `timeZone` (default `0` = UTC), `limit` | default 500, max **1000** |
+| Klines for charts | `GET /api/v3/uiKlines` | 2 | same as above | 500 / 1000 |
+| Order book | `GET /api/v3/depth` | 5 (limit 1–100), 25 (101–500), 50 (501–1000), 250 (1001–5000) | `symbol`*, `limit` | default 100, max **5000** |
+| Recent trades | `GET /api/v3/trades` | 25 | `symbol`*, `limit` | 500 / 1000 |
+| Older trades | `GET /api/v3/historicalTrades` | 25 | `symbol`*, `limit`, `fromId` | 500 / 1000 |
 | Aggregate trades | `GET /api/v3/aggTrades` | 4 | `symbol`*, `fromId`, `startTime`, `endTime`, `limit` | 500 / 1000 |
-| Ticker 24h | `GET /api/v3/ticker/24hr` | 2 (1 symbol) đến 80 (tất cả) | `symbol` hoặc `symbols`, `type` (`FULL`/`MINI`) | `symbols` tối đa 100 |
-| Ticker cửa sổ trượt | `GET /api/v3/ticker` | 4 mỗi symbol, trần 200 | `symbol`/`symbols`, `windowSize` (mặc định `1d`) | `symbols` tối đa 100 |
-| Ticker theo ngày giao dịch | `GET /api/v3/ticker/tradingDay` | 4 mỗi symbol, trần 200 | `symbol`/`symbols`, `timeZone` | tối đa 100 |
-| Giá mới nhất | `GET /api/v3/ticker/price` | 2 (1 symbol) / 4 | `symbol`/`symbols` | — |
+| 24h ticker | `GET /api/v3/ticker/24hr` | 2 (1 symbol) to 80 (all) | `symbol` or `symbols`, `type` (`FULL`/`MINI`) | `symbols` max 100 |
+| Rolling window ticker | `GET /api/v3/ticker` | 4 per symbol, cap 200 | `symbol`/`symbols`, `windowSize` (default `1d`) | `symbols` max 100 |
+| Trading day ticker | `GET /api/v3/ticker/tradingDay` | 4 per symbol, cap 200 | `symbol`/`symbols`, `timeZone` | max 100 |
+| Latest price | `GET /api/v3/ticker/price` | 2 (1 symbol) / 4 | `symbol`/`symbols` | — |
 | Best bid/ask | `GET /api/v3/ticker/bookTicker` | 2 (1 symbol) / 4 | `symbol`/`symbols` | — |
-| Giá trung bình | `GET /api/v3/avgPrice` | 2 | `symbol`* | — |
+| Average price | `GET /api/v3/avgPrice` | 2 | `symbol`* | — |
 
-(* = bắt buộc)
+(* = required)
 
-**Interval của klines Spot** (phân biệt hoa thường): `1s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`. [docs]
+**Spot kline intervals** (case-sensitive): `1s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`. [docs]
 
-**Phân trang để tải lịch sử dài:**
-- Klines: đặt `startTime`, lấy tối đa 1000 nến, rồi gọi tiếp với `startTime = openTime của nến cuối + 1`. Không gửi `startTime`/`endTime` thì nhận các nến mới nhất. [docs][live]
-- aggTrades: dùng `fromId` (bao gồm cả id đó) để đi tiếp từ `a` của bản ghi cuối + 1; hoặc dùng cửa sổ `startTime`/`endTime`. [docs]
-- historicalTrades: dùng `fromId`. [docs]
-- Lịch sử nhiều năm: dùng file dump ở mục 1.9 thay vì REST.
+**Pagination for long history:**
+- Klines: set `startTime`, fetch up to 1000 candles, then call again with `startTime = openTime of last candle + 1`. Without `startTime`/`endTime` you get the most recent candles. [docs][live]
+- aggTrades: use `fromId` (inclusive) to continue from the last record's `a` + 1; or use a `startTime`/`endTime` window. [docs]
+- historicalTrades: use `fromId`. [docs]
+- Multi-year history: use the dump files in section 1.9 instead of REST.
 
-### 1.3 USDⓈ-M Futures — endpoint dữ liệu thị trường công khai
+### 1.3 USDⓈ-M Futures — public market data endpoints
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data> (bản cũ: <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api>)
+Source [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data> (old version: <https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api>)
 
 Base: `https://fapi.binance.com`.
 
-| Dữ liệu | Endpoint | Weight | Tham số chính | Giới hạn / ghi chú |
+| Data | Endpoint | Weight | Main parameters | Limits / notes |
 |---|---|---|---|---|
-| Klines | `GET /fapi/v1/klines` | theo `limit`: 1 (<100), 2 (100–499), 5 (500–1000), 10 (>1000) | `symbol`*, `interval`*, `startTime`, `endTime`, `limit` | mặc định 500, tối đa **1500** |
-| Klines hợp đồng liên tục | `GET /fapi/v1/continuousKlines` | như klines | `pair`*, `contractType`* (`PERPETUAL`, `CURRENT_QUARTER`, `NEXT_QUARTER`, `TRADIFI_PERPETUAL`), `interval`* | 500 / 1500 |
-| Index price klines | `GET /fapi/v1/indexPriceKlines` | như klines | `pair`*, `interval`* | 500 / 1500 |
-| Mark price klines | `GET /fapi/v1/markPriceKlines` | như klines | `symbol`*, `interval`* | 500 / 1500 |
-| Premium index klines | `GET /fapi/v1/premiumIndexKlines` | như klines | `symbol`*, `interval`* | 500 / 1500 |
-| Order book | `GET /fapi/v1/depth` | 2 (limit 5/10/20/50), 5 (100), 10 (500), 20 (1000) | `symbol`*, `limit` ∈ {5, 10, 20, 50, 100, 500, 1000} | mặc định 500, tối đa **1000**; không gồm lệnh RPI |
-| Trades gần nhất | `GET /fapi/v1/trades` | 5 | `symbol`*, `limit` | 500 / 1000 |
-| Trades cũ (cần API key) | `GET /fapi/v1/historicalTrades` | 200 | `symbol`*, `limit`, `fromId`, header `X-MBX-APIKEY` | 100 / 500; chỉ dữ liệu 1 tháng gần nhất |
-| Aggregate trades | `GET /fapi/v1/aggTrades` | 20 | `symbol`*, `fromId`, `startTime`, `endTime`, `limit` | 500 / 1000; **chỉ truy vấn được 48 giờ gần nhất**; nếu gửi cả `startTime` và `endTime` thì khoảng cách phải < 1 giờ |
-| Mark price + funding hiện tại | `GET /fapi/v1/premiumIndex` | 1 (có symbol) / 10 (không) | `symbol` | trả `markPrice`, `indexPrice`, `lastFundingRate`, `nextFundingTime` [live] |
-| Funding rate lịch sử | `GET /fapi/v1/fundingRate` | dùng chung giới hạn **500 request / 5 phút / IP** với `fundingInfo` | `symbol`, `startTime`, `endTime`, `limit` | mặc định 100, tối đa **1000**; không gửi thời gian thì trả 200 bản ghi mới nhất; thứ tự tăng dần |
-| Thông tin funding (cap/floor, chu kỳ) | `GET /fapi/v1/fundingInfo` | 0 (dùng chung 500/5 phút/IP) | — | — |
-| Open interest hiện tại | `GET /fapi/v1/openInterest` | 1 | `symbol`* | — |
-| Open interest lịch sử | `GET /futures/data/openInterestHist` | 0; giới hạn riêng **1000 request / 5 phút / IP** | `symbol`*, `period`*, `limit`, `startTime`, `endTime` | 30 / **500**; **chỉ 1 tháng gần nhất**; kỳ không có giao dịch bị bỏ trống, không bù |
-| Long/short ratio (toàn bộ tài khoản) | `GET /futures/data/globalLongShortAccountRatio` | 0; 1000 request / 5 phút / IP | `symbol`*, `period`*, `limit`, `startTime`, `endTime` | 30 / 500; chỉ 30 ngày gần nhất |
-| Long/short ratio top trader (theo tài khoản) | `GET /futures/data/topLongShortAccountRatio` | [chưa xác minh] | giống trên [chưa xác minh] | [chưa xác minh] |
-| Long/short ratio top trader (theo vị thế) | `GET /futures/data/topLongShortPositionRatio` | [chưa xác minh] | `symbol`, `period`, `limit` [live] | [chưa xác minh] |
-| Taker buy/sell volume | `GET /futures/data/takerlongshortRatio` | [chưa xác minh] | `symbol`, `period`, `limit` [live] | trả `buySellRatio`, `buyVol`, `sellVol` [live] |
-| Basis | `GET /futures/data/basis` | 0 | `pair`*, `contractType`*, `period`*, `limit` | 30 / 500; chỉ 30 ngày gần nhất |
-| Ticker 24h | `GET /fapi/v1/ticker/24hr` | [chưa xác minh] | `symbol` [live] | — |
-| Giá mới nhất | `GET /fapi/v1/ticker/price`, `GET /fapi/v2/ticker/price` | [chưa xác minh] | `symbol` | — |
-| Best bid/ask | `GET /fapi/v1/ticker/bookTicker` | [chưa xác minh] | `symbol` | — |
-| Thành phần index | `GET /fapi/v1/constituents` | 2 | `symbol`* | — |
-| Thông tin sàn, filter, rate limit | `GET /fapi/v1/exchangeInfo` | 1 | — | — |
+| Klines | `GET /fapi/v1/klines` | by `limit`: 1 (<100), 2 (100–499), 5 (500–1000), 10 (>1000) | `symbol`*, `interval`*, `startTime`, `endTime`, `limit` | default 500, max **1500** |
+| Continuous contract klines | `GET /fapi/v1/continuousKlines` | same as klines | `pair`*, `contractType`* (`PERPETUAL`, `CURRENT_QUARTER`, `NEXT_QUARTER`, `TRADIFI_PERPETUAL`), `interval`* | 500 / 1500 |
+| Index price klines | `GET /fapi/v1/indexPriceKlines` | same as klines | `pair`*, `interval`* | 500 / 1500 |
+| Mark price klines | `GET /fapi/v1/markPriceKlines` | same as klines | `symbol`*, `interval`* | 500 / 1500 |
+| Premium index klines | `GET /fapi/v1/premiumIndexKlines` | same as klines | `symbol`*, `interval`* | 500 / 1500 |
+| Order book | `GET /fapi/v1/depth` | 2 (limit 5/10/20/50), 5 (100), 10 (500), 20 (1000) | `symbol`*, `limit` ∈ {5, 10, 20, 50, 100, 500, 1000} | default 500, max **1000**; excludes RPI orders |
+| Recent trades | `GET /fapi/v1/trades` | 5 | `symbol`*, `limit` | 500 / 1000 |
+| Older trades (API key required) | `GET /fapi/v1/historicalTrades` | 200 | `symbol`*, `limit`, `fromId`, header `X-MBX-APIKEY` | 100 / 500; last 1 month only |
+| Aggregate trades | `GET /fapi/v1/aggTrades` | 20 | `symbol`*, `fromId`, `startTime`, `endTime`, `limit` | 500 / 1000; **only the last 48 hours can be queried**; if both `startTime` and `endTime` are sent the span must be < 1 hour |
+| Current mark price + funding | `GET /fapi/v1/premiumIndex` | 1 (with symbol) / 10 (without) | `symbol` | returns `markPrice`, `indexPrice`, `lastFundingRate`, `nextFundingTime` [live] |
+| Funding rate history | `GET /fapi/v1/fundingRate` | shares a **500 requests / 5 minutes / IP** limit with `fundingInfo` | `symbol`, `startTime`, `endTime`, `limit` | default 100, max **1000**; without times returns the latest 200 records; ascending order |
+| Funding info (cap/floor, interval) | `GET /fapi/v1/fundingInfo` | 0 (shares 500/5 min/IP) | — | — |
+| Current open interest | `GET /fapi/v1/openInterest` | 1 | `symbol`* | — |
+| Open interest history | `GET /futures/data/openInterestHist` | 0; separate limit **1000 requests / 5 minutes / IP** | `symbol`*, `period`*, `limit`, `startTime`, `endTime` | 30 / **500**; **last 1 month only**; periods with no trading are left empty, not filled |
+| Long/short ratio (all accounts) | `GET /futures/data/globalLongShortAccountRatio` | 0; 1000 requests / 5 minutes / IP | `symbol`*, `period`*, `limit`, `startTime`, `endTime` | 30 / 500; last 30 days only |
+| Top trader long/short ratio (accounts) | `GET /futures/data/topLongShortAccountRatio` | [unverified] | same as above [unverified] | [unverified] |
+| Top trader long/short ratio (positions) | `GET /futures/data/topLongShortPositionRatio` | [unverified] | `symbol`, `period`, `limit` [live] | [unverified] |
+| Taker buy/sell volume | `GET /futures/data/takerlongshortRatio` | [unverified] | `symbol`, `period`, `limit` [live] | returns `buySellRatio`, `buyVol`, `sellVol` [live] |
+| Basis | `GET /futures/data/basis` | 0 | `pair`*, `contractType`*, `period`*, `limit` | 30 / 500; last 30 days only |
+| 24h ticker | `GET /fapi/v1/ticker/24hr` | [unverified] | `symbol` [live] | — |
+| Latest price | `GET /fapi/v1/ticker/price`, `GET /fapi/v2/ticker/price` | [unverified] | `symbol` | — |
+| Best bid/ask | `GET /fapi/v1/ticker/bookTicker` | [unverified] | `symbol` | — |
+| Index constituents | `GET /fapi/v1/constituents` | 2 | `symbol`* | — |
+| Exchange info, filters, rate limits | `GET /fapi/v1/exchangeInfo` | 1 | — | — |
 
-Lưu ý:
-- **Interval klines Futures**: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`. Tám giá trị đầu đọc từ docs; phần còn lại bị ẩn trong trang docs nên được xác nhận bằng lời gọi thật (đều trả 200). `1s` trên `/fapi/v1/klines` trả 400; `2m` trả `-1120 Invalid interval`. [live] `continuousKlines` có thêm `1s` theo docs.
-- **`period` của nhóm `/futures/data/*`**: `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d` (giá trị `1d` bị ẩn trong docs, đã gọi thử thành công). [docs][live]
-- Gọi `limit=1500` cho klines tốn nhiều weight hơn bảng trên cho thấy: một lần gọi thử làm `X-MBX-USED-WEIGHT-1M` tăng lên 50 (gồm cả các lời gọi trước đó trong phút). Luôn đọc header thay vì tự cộng. [live]
-- Các dòng **[chưa xác minh]**: trang docs bị cắt ở sau mục "RPI Order Book", nên weight và limit của nhóm endpoint cuối bảng chữ cái chưa đọc được. Tên endpoint có trong mục lục chính thức `llms.txt` và đã gọi thử thành công.
-- Sau khi gộp COIN-M, docs ghi các endpoint klines của `fapi` "chấp nhận cả symbol UM và CM". [docs]
-- **Liquidation**: mục lục REST hiện hành **không có** endpoint công khai trả liquidation toàn thị trường. `GET /fapi/v1/forceOrders` là `USER_DATA` (chỉ lệnh thanh lý của chính tài khoản). Dữ liệu liquidation công khai chỉ đến qua WebSocket `@forceOrder` (mục 1.5). [docs]
+Notes:
+- **Futures kline intervals**: `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1M`. The first eight were read from the docs; the rest are hidden on the docs page, so they were confirmed by real calls (all returned 200). `1s` on `/fapi/v1/klines` returns 400; `2m` returns `-1120 Invalid interval`. [live] `continuousKlines` additionally has `1s` per the docs.
+- **`period` for the `/futures/data/*` group**: `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `12h`, `1d` (the `1d` value is hidden in the docs, test call succeeded). [docs][live]
+- Calling klines with `limit=1500` costs more weight than the table above suggests: one test call raised `X-MBX-USED-WEIGHT-1M` to 50 (including earlier calls in that minute). Always read the header instead of summing yourself. [live]
+- **[unverified]** rows: the docs page is truncated after the "RPI Order Book" section, so the weight and limits for the alphabetically last endpoints could not be read. The endpoint names are in the official `llms.txt` index and test calls succeeded.
+- After the COIN-M merge, the docs say the `fapi` klines endpoints "accept both UM and CM symbols". [docs]
+- **Liquidation**: the current REST index **has no** public endpoint returning market-wide liquidations. `GET /fapi/v1/forceOrders` is `USER_DATA` (only the account's own liquidation orders). Public liquidation data arrives only via the WebSocket `@forceOrder` (section 1.5). [docs]
 
-**Phân trang:** klines giống Spot (tịnh tiến `startTime`). `fundingRate`: khi dữ liệu trong khoảng nhiều hơn `limit`, sàn trả từ `startTime` trở đi, nên tịnh tiến `startTime = fundingTime cuối + 1`. Nhóm `/futures/data/*` chỉ giữ khoảng 30 ngày, vì vậy muốn có lịch sử dài phải **tự thu thập định kỳ** hoặc dùng file `metrics` ở mục 1.9.
+**Pagination:** klines same as Spot (advance `startTime`). `fundingRate`: when data in the range exceeds `limit`, the exchange returns from `startTime` onward, so advance `startTime = last fundingTime + 1`. The `/futures/data/*` group keeps only about 30 days, so long history requires **collecting it yourself periodically** or using the `metrics` files in section 1.9.
 
-### 1.4 COIN-M Futures — khác biệt chính
+### 1.4 COIN-M Futures — main differences
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/rest-api/market-data>, thông báo gộp: <https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/Important-CM-UM-Integration-Notice>
+Source [docs]: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-coin-m-futures/api/rest-api/market-data>, merge notice: <https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/Important-CM-UM-Integration-Notice>
 
-Base: `https://dapi.binance.com`. Symbol dạng `BTCUSD_PERP` (perpetual), `BTCUSD_YYMMDD` (delivery); `pair` là `BTCUSD`.
+Base: `https://dapi.binance.com`. Symbols look like `BTCUSD_PERP` (perpetual), `BTCUSD_YYMMDD` (delivery); `pair` is `BTCUSD`.
 
-| Dữ liệu | Endpoint | Weight | Giới hạn / ghi chú |
+| Data | Endpoint | Weight | Limits / notes |
 |---|---|---|---|
-| Klines | `GET /dapi/v1/klines` (và `continuousKlines`, `indexPriceKlines`, `markPriceKlines`, `premiumIndexKlines`) | 1 / 2 / 5 / 10 theo `limit` | 500 / **1500**; khoảng `startTime`–`endTime` tối đa **200 ngày** |
+| Klines | `GET /dapi/v1/klines` (and `continuousKlines`, `indexPriceKlines`, `markPriceKlines`, `premiumIndexKlines`) | 1 / 2 / 5 / 10 by `limit` | 500 / **1500**; `startTime`–`endTime` span max **200 days** |
 | Order book | `GET /dapi/v1/depth` | 2 / 5 / 10 / 20 | 500 / 1000 |
 | Trades | `GET /dapi/v1/trades` | 5 | 500 / 1000 |
-| Aggregate trades | `GET /dapi/v1/aggTrades` | 20 | 500 / 1000; chỉ 48 giờ gần nhất; cửa sổ < 1 giờ |
-| Mark + index price | `GET /dapi/v1/premiumIndex` | 10 | `symbol` hoặc `pair` |
-| Funding rate lịch sử | `GET /dapi/v1/fundingRate` | 1 | `symbol`*; 100 / 1000 |
+| Aggregate trades | `GET /dapi/v1/aggTrades` | 20 | 500 / 1000; last 48 hours only; window < 1 hour |
+| Mark + index price | `GET /dapi/v1/premiumIndex` | 10 | `symbol` or `pair` |
+| Funding rate history | `GET /dapi/v1/fundingRate` | 1 | `symbol`*; 100 / 1000 |
 | Open interest | `GET /dapi/v1/openInterest` | 1 | `symbol`* |
-| Open interest lịch sử | `GET /futures/data/openInterestHist` | 1 | `pair`*, `period`*, `contractType`; 30 / 500; chỉ 30 ngày |
-| Long/short ratio | `GET /futures/data/globalLongShortAccountRatio` | 1 | `pair`*, `period`*; 30 / 500; chỉ 30 ngày |
-| Taker buy/sell volume | `GET /futures/data/takerBuySellVol` | [chưa xác minh] | `pair`, `contractType`, `period` [live] |
+| Open interest history | `GET /futures/data/openInterestHist` | 1 | `pair`*, `period`*, `contractType`; 30 / 500; 30 days only |
+| Long/short ratio | `GET /futures/data/globalLongShortAccountRatio` | 1 | `pair`*, `period`*; 30 / 500; 30 days only |
+| Taker buy/sell volume | `GET /futures/data/takerBuySellVol` | [unverified] | `pair`, `contractType`, `period` [live] |
 
-Chú ý tên endpoint taker volume khác nhau: `takerlongshortRatio` (USDⓈ-M) và `takerBuySellVol` (COIN-M). [docs]
+Note the taker volume endpoint names differ: `takerlongshortRatio` (USDⓈ-M) and `takerBuySellVol` (COIN-M). [docs]
 
 ### 1.5 WebSocket market streams
 
 #### Spot
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/products/spot/web-socket-streams>
+Source [docs]: <https://developers.binance.com/en/docs/products/spot/web-socket-streams>
 
-- Raw stream: `wss://stream.binance.com:9443/ws/<streamName>`. Combined: `/stream?streams=<s1>/<s2>/<s3>`, payload được bọc thành `{"stream":"<streamName>","data":{...}}`.
-- Tên symbol trong stream phải **viết thường**.
-- Subscribe động:
+- Raw stream: `wss://stream.binance.com:9443/ws/<streamName>`. Combined: `/stream?streams=<s1>/<s2>/<s3>`, payload wrapped as `{"stream":"<streamName>","data":{...}}`.
+- Symbol names in streams must be **lowercase**.
+- Dynamic subscribe:
   ```json
   {"method": "SUBSCRIBE", "params": ["btcusdt@aggTrade", "btcusdt@depth"], "id": 1}
   ```
-  Dùng `UNSUBSCRIBE` với cùng cấu trúc để huỷ. `id` là số nguyên 64-bit, chuỗi chữ-số tối đa 36 ký tự, hoặc `null`. Phản hồi `"result": null` nghĩa là thành công.
-- Kết nối chỉ sống **24 giờ**. Server gửi sự kiện `serverShutdown` trước khi tắt.
-- **Ping/pong**: server gửi ping frame mỗi **20 giây**; không nhận pong trong **1 phút** thì ngắt. Pong phải chép lại payload của ping. Pong tự phát được phép nhưng không giữ được kết nối.
-- **Giới hạn**: 5 message gửi lên mỗi giây (tính cả PING, PONG, lệnh JSON); tối đa **1024 stream** mỗi kết nối; **300 kết nối mỗi 5 phút mỗi IP**. Vượt giới hạn thì bị ngắt, tái phạm có thể bị ban IP.
+  Use `UNSUBSCRIBE` with the same structure to cancel. `id` is a 64-bit integer, an alphanumeric string up to 36 characters, or `null`. A response of `"result": null` means success.
+- A connection lives only **24 hours**. The server sends a `serverShutdown` event before shutting down.
+- **Ping/pong**: the server sends a ping frame every **20 seconds**; if no pong is received within **1 minute** it disconnects. The pong must echo the ping payload. Unsolicited pongs are allowed but do not keep the connection alive.
+- **Limits**: 5 outgoing messages per second (including PING, PONG, JSON commands); max **1024 streams** per connection; **300 connections per 5 minutes per IP**. Exceeding limits disconnects you; repeat offenders may get an IP ban.
 
-| Stream | Tên | Tần suất |
+| Stream | Name | Frequency |
 |---|---|---|
 | Aggregate trade | `<symbol>@aggTrade` | real-time |
 | Trade | `<symbol>@trade` | real-time |
-| Kline (UTC) | `<symbol>@kline_<interval>` | 1000 ms với `1s`, 2000 ms với interval khác |
-| Kline lệch múi giờ | `<symbol>@kline_<interval>@+08:00` | như trên |
+| Kline (UTC) | `<symbol>@kline_<interval>` | 1000 ms for `1s`, 2000 ms for other intervals |
+| Kline with timezone offset | `<symbol>@kline_<interval>@+08:00` | same as above |
 | Mini ticker | `<symbol>@miniTicker`, `!miniTicker@arr` | 1000 ms |
-| Ticker 24h | `<symbol>@ticker` | 1000 ms |
-| Ticker cửa sổ trượt | `<symbol>@ticker_<windowSize>` (`1h`, `4h`, `1d`), `!ticker_<windowSize>@arr` | 1000 ms |
+| 24h ticker | `<symbol>@ticker` | 1000 ms |
+| Rolling window ticker | `<symbol>@ticker_<windowSize>` (`1h`, `4h`, `1d`), `!ticker_<windowSize>@arr` | 1000 ms |
 | Best bid/ask | `<symbol>@bookTicker` | real-time |
-| Giá trung bình | `<symbol>@avgPrice` | 1000 ms |
-| Partial depth | `<symbol>@depth<levels>` hoặc `@100ms` (`levels` = 5, 10, 20) | 1000 ms hoặc 100 ms |
-| Diff depth | `<symbol>@depth` hoặc `<symbol>@depth@100ms` | 1000 ms hoặc 100 ms |
+| Average price | `<symbol>@avgPrice` | 1000 ms |
+| Partial depth | `<symbol>@depth<levels>` or `@100ms` (`levels` = 5, 10, 20) | 1000 ms or 100 ms |
+| Diff depth | `<symbol>@depth` or `<symbol>@depth@100ms` | 1000 ms or 100 ms |
 
-**Dựng local order book — Spot** (đúng theo docs):
+**Building a local order book — Spot** (exactly per the docs):
 
-1. Mở kết nối tới `wss://stream.binance.com:9443/ws/bnbbtc@depth`.
-2. Đệm (buffer) các event nhận được. Ghi lại `U` của event đầu tiên.
-3. Lấy snapshot: `GET https://api.binance.com/api/v3/depth?symbol=BNBBTC&limit=5000`.
-4. Nếu `lastUpdateId` của snapshot **nhỏ hơn hẳn** `U` ở bước 2, quay lại bước 3.
-5. Trong buffer, bỏ mọi event có `u <= lastUpdateId`. Event đầu tiên còn lại phải có `lastUpdateId` nằm trong `[U; u]`.
-6. Gán local book = snapshot, update ID = `lastUpdateId`.
-7. Áp dụng lần lượt các event trong buffer rồi các event mới theo quy tắc:
-   - `u` < update ID của local book: bỏ qua event.
-   - `U` > update ID của local book + 1: đã mất event, **huỷ book và làm lại từ đầu**.
-   - Bình thường `U` của event sau = `u` của event trước + 1.
-   - Với mỗi mức giá trong `b` và `a`: số lượng là giá trị **tuyệt đối**; bằng 0 thì xoá mức giá; chưa có thì thêm.
-   - Đặt update ID của book = `u`.
+1. Open a connection to `wss://stream.binance.com:9443/ws/bnbbtc@depth`.
+2. Buffer the received events. Note the `U` of the first event.
+3. Get a snapshot: `GET https://api.binance.com/api/v3/depth?symbol=BNBBTC&limit=5000`.
+4. If the snapshot's `lastUpdateId` is **strictly less than** the `U` from step 2, go back to step 3.
+5. In the buffer, drop every event with `u <= lastUpdateId`. The first remaining event must have `lastUpdateId` within `[U; u]`.
+6. Set local book = snapshot, update ID = `lastUpdateId`.
+7. Apply the buffered events, then new events, in order, with these rules:
+   - `u` < the local book's update ID: ignore the event.
+   - `U` > the local book's update ID + 1: events were lost, **discard the book and restart from scratch**.
+   - Normally the next event's `U` = the previous event's `u` + 1.
+   - For each price level in `b` and `a`: the quantity is an **absolute** value; 0 means remove the level; a missing level is added.
+   - Set the book's update ID = `u`.
 
-Snapshot tối đa 5000 mức mỗi bên, nên các mức nằm ngoài snapshot chỉ được biết khi chúng thay đổi.
+The snapshot has at most 5000 levels per side, so levels outside the snapshot are only known when they change.
 
 #### USDⓈ-M Futures
 
-Nguồn [docs]:
-- Kết nối: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Connect>
-- Thông báo tách URL: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Important-WebSocket-Change-Notice>
-- Danh mục stream: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams>
+Sources [docs]:
+- Connection: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Connect>
+- URL split notice: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/Important-WebSocket-Change-Notice>
+- Stream catalog: <https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/ws-streams>
 
-Ba đường vào:
+Three entry points:
 
-| Nhóm | Base | Stream thuộc nhóm |
+| Group | Base | Streams in the group |
 |---|---|---|
-| Public (tần suất cao) | `wss://fstream.binance.com/public` | `<symbol>@bookTicker`, `!bookTicker`, `<symbol>@depth<levels>`, `<symbol>@depth` |
+| Public (high frequency) | `wss://fstream.binance.com/public` | `<symbol>@bookTicker`, `!bookTicker`, `<symbol>@depth<levels>`, `<symbol>@depth` |
 | Market | `wss://fstream.binance.com/market` | `<symbol>@aggTrade`, `<symbol>@markPrice`, `!markPrice@arr`, `<symbol>@kline_<interval>`, `<pair>_<contractType>@continuousKline_<interval>`, `<symbol>@miniTicker`, `!miniTicker@arr`, `<symbol>@ticker`, `!ticker@arr`, `<symbol>@forceOrder`, `!forceOrder@arr`, `<symbol>@compositeIndex`, `!contractInfo`, `!assetIndex@arr` |
 | Private | `wss://fstream.binance.com/private` | user data (`listenKey` + `events`) |
 
-- Hai kiểu truy cập: `.../market/ws/<streamName>` và `.../market/stream?streams=<s1>/<s2>`.
-- Ví dụ: `wss://fstream.binance.com/market/stream?streams=bnbusdt@aggTrade/btcusdt@markPrice`.
-- Kết nối **không có** tiền tố `/public`, `/market`, `/private` chỉ nhận được dữ liệu nhóm Public. Docs ghi URL cũ (`/ws`, `/stream`) bị gỡ bỏ sau **2026-04-23**; hãy luôn dùng URL có tiền tố.
-- Kết nối sống 24 giờ. Server gửi ping frame mỗi **3 phút**; không nhận pong trong **10 phút** thì ngắt. Pong tự phát được phép.
-- Giới hạn: **10 message gửi lên mỗi giây**; tối đa **1024 stream** mỗi kết nối.
-- Subscribe động giống Spot (`{"method":"SUBSCRIBE","params":[...],"id":...}`).
+- Two access styles: `.../market/ws/<streamName>` and `.../market/stream?streams=<s1>/<s2>`.
+- Example: `wss://fstream.binance.com/market/stream?streams=bnbusdt@aggTrade/btcusdt@markPrice`.
+- Connections **without** a `/public`, `/market`, `/private` prefix receive only Public-group data. The docs say the old URLs (`/ws`, `/stream`) are removed after **2026-04-23**; always use prefixed URLs.
+- Connections live 24 hours. The server sends a ping frame every **3 minutes**; if no pong arrives within **10 minutes** it disconnects. Unsolicited pongs are allowed.
+- Limits: **10 outgoing messages per second**; max **1024 streams** per connection.
+- Dynamic subscribe same as Spot (`{"method":"SUBSCRIBE","params":[...],"id":...}`).
 
-| Stream | Tần suất | Ghi chú |
+| Stream | Frequency | Notes |
 |---|---|---|
-| `<symbol>@aggTrade` | 100 ms | chỉ gộp market trade; không gồm insurance fund và ADL |
-| `<symbol>@markPrice`, `<symbol>@markPrice@1s` | 3 s hoặc 1 s | mark price, index price, funding rate, next funding time |
-| `<symbol>@kline_<interval>` | 250 ms | trường `x` cho biết nến đã đóng chưa |
-| `<symbol>@forceOrder`, `!forceOrder@arr` | 1000 ms | **chỉ đẩy lệnh thanh lý mới nhất** trong mỗi cửa sổ 1000 ms, không phải toàn bộ |
-| `<symbol>@ticker` / `!ticker@arr` | 2000 ms / 1000 ms | thống kê 24h trượt |
-| `<symbol>@depth`, `<symbol>@depth<levels>` (5, 10, 20) | 250 ms mặc định, `@500ms`, `@100ms` | phần mô tả nêu 250 ms nhưng enum tham số chỉ liệt kê 100 ms và 500 ms — mâu thuẫn trong docs, cần tự kiểm |
+| `<symbol>@aggTrade` | 100 ms | aggregates market trades only; excludes insurance fund and ADL |
+| `<symbol>@markPrice`, `<symbol>@markPrice@1s` | 3 s or 1 s | mark price, index price, funding rate, next funding time |
+| `<symbol>@kline_<interval>` | 250 ms | field `x` tells whether the candle is closed |
+| `<symbol>@forceOrder`, `!forceOrder@arr` | 1000 ms | **only pushes the latest liquidation order** in each 1000 ms window, not all of them |
+| `<symbol>@ticker` / `!ticker@arr` | 2000 ms / 1000 ms | rolling 24h statistics |
+| `<symbol>@depth`, `<symbol>@depth<levels>` (5, 10, 20) | 250 ms default, `@500ms`, `@100ms` | the description says 250 ms but the parameter enum lists only 100 ms and 500 ms — a contradiction in the docs, check yourself |
 | `<symbol>@bookTicker` | real-time | — |
 
-**Dựng local order book — Futures** (khác Spot ở trường `pu`):
+**Building a local order book — Futures** (differs from Spot by the `pu` field):
 
-1. Mở stream `wss://fstream.binance.com/public/stream?streams=btcusdt@depth`.
-2. Đệm các event. Cùng mức giá thì event đến sau ghi đè event trước.
-3. Lấy snapshot: `GET https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000`.
-4. Bỏ mọi event có `u` < `lastUpdateId` của snapshot.
-5. Event đầu tiên được xử lý phải thoả `U <= lastUpdateId` **và** `u >= lastUpdateId`.
-6. Từ đó, `pu` của mỗi event mới phải bằng `u` của event trước; nếu không, làm lại từ bước 3.
-7. Số lượng trong event là giá trị **tuyệt đối** của mức giá.
-8. Số lượng bằng 0 thì **xoá** mức giá.
-9. Nhận event xoá một mức giá không có trong local book là bình thường.
+1. Open the stream `wss://fstream.binance.com/public/stream?streams=btcusdt@depth`.
+2. Buffer the events. For the same price level, a later event overwrites an earlier one.
+3. Get a snapshot: `GET https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000`.
+4. Drop every event with `u` < the snapshot's `lastUpdateId`.
+5. The first processed event must satisfy `U <= lastUpdateId` **and** `u >= lastUpdateId`.
+6. From then on, each new event's `pu` must equal the previous event's `u`; otherwise restart from step 3.
+7. The quantity in an event is the **absolute** value for that price level.
+8. A quantity of 0 means **remove** the price level.
+9. Receiving an event that removes a price level not in the local book is normal.
 
-Nguồn: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/How-to-manage-a-local-order-book-correctly>
+Source: <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/websocket-market-streams/How-to-manage-a-local-order-book-correctly>
 
 #### COIN-M Futures
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Connect>
+Source [docs]: <https://developers.binance.com/en/docs/products/derivatives-trading-coin-futures/websocket-market-streams/Connect>
 
-Base `wss://dstream.binance.com`, truy cập `/ws/<streamName>` hoặc `/stream?streams=...`. Quy tắc 24 giờ, ping 3 phút / pong trong 10 phút, 10 message/giây, 1024 stream giống USDⓈ-M. Trang Connect của COIN-M chưa mô tả tiền tố `/public`, `/market`; việc COIN-M có tách URL giống USDⓈ-M hay không là **[chưa xác minh]**.
+Base `wss://dstream.binance.com`, access via `/ws/<streamName>` or `/stream?streams=...`. Same rules as USDⓈ-M: 24 hours, ping every 3 minutes / pong within 10 minutes, 10 messages/second, 1024 streams. The COIN-M Connect page does not yet describe `/public`, `/market` prefixes; whether COIN-M splits URLs like USDⓈ-M is **[unverified]**.
 
-### 1.6 Rate limit
+### 1.6 Rate limits
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/products/spot/rest-api> (mục Limits), <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info>
+Sources [docs]: <https://developers.binance.com/en/docs/products/spot/rest-api> (Limits section), <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/general-info>
 
-| Sản phẩm | REQUEST_WEIGHT | ORDERS | Khác |
+| Product | REQUEST_WEIGHT | ORDERS | Other |
 |---|---|---|---|
-| Spot | **6000 / phút / IP** | 100 / 10 giây; 200 000 / ngày (theo tài khoản) | RAW_REQUESTS 300 000 / 5 phút |
-| USDⓈ-M + COIN-M (dùng chung) | **2400 / phút / IP** | 1200 / phút; 300 / 10 giây (theo tài khoản) | — |
+| Spot | **6000 / minute / IP** | 100 / 10 seconds; 200 000 / day (per account) | RAW_REQUESTS 300 000 / 5 minutes |
+| USDⓈ-M + COIN-M (shared) | **2400 / minute / IP** | 1200 / minute; 300 / 10 seconds (per account) | — |
 
-Các con số trên đọc từ `rateLimits` của `GET /api/v3/exchangeInfo`, `/fapi/v1/exchangeInfo`, `/dapi/v1/exchangeInfo` [live]; đây là nguồn chuẩn, hãy đọc lại lúc khởi động chương trình vì Binance có thể đổi.
+These figures were read from `rateLimits` in `GET /api/v3/exchangeInfo`, `/fapi/v1/exchangeInfo`, `/dapi/v1/exchangeInfo` [live]; that is the canonical source, re-read it at program startup because Binance may change it.
 
-- Giới hạn weight tính theo **IP**, không theo API key. Giới hạn lệnh tính theo tài khoản.
-- Header phản hồi: `X-MBX-USED-WEIGHT-(intervalNum)(intervalLetter)`, ví dụ `X-MBX-USED-WEIGHT-1M`; lệnh: `X-MBX-ORDER-COUNT-10S`, `X-MBX-ORDER-COUNT-1M`. Chữ cái: `S`, `M`, `H`, `D`.
-- **HTTP 429**: vượt rate limit. Phải dừng gửi (back off).
-- **HTTP 418**: IP bị tự động ban vì tiếp tục gửi sau khi nhận 429. Thời gian ban tăng dần **từ 2 phút đến 3 ngày**.
-- Header `Retry-After` (giây) đi kèm 429 và 418: với 429 là thời gian chờ để tránh bị ban; với 418 là thời gian đến khi hết ban.
-- **HTTP 403**: vi phạm WAF.
-- Một số endpoint có giới hạn riêng ngoài weight: `fundingRate` + `fundingInfo` 500 request / 5 phút / IP; nhóm `/futures/data/*` 1000 request / 5 phút / IP.
-- Docs khuyến nghị dùng WebSocket để lấy dữ liệu thay vì poll REST.
+- Weight limits are per **IP**, not per API key. Order limits are per account.
+- Response headers: `X-MBX-USED-WEIGHT-(intervalNum)(intervalLetter)`, e.g. `X-MBX-USED-WEIGHT-1M`; orders: `X-MBX-ORDER-COUNT-10S`, `X-MBX-ORDER-COUNT-1M`. Letters: `S`, `M`, `H`, `D`.
+- **HTTP 429**: rate limit exceeded. You must stop sending (back off).
+- **HTTP 418**: IP auto-banned for continuing to send after a 429. Ban duration escalates **from 2 minutes to 3 days**.
+- The `Retry-After` header (seconds) comes with 429 and 418: for 429 it is the wait to avoid a ban; for 418 it is the time until the ban lifts.
+- **HTTP 403**: WAF violation.
+- Some endpoints have separate limits beyond weight: `fundingRate` + `fundingInfo` 500 requests / 5 minutes / IP; the `/futures/data/*` group 1000 requests / 5 minutes / IP.
+- The docs recommend using WebSocket for data instead of polling REST.
 
-### 1.7 Mã lỗi thường gặp
+### 1.7 Common error codes
 
-Nguồn [docs]: <https://developers.binance.com/en/docs/products/spot/errors>, <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/error-code>
+Sources [docs]: <https://developers.binance.com/en/docs/products/spot/errors>, <https://developers.binance.com/en/docs/products/derivatives-trading-usds-futures/error-code>
 
-Payload lỗi: `{"code": -1121, "msg": "Invalid symbol."}`.
+Error payload: `{"code": -1121, "msg": "Invalid symbol."}`.
 
-| Mã | Tên | Ý nghĩa |
+| Code | Name | Meaning |
 |---|---|---|
-| `-1003` | `TOO_MANY_REQUESTS` | Dùng quá nhiều request weight |
-| `-1007` | `TIMEOUT` | Hết thời gian chờ backend; trạng thái thực thi **không xác định** |
-| `-1008` | `SERVER_BUSY` | Server quá tải (Futures: bị throttle; lệnh reduce-only được miễn) |
-| `-1015` | `TOO_MANY_ORDERS` | Vượt giới hạn số lệnh |
-| `-1021` | `INVALID_TIMESTAMP` | Timestamp nằm ngoài `recvWindow` hoặc sớm hơn server quá 1000 ms |
-| `-1022` | `INVALID_SIGNATURE` | Chữ ký sai |
-| `-1100` | `ILLEGAL_CHARS` | Ký tự không hợp lệ trong tham số |
+| `-1003` | `TOO_MANY_REQUESTS` | Too much request weight used |
+| `-1007` | `TIMEOUT` | Backend timeout; execution status **unknown** |
+| `-1008` | `SERVER_BUSY` | Server overloaded (Futures: throttled; reduce-only orders exempt) |
+| `-1015` | `TOO_MANY_ORDERS` | Order count limit exceeded |
+| `-1021` | `INVALID_TIMESTAMP` | Timestamp outside `recvWindow` or more than 1000 ms ahead of the server |
+| `-1022` | `INVALID_SIGNATURE` | Bad signature |
+| `-1100` | `ILLEGAL_CHARS` | Illegal characters in a parameter |
 | `-1120` | — | `Invalid interval.` [live] |
-| `-1121` | `BAD_SYMBOL` | Symbol không hợp lệ |
-| `-2014` | `BAD_API_KEY_FMT` | Sai định dạng API key |
-| `-2015` | `REJECTED_MBX_KEY` | API key, IP hoặc quyền không hợp lệ cho thao tác |
+| `-1121` | `BAD_SYMBOL` | Invalid symbol |
+| `-2014` | `BAD_API_KEY_FMT` | Bad API key format |
+| `-2015` | `REJECTED_MBX_KEY` | Invalid API key, IP, or permissions for the action |
 
-HTTP 5XX và 503 kèm thông báo "Unknown error..." trên Futures nghĩa là trạng thái **không xác định**, không được coi là thất bại; phải kiểm tra lại qua user data stream hoặc truy vấn lệnh. [docs]
+HTTP 5XX and 503 with the message "Unknown error..." on Futures mean the status is **unknown**, not a failure; you must re-check via the user data stream or an order query. [docs]
 
-### 1.8 Xác thực, quyền API key, bảo mật
+### 1.8 Authentication, API key permissions, security
 
-Nguồn [docs]: general-info ở mục 1.1; quản lý API key: <https://www.binance.com/en/support/faq/detail/360002502072>
+Sources [docs]: general-info in section 1.1; API key management: <https://www.binance.com/en/support/faq/detail/360002502072>
 
-- API key gửi qua header **`X-MBX-APIKEY`**. Key và secret phân biệt hoa thường.
-- Security type: `NONE` (công khai), `MARKET_DATA` và `USER_STREAM` (chỉ cần API key), `TRADE` và `USER_DATA` (cần API key **và chữ ký** — gọi là `SIGNED`).
-- Chữ ký `SIGNED`: thêm tham số `timestamp` (ms) và `signature`. `signature` = HMAC SHA256 với `secretKey` làm khoá, trên `totalParams` (query string nối với request body); đặt `signature` ở cuối. Không phân biệt hoa thường.
-- `recvWindow`: mặc định 5000 ms; Spot tối đa 60000 ms. Server chấp nhận khi `timestamp < serverTime + 1000` và `serverTime - timestamp <= recvWindow`. Đồng bộ đồng hồ với `GET /api/v3/time` hoặc `GET /fapi/v1/time`.
-- Loại key: HMAC (sàn sinh, có secret), **Ed25519** và RSA (tự sinh cặp khoá, nộp public key). Docs Spot khuyến nghị Ed25519.
-- Quyền và ràng buộc theo trang hỗ trợ của Binance:
-  - Key HMAC **không giới hạn IP chỉ có quyền đọc** (áp dụng từ 2023-01-30).
-  - Quyền rút tiền yêu cầu giới hạn IP (IPv4).
-  - Danh sách đầy đủ tên các quyền và số key tối đa: **[chưa xác minh]** (trang hỗ trợ không liệt kê hết).
+- The API key is sent in the **`X-MBX-APIKEY`** header. Key and secret are case-sensitive.
+- Security types: `NONE` (public), `MARKET_DATA` and `USER_STREAM` (API key only), `TRADE` and `USER_DATA` (API key **and signature** — called `SIGNED`).
+- `SIGNED` signature: add the parameters `timestamp` (ms) and `signature`. `signature` = HMAC SHA256 keyed with `secretKey`, over `totalParams` (query string concatenated with the request body); put `signature` last. Case-insensitive.
+- `recvWindow`: default 5000 ms; Spot max 60000 ms. The server accepts when `timestamp < serverTime + 1000` and `serverTime - timestamp <= recvWindow`. Sync the clock with `GET /api/v3/time` or `GET /fapi/v1/time`.
+- Key types: HMAC (exchange-generated, with secret), **Ed25519** and RSA (generate your own key pair, submit the public key). The Spot docs recommend Ed25519.
+- Permissions and constraints per Binance's support page:
+  - HMAC keys **without an IP restriction are read-only** (since 2023-01-30).
+  - Withdrawal permission requires an IP restriction (IPv4).
+  - Full list of permission names and maximum number of keys: **[unverified]** (the support page does not list them all).
 
-Khuyến nghị cho dự án này:
-- Nghiên cứu và thu thập dữ liệu: **không cần key**. Nếu cần key (ví dụ `historicalTrades`), tạo key **chỉ đọc**.
-- Key giao dịch: bật IP whitelist, chỉ bật đúng quyền cần dùng, **không bật quyền rút tiền**.
-- Thử nghiệm đặt lệnh trên testnet/demo trước, bằng key riêng của môi trường đó.
-- Không commit key vào git; đọc từ biến môi trường hoặc trình quản lý secret.
+Recommendations for this project:
+- Research and data collection: **no key needed**. If a key is needed (e.g. `historicalTrades`), create a **read-only** key.
+- Trading keys: enable IP whitelist, enable only the permissions needed, **do not enable withdrawal**.
+- Test order placement on testnet/demo first, with a key specific to that environment.
+- Never commit keys to git; read them from environment variables or a secret manager.
 
-Nhóm endpoint giao dịch và tài khoản (chỉ liệt kê, không hướng dẫn chi tiết):
+Trading and account endpoint groups (listed only, no detailed guide):
 
-| Nhóm | Spot | USDⓈ-M Futures |
+| Group | Spot | USDⓈ-M Futures |
 |---|---|---|
-| Đặt / huỷ / truy vấn lệnh | `/api/v3/order`, `/api/v3/openOrders`, `/api/v3/allOrders` | `/fapi/v1/order`, `/fapi/v1/batchOrders`, `/fapi/v1/allOrders`, `/fapi/v1/algoOrder` |
-| Tài khoản, số dư, vị thế | `/api/v3/account`, `/api/v3/myTrades` | `/fapi/v3/account`, `/fapi/v3/balance`, `/fapi/v3/positionRisk`, `/fapi/v1/userTrades`, `/fapi/v1/income` |
-| User data stream | qua WebSocket API (`userDataStream.*`) | `/fapi/v1/listenKey` |
-| Ví, nạp rút | `/sapi/v1/capital/...` (ví dụ `/sapi/v1/capital/withdraw/apply`) | — |
+| Place / cancel / query orders | `/api/v3/order`, `/api/v3/openOrders`, `/api/v3/allOrders` | `/fapi/v1/order`, `/fapi/v1/batchOrders`, `/fapi/v1/allOrders`, `/fapi/v1/algoOrder` |
+| Account, balances, positions | `/api/v3/account`, `/api/v3/myTrades` | `/fapi/v3/account`, `/fapi/v3/balance`, `/fapi/v3/positionRisk`, `/fapi/v1/userTrades`, `/fapi/v1/income` |
+| User data stream | via WebSocket API (`userDataStream.*`) | `/fapi/v1/listenKey` |
+| Wallet, deposits/withdrawals | `/sapi/v1/capital/...` (e.g. `/sapi/v1/capital/withdraw/apply`) | — |
 
-Mục lục đầy đủ: <https://developers.binance.com/en/docs/llms.txt>.
+Full index: <https://developers.binance.com/en/docs/llms.txt>.
 
-### 1.9 Dữ liệu lịch sử tải hàng loạt — data.binance.vision
+### 1.9 Bulk historical data — data.binance.vision
 
-Nguồn [docs]: <https://github.com/binance/binance-public-data>, trình duyệt file: <https://data.binance.vision>
+Sources [docs]: <https://github.com/binance/binance-public-data>, file browser: <https://data.binance.vision>
 
-- Mẫu URL (ví dụ trong README): `https://data.binance.vision/data/spot/monthly/klines/ADABKRW/1h/ADABKRW-1h-2020-08.zip`.
-- Mỗi file `.zip` có file `.CHECKSUM` cùng thư mục; kiểm bằng `shasum -a 256 -c <file>.zip.CHECKSUM` (macOS) hoặc `sha256sum -c` (Linux).
-- File daily có vào **ngày hôm sau**; file monthly có vào **thứ Hai đầu tiên của tháng**.
-- Interval klines: `1s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1mo` (dùng `1mo` thay cho `1M`).
-- **Dữ liệu Spot từ 2025-01-01 dùng timestamp micro giây**; Futures vẫn mili giây. Phải xử lý khi nối chuỗi dữ liệu qua mốc này.
-- File đã lưu có thể được cập nhật lại về sau.
+- URL pattern (README example): `https://data.binance.vision/data/spot/monthly/klines/ADABKRW/1h/ADABKRW-1h-2020-08.zip`.
+- Each `.zip` file has a `.CHECKSUM` file in the same folder; verify with `shasum -a 256 -c <file>.zip.CHECKSUM` (macOS) or `sha256sum -c` (Linux).
+- Daily files appear **the next day**; monthly files appear **on the first Monday of the month**.
+- Kline intervals: `1s`, `1m`, `3m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, `8h`, `12h`, `1d`, `3d`, `1w`, `1mo` (`1mo` instead of `1M`).
+- **Spot data from 2025-01-01 uses microsecond timestamps**; Futures is still milliseconds. Handle this when stitching series across that date.
+- Published files may be updated later.
 
-Cột CSV:
+CSV columns:
 
-| File | Cột |
+| File | Columns |
 |---|---|
-| Klines Spot và USDⓈ-M | open time, open, high, low, close, volume, close time, quote asset volume, number of trades, taker buy base asset volume, taker buy quote asset volume, ignore |
-| Klines COIN-M | open time, open, high, low, close, volume, close time, base asset volume, number of trades, taker buy volume, taker buy base asset volume, ignore |
-| aggTrades Spot | agg tradeId, price, quantity, first tradeId, last tradeId, timestamp, was buyer maker, was best price match |
-| aggTrades Futures | như Spot nhưng không có cột cuối |
-| trades Spot | trade Id, price, qty, quoteQty, time, isBuyerMaker, isBestMatch |
-| trades USDⓈ-M | trade Id, price, qty, quoteQty, time, isBuyerMaker |
+| Spot and USDⓈ-M klines | open time, open, high, low, close, volume, close time, quote asset volume, number of trades, taker buy base asset volume, taker buy quote asset volume, ignore |
+| COIN-M klines | open time, open, high, low, close, volume, close time, base asset volume, number of trades, taker buy volume, taker buy base asset volume, ignore |
+| Spot aggTrades | agg tradeId, price, quantity, first tradeId, last tradeId, timestamp, was buyer maker, was best price match |
+| Futures aggTrades | same as Spot without the last column |
+| Spot trades | trade Id, price, qty, quoteQty, time, isBuyerMaker, isBestMatch |
+| USDⓈ-M trades | trade Id, price, qty, quoteQty, time, isBuyerMaker |
 
-Các đường dẫn đã kiểm bằng HTTP HEAD ngày 2026-11-13 (README không liệt kê hết nên đây là [live], không phải [docs]):
+Paths checked with HTTP HEAD on 2026-11-13 (the README does not list them all, so these are [live], not [docs]):
 
-| Đường dẫn dưới `https://data.binance.vision/data/` | Kết quả |
+| Path under `https://data.binance.vision/data/` | Result |
 |---|---|
 | `spot/daily/klines/BTCUSDT/1m/BTCUSDT-1m-2026-11-10.zip` (+ `.CHECKSUM`) | 200 |
 | `spot/daily/trades/BTCUSDT/BTCUSDT-trades-2026-11-10.zip` | 200 |
@@ -357,286 +357,286 @@ Các đường dẫn đã kiểm bằng HTTP HEAD ngày 2026-11-13 (README khôn
 | `futures/um/daily/metrics/BTCUSDT/BTCUSDT-metrics-2026-11-10.zip` | 200 |
 | `futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2026-10.zip` | 200 |
 | `futures/cm/daily/klines/BTCUSD_PERP/1m/BTCUSD_PERP-1m-2026-11-10.zip` | 200 |
-| `futures/um/daily/bookTicker/...`, `futures/um/daily/liquidationSnapshot/...`, `futures/cm/monthly/fundingRate/...` | 404 cho ngày/tháng đã thử |
+| `futures/um/daily/bookTicker/...`, `futures/um/daily/liquidationSnapshot/...`, `futures/cm/monthly/fundingRate/...` | 404 for the days/months tried |
 
-File `metrics` là nguồn để bù cho giới hạn 30 ngày của open interest và long/short ratio qua REST; nội dung cột của `metrics` và `bookDepth` là **[chưa xác minh]** (chưa tải file về đọc).
+The `metrics` files are the way around the 30-day REST limit for open interest and long/short ratio; the column contents of `metrics` and `bookDepth` are **[unverified]** (files not downloaded and read).
 
-### 1.10 Hạn chế theo khu vực
+### 1.10 Regional restrictions
 
-- Tài liệu API của Binance **không nêu** danh sách khu vực bị hạn chế. Trang "List of Prohibited Countries" (<https://www.binance.com/en/legal/list-of-prohibited-countries>) tồn tại nhưng nội dung không đọc được bằng công cụ tự động: **[chưa xác minh]**.
-- Từ máy phát triển của dự án (2026-11-13), `api.binance.com`, `fapi.binance.com`, `dapi.binance.com`, `data-api.binance.vision` đều trả 200. [live] Server đặt ở khu vực khác có thể bị chặn; kiểm tra bằng `GET /api/v3/ping` trước khi triển khai.
+- Binance's API docs **do not list** restricted regions. The "List of Prohibited Countries" page (<https://www.binance.com/en/legal/list-of-prohibited-countries>) exists but its content could not be read by automated tools: **[unverified]**.
+- From the project's development machine (2026-11-13), `api.binance.com`, `fapi.binance.com`, `dapi.binance.com`, `data-api.binance.vision` all returned 200. [live] Servers in other regions may be blocked; check with `GET /api/v3/ping` before deploying.
 
 ---
 
 ## 2. OKX
 
-Nguồn [docs] cho toàn bộ mục này: <https://www.okx.com/docs-v5/en/> (một trang duy nhất; các link bên dưới là anchor). Bản tiếng Việt của trang giới thiệu: <https://www.okx.com/vi/okx-api>.
+Source [docs] for this whole section: <https://www.okx.com/docs-v5/en/> (a single page; the links below are anchors). Vietnamese version of the intro page: <https://www.okx.com/vi/okx-api>.
 
-### 2.1 Base URL và phiên bản
+### 2.1 Base URLs and versions
 
-Phiên bản API: **v5** (tiền tố `/api/v5`, WebSocket `/ws/v5`).
+API version: **v5** (prefix `/api/v5`, WebSocket `/ws/v5`).
 
-| Môi trường | REST | WebSocket public | WebSocket private | WebSocket business |
+| Environment | REST | WebSocket public | WebSocket private | WebSocket business |
 |---|---|---|---|---|
 | Production | `https://openapi.okx.com` | `wss://ws.okx.com/ws/v5/public` | `wss://ws.okx.com/ws/v5/private` | `wss://ws.okx.com/ws/v5/business` |
 | Demo trading | `https://openapi.okx.com` + header `x-simulated-trading: 1` | `wss://wspap.okx.com/ws/v5/public` | `wss://wspap.okx.com/ws/v5/private` | `wss://wspap.okx.com/ws/v5/business` |
 
-Nguồn: <https://www.okx.com/docs-v5/en/#overview-production-trading-services>, <https://www.okx.com/docs-v5/en/#overview-demo-trading-services>
+Sources: <https://www.okx.com/docs-v5/en/#overview-production-trading-services>, <https://www.okx.com/docs-v5/en/#overview-demo-trading-services>
 
-- Demo trading dùng **API key riêng** tạo trong mục Demo Trading; một số chức năng (nạp, rút...) không hỗ trợ.
-- Host cũ `https://www.okx.com/api/v5/...` vẫn trả dữ liệu khi gọi thử [live], nhưng docs hiện chỉ liệt kê `openapi.okx.com`; dùng host mới.
-- Docs thông báo cổng WebSocket **8443 sắp bị gỡ**; dùng cổng 443 (mặc định).
-- Timestamp trong dữ liệu: Unix **mili giây**, dạng **chuỗi**. Mọi số (giá, khối lượng) cũng là chuỗi.
-- Phản hồi REST luôn có dạng `{"code": "0", "msg": "", "data": [...]}`; `code` khác `"0"` là lỗi, kể cả khi HTTP status là 200.
+- Demo trading uses **separate API keys** created in the Demo Trading section; some features (deposits, withdrawals...) are not supported.
+- The old host `https://www.okx.com/api/v5/...` still returns data in test calls [live], but the docs now list only `openapi.okx.com`; use the new host.
+- The docs announce WebSocket port **8443 will be removed soon**; use port 443 (default).
+- Timestamps in data: Unix **milliseconds**, as **strings**. All numbers (price, volume) are strings too.
+- REST responses always look like `{"code": "0", "msg": "", "data": [...]}`; a `code` other than `"0"` is an error, even when the HTTP status is 200.
 
-### 2.2 Định danh instrument
+### 2.2 Instrument identifiers
 
-Nguồn: <https://www.okx.com/docs-v5/en/#overview-general-info>
+Source: <https://www.okx.com/docs-v5/en/#overview-general-info>
 
-| Loại (`instType`) | Ví dụ `instId` |
+| Type (`instType`) | Example `instId` |
 |---|---|
 | `SPOT` | `BTC-USDT` |
 | `SWAP` (perpetual) USDT-margined | `BTC-USDT-SWAP` |
 | `SWAP` coin-margined | `BTC-USD-SWAP` |
-| `FUTURES` (có kỳ hạn) | `BTC-USDT-250808`, `BTC-USD-250808` |
-| `OPTION` | theo `instFamily`, ví dụ họ `BTC-USD` |
+| `FUTURES` (dated) | `BTC-USDT-250808`, `BTC-USD-250808` |
+| `OPTION` | by `instFamily`, e.g. family `BTC-USD` |
 
-`uly` là index (ví dụ `BTC-USD`); `instFamily` là họ instrument (ví dụ `BTC-USDT`). Danh sách instrument: `GET /api/v5/public/instruments?instType=SWAP` (20 request / 2 giây, theo IP + instType).
+`uly` is the index (e.g. `BTC-USD`); `instFamily` is the instrument family (e.g. `BTC-USDT`). Instrument list: `GET /api/v5/public/instruments?instType=SWAP` (20 requests / 2 seconds, per IP + instType).
 
-### 2.3 Endpoint dữ liệu thị trường công khai
+### 2.3 Public market data endpoints
 
-Rate limit của mọi endpoint dưới đây tính theo **IP** (một số theo IP + instId), không cần API key.
+Rate limits for all endpoints below are per **IP** (some per IP + instId); no API key required.
 
-| Dữ liệu | Endpoint | Rate limit | Tham số chính | Giới hạn / ghi chú |
+| Data | Endpoint | Rate limit | Main parameters | Limits / notes |
 |---|---|---|---|---|
-| Candles gần đây | `GET /api/v5/market/candles` | 40 / 2 s | `instId`*, `bar`, `after`, `before`, `limit` | mặc định 100, tối đa **300**; chỉ lấy được **1440 nến mới nhất** |
-| Candles lịch sử | `GET /api/v5/market/history-candles` | 20 / 2 s | như trên | 100 / **300** [docs]; dữ liệu "những năm gần đây"; nến `1s` chỉ 3 tháng |
-| Mark price candles | `GET /api/v5/market/mark-price-candles`, `.../history-mark-price-candles` | 20 / 2 s | `instId`*, `bar`, `after`, `before`, `limit` | tối đa 100 |
-| Index candles | `GET /api/v5/market/index-candles`, `.../history-index-candles` | 20 / 2 s, lịch sử 10 / 2 s | `instId`* (index, ví dụ `BTC-USD`) | tối đa 100 |
-| Order book | `GET /api/v5/market/books` | 40 / 2 s | `instId`*, `sz` | `sz` tối đa **400** mỗi bên, mặc định 1; cập nhật mỗi 50 ms |
-| Order book đầy đủ | `GET /api/v5/market/books-full` | 10 / 2 s | `instId`*, `sz` | `sz` tối đa **5000** mỗi bên; cập nhật mỗi 1 s |
-| Trades gần nhất | `GET /api/v5/market/trades` | 100 / 2 s | `instId`*, `limit` | 100 / **500** |
-| Trades lịch sử | `GET /api/v5/market/history-trades` | 20 / 2 s | `instId`*, `type` (1 = tradeId, 2 = timestamp), `after`, `before`, `limit` | tối đa và mặc định **100**; chỉ **3 tháng** gần nhất |
-| Ticker một instrument | `GET /api/v5/market/ticker` | 20 / 2 s | `instId`* | — |
-| Ticker cả loại | `GET /api/v5/market/tickers` | 20 / 2 s | `instType`*, `instFamily` | — |
-| Funding rate hiện tại | `GET /api/v5/public/funding-rate` | 10 / 2 s (IP + instId) | `instId`* (hoặc `ANY`) | — |
-| Funding rate lịch sử | `GET /api/v5/public/funding-rate-history` | 10 / 2 s (IP + instId) | `instId`*, `before`, `after`, `limit` | tối đa và mặc định **400**; chỉ **3 tháng** |
-| Open interest hiện tại | `GET /api/v5/public/open-interest` | 20 / 2 s | `instType`*, `instFamily`, `instId` | trả `oi`, `oiCcy`, `oiUsd` [live] |
-| Open interest lịch sử | `GET /api/v5/rubik/stat/contracts/open-interest-history` | 10 / 2 s | `instId`*, `period`, `begin`, `end`, `limit` | tối đa **100**; 1440 bản ghi mới nhất |
-| Long/short ratio theo hợp đồng | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio-contract` | 5 / 2 s | `instId`*, `period`, `begin`, `end`, `limit` | tối đa 100; 1440 bản ghi mới nhất |
-| Long/short ratio top trader (tài khoản / vị thế) | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio-contract-top-trader`, `.../long-short-position-ratio-contract-top-trader` | 5 / 2 s | như trên | top 5% trader theo giá trị vị thế |
-| Long/short ratio theo đồng coin | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio` | 5 / 2 s | `ccy`*, `begin`, `end`, `period` (`5m`, `1H`, `1D`) | `5m` tối đa 2 ngày, `1H` 30 ngày, `1D` 180 ngày |
-| Taker volume theo hợp đồng | `GET /api/v5/rubik/stat/taker-volume-contract` | 5 / 2 s | `instId`*, `period`, `unit` (0 coin, 1 hợp đồng, 2 USD), `begin`, `end`, `limit` | 1440 bản ghi mới nhất |
-| Taker volume theo đồng coin | `GET /api/v5/rubik/stat/taker-volume` | 5 / 2 s | `ccy`*, `instType`* (`SPOT`/`CONTRACTS`), `period` | giới hạn thời gian như long/short theo coin |
-| Open interest + volume theo coin | `GET /api/v5/rubik/stat/contracts/open-interest-volume` | 5 / 2 s | `ccy`*, `period` | — |
+| Recent candles | `GET /api/v5/market/candles` | 40 / 2 s | `instId`*, `bar`, `after`, `before`, `limit` | default 100, max **300**; only the **latest 1440 candles** are available |
+| Historical candles | `GET /api/v5/market/history-candles` | 20 / 2 s | same as above | 100 / **300** [docs]; data for "recent years"; `1s` candles only 3 months |
+| Mark price candles | `GET /api/v5/market/mark-price-candles`, `.../history-mark-price-candles` | 20 / 2 s | `instId`*, `bar`, `after`, `before`, `limit` | max 100 |
+| Index candles | `GET /api/v5/market/index-candles`, `.../history-index-candles` | 20 / 2 s, history 10 / 2 s | `instId`* (index, e.g. `BTC-USD`) | max 100 |
+| Order book | `GET /api/v5/market/books` | 40 / 2 s | `instId`*, `sz` | `sz` max **400** per side, default 1; updated every 50 ms |
+| Full order book | `GET /api/v5/market/books-full` | 10 / 2 s | `instId`*, `sz` | `sz` max **5000** per side; updated every 1 s |
+| Recent trades | `GET /api/v5/market/trades` | 100 / 2 s | `instId`*, `limit` | 100 / **500** |
+| Historical trades | `GET /api/v5/market/history-trades` | 20 / 2 s | `instId`*, `type` (1 = tradeId, 2 = timestamp), `after`, `before`, `limit` | max and default **100**; last **3 months** only |
+| Single instrument ticker | `GET /api/v5/market/ticker` | 20 / 2 s | `instId`* | — |
+| Tickers by type | `GET /api/v5/market/tickers` | 20 / 2 s | `instType`*, `instFamily` | — |
+| Current funding rate | `GET /api/v5/public/funding-rate` | 10 / 2 s (IP + instId) | `instId`* (or `ANY`) | — |
+| Funding rate history | `GET /api/v5/public/funding-rate-history` | 10 / 2 s (IP + instId) | `instId`*, `before`, `after`, `limit` | max and default **400**; **3 months** only |
+| Current open interest | `GET /api/v5/public/open-interest` | 20 / 2 s | `instType`*, `instFamily`, `instId` | returns `oi`, `oiCcy`, `oiUsd` [live] |
+| Open interest history | `GET /api/v5/rubik/stat/contracts/open-interest-history` | 10 / 2 s | `instId`*, `period`, `begin`, `end`, `limit` | max **100**; latest 1440 records |
+| Long/short ratio by contract | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio-contract` | 5 / 2 s | `instId`*, `period`, `begin`, `end`, `limit` | max 100; latest 1440 records |
+| Top trader long/short ratio (accounts / positions) | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio-contract-top-trader`, `.../long-short-position-ratio-contract-top-trader` | 5 / 2 s | same as above | top 5% traders by position value |
+| Long/short ratio by coin | `GET /api/v5/rubik/stat/contracts/long-short-account-ratio` | 5 / 2 s | `ccy`*, `begin`, `end`, `period` (`5m`, `1H`, `1D`) | `5m` max 2 days, `1H` 30 days, `1D` 180 days |
+| Taker volume by contract | `GET /api/v5/rubik/stat/taker-volume-contract` | 5 / 2 s | `instId`*, `period`, `unit` (0 coin, 1 contracts, 2 USD), `begin`, `end`, `limit` | latest 1440 records |
+| Taker volume by coin | `GET /api/v5/rubik/stat/taker-volume` | 5 / 2 s | `ccy`*, `instType`* (`SPOT`/`CONTRACTS`), `period` | same time limits as long/short by coin |
+| Open interest + volume by coin | `GET /api/v5/rubik/stat/contracts/open-interest-volume` | 5 / 2 s | `ccy`*, `period` | — |
 | Mark price | `GET /api/v5/public/mark-price` | 10 / 2 s (IP + instId) | `instType`*, `instFamily`, `instId` | — |
-| Index ticker | `GET /api/v5/market/index-tickers` | 20 / 2 s | `instId` hoặc `quoteCcy` | — |
-| Premium lịch sử | `GET /api/v5/public/premium-history` | 20 / 2 s | `instId`*, `after`, `before`, `limit` | tối đa 100; 6 tháng |
-| Thời gian server | `GET /api/v5/public/time` | 10 / 2 s | — | — |
+| Index ticker | `GET /api/v5/market/index-tickers` | 20 / 2 s | `instId` or `quoteCcy` | — |
+| Premium history | `GET /api/v5/public/premium-history` | 20 / 2 s | `instId`*, `after`, `before`, `limit` | max 100; 6 months |
+| Server time | `GET /api/v5/public/time` | 10 / 2 s | — | — |
 
-Anchor nguồn: `#order-book-trading-market-data` (candles, books, trades, ticker), `#public-data-rest-api` (funding, open interest, mark price), `#trading-statistics-rest-api` (nhóm `rubik`). Ví dụ: <https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history>, <https://www.okx.com/docs-v5/en/#public-data-rest-api-get-funding-rate-history>, <https://www.okx.com/docs-v5/en/#trading-statistics-rest-api-get-contract-open-interest-history>.
+Source anchors: `#order-book-trading-market-data` (candles, books, trades, ticker), `#public-data-rest-api` (funding, open interest, mark price), `#trading-statistics-rest-api` (the `rubik` group). Examples: <https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history>, <https://www.okx.com/docs-v5/en/#public-data-rest-api-get-funding-rate-history>, <https://www.okx.com/docs-v5/en/#trading-statistics-rest-api-get-contract-open-interest-history>.
 
-**Giá trị `bar` của candles:** `1m`, `3m`, `5m`, `15m`, `30m`, `1H`, `2H`, `4H`; mở nến theo UTC+8: `6H`, `12H`, `1D`, `2D`, `3D`, `1W`, `1M`, `3M`; mở nến theo UTC+0: `6Hutc`, `12Hutc`, `1Dutc`, `2Dutc`, `3Dutc`, `1Wutc`, `1Mutc`, `3Mutc`. `history-candles` có thêm `1s`. Mặc định `1m`. Chữ `H`, `D`, `W`, `M` viết **hoa**.
+**Candle `bar` values:** `1m`, `3m`, `5m`, `15m`, `30m`, `1H`, `2H`, `4H`; candles opening on UTC+8: `6H`, `12H`, `1D`, `2D`, `3D`, `1W`, `1M`, `3M`; candles opening on UTC+0: `6Hutc`, `12Hutc`, `1Dutc`, `2Dutc`, `3Dutc`, `1Wutc`, `1Mutc`, `3Mutc`. `history-candles` additionally has `1s`. Default `1m`. The letters `H`, `D`, `W`, `M` are **uppercase**.
 
-> Bẫy: `1D` của OKX mở nến lúc 00:00 **UTC+8**, không khớp với nến `1d` của Binance (UTC). Muốn khớp phải dùng `1Dutc`.
+> Trap: OKX `1D` opens at 00:00 **UTC+8**, which does not line up with Binance `1d` candles (UTC). Use `1Dutc` to match.
 
-**Giá trị `period` của nhóm `rubik` theo hợp đồng:** `5m`, `15m`, `30m`, `1H`, `2H`, `4H`, cộng `6H`…`3M` và biến thể `utc` như trên, thêm `5D`/`5Dutc`. Mặc định `5m`.
+**`period` values for the per-contract `rubik` group:** `5m`, `15m`, `30m`, `1H`, `2H`, `4H`, plus `6H`…`3M` and the `utc` variants as above, plus `5D`/`5Dutc`. Default `5m`.
 
-**Cấu trúc một nến:** `[ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]`. `vol` tính bằng số hợp đồng với phái sinh, bằng đồng base với Spot. `confirm` = `"0"` là nến chưa đóng, `"1"` là đã đóng. [docs][live]
+**Candle structure:** `[ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]`. `vol` is in contracts for derivatives, in base currency for Spot. `confirm` = `"0"` means the candle is not closed, `"1"` means closed. [docs][live]
 
-**Phân trang (ngược với Binance):**
-- Dữ liệu trả theo thứ tự **mới trước, cũ sau**.
-- `after=<ts>`: lấy bản ghi **cũ hơn** `ts`. `before=<ts>`: lấy bản ghi **mới hơn** `ts`.
-- Tải lịch sử: bắt đầu từ thời điểm kết thúc, đặt `after` = `ts` của bản ghi cũ nhất trong trang vừa nhận, lặp đến khi trang rỗng hoặc vượt mốc bắt đầu.
-- Gửi `limit` lớn hơn tối đa không báo lỗi mà chỉ trả số bản ghi tối đa (thử `limit=301` trên `history-candles`). [live]
+**Pagination (the reverse of Binance):**
+- Data is returned **newest first, oldest last**.
+- `after=<ts>`: fetch records **older** than `ts`. `before=<ts>`: fetch records **newer** than `ts`.
+- Downloading history: start from the end time, set `after` = the `ts` of the oldest record in the page just received, repeat until the page is empty or passes the start time.
+- Sending a `limit` above the maximum does not error; it just returns the maximum number of records (tried `limit=301` on `history-candles`). [live]
 
-**Liquidation:** tài liệu hiện hành **không còn mục REST** cho liquidation orders; chỉ có WebSocket channel `liquidation-orders`. Gọi thử `GET /api/v5/public/liquidation-orders?instType=SWAP&instFamily=BTC-USDT&state=filled` vẫn trả dữ liệu [live], nhưng vì không còn trong docs nên coi là **[chưa xác minh]** và không nên phụ thuộc.
+**Liquidation:** the current docs **no longer have a REST section** for liquidation orders; there is only the WebSocket channel `liquidation-orders`. A test call to `GET /api/v5/public/liquidation-orders?instType=SWAP&instFamily=BTC-USDT&state=filled` still returns data [live], but since it is no longer in the docs, treat it as **[unverified]** and do not depend on it.
 
 ### 2.4 WebSocket
 
-Nguồn: <https://www.okx.com/docs-v5/en/#overview-websocket>
+Source: <https://www.okx.com/docs-v5/en/#overview-websocket>
 
-- **Chọn đúng URL theo channel**: channel public ở `/ws/v5/public`; **candlesticks và all-trades ở `/ws/v5/business`**; channel riêng tư ở `/ws/v5/private` (cần login).
+- **Pick the correct URL per channel**: public channels on `/ws/v5/public`; **candlesticks and all-trades on `/ws/v5/business`**; private channels on `/ws/v5/private` (login required).
 - Subscribe:
   ```json
   {"id": "1512", "op": "subscribe", "args": [{"channel": "tickers", "instId": "BTC-USDT"}]}
   ```
-  Huỷ bằng `"op": "unsubscribe"`. `id` tuỳ chọn, tối đa 32 ký tự chữ-số. Tổng độ dài các channel trong một request không quá 64 KB.
-- **Ping/pong**: kết nối tự ngắt nếu không có subscription hoặc không có dữ liệu đẩy trong hơn **30 giây**. Cách giữ: đặt timer N giây (N < 30) mỗi khi nhận message; hết timer thì gửi **chuỗi văn bản `ping`** và chờ nhận chuỗi `pong`; không nhận được thì reconnect. Đây là text message, không phải ping frame của giao thức.
-- **Giới hạn**:
-  - Kết nối mới: **3 request / giây** theo IP.
-  - `subscribe` / `unsubscribe` / `login`: tổng **480 lần / giờ** mỗi kết nối.
-  - Channel riêng tư (orders, account, positions...): tối đa **30 kết nối mỗi channel mỗi sub-account**.
-  - Giới hạn tổng số kết nối public mỗi IP: **[chưa xác minh]** (docs không nêu).
-- Thông báo `{"event": "notice", "code": "64008", ...}` được gửi 60 giây trước khi server ngắt để nâng cấp; nên mở kết nối mới ngay.
+  Cancel with `"op": "unsubscribe"`. `id` is optional, up to 32 alphanumeric characters. Total length of channels in one request must not exceed 64 KB.
+- **Ping/pong**: the connection drops automatically if there is no subscription or no pushed data for more than **30 seconds**. To keep it alive: set an N-second timer (N < 30) on every received message; when it fires, send the **text string `ping`** and wait for the string `pong`; if none arrives, reconnect. This is a text message, not a protocol ping frame.
+- **Limits**:
+  - New connections: **3 requests / second** per IP.
+  - `subscribe` / `unsubscribe` / `login`: **480 total per hour** per connection.
+  - Private channels (orders, account, positions...): max **30 connections per channel per sub-account**.
+  - Total public connections per IP: **[unverified]** (not stated in the docs).
+- A `{"event": "notice", "code": "64008", ...}` notice is sent 60 seconds before the server disconnects for an upgrade; open a new connection right away.
 
-| Dữ liệu | Channel | URL | Tần suất |
+| Data | Channel | URL | Frequency |
 |---|---|---|---|
-| Ticker | `tickers` | public | nhanh nhất 1 lần / 100 ms |
-| Candles | `candle<bar>` ví dụ `candle1m`, `candle1H` | **business** | nhanh nhất 1 lần / giây |
-| Trades (có gộp) | `trades` | public | mỗi khi có khớp; một message có thể gộp nhiều trade (trường `count`) |
-| Trades từng lệnh | `trades-all` | **business** | mỗi message một trade |
-| Order book | `books`, `books5`, `bbo-tbt`, `books50-l2-tbt`, `books-l2-tbt` | public | xem dưới |
-| Funding rate | `funding-rate` | public | 30–90 giây |
-| Open interest | `open-interest` | public | mỗi 3 giây khi có thay đổi |
-| Mark price | `mark-price` | public | 200 ms khi đổi, 10 giây khi không đổi |
-| Index ticker | `index-tickers` | public | 100 ms khi đổi, nếu không thì 1 phút |
-| Mark price / index candles | `mark-price-candle<bar>`, `index-candle<bar>` | **business** | nhanh nhất 1 lần / giây |
-| Liquidation | `liquidation-orders` (tham số `instType`: `SWAP`, `FUTURES`, `MARGIN`, `OPTION`) | public | docs ghi rõ dữ liệu này **không đại diện cho toàn bộ** liquidation trên OKX |
+| Ticker | `tickers` | public | at most once / 100 ms |
+| Candles | `candle<bar>` e.g. `candle1m`, `candle1H` | **business** | at most once / second |
+| Trades (aggregated) | `trades` | public | on every match; one message may aggregate several trades (field `count`) |
+| Individual trades | `trades-all` | **business** | one trade per message |
+| Order book | `books`, `books5`, `bbo-tbt`, `books50-l2-tbt`, `books-l2-tbt` | public | see below |
+| Funding rate | `funding-rate` | public | 30–90 seconds |
+| Open interest | `open-interest` | public | every 3 seconds when changed |
+| Mark price | `mark-price` | public | 200 ms when changed, 10 seconds when unchanged |
+| Index ticker | `index-tickers` | public | 100 ms when changed, otherwise 1 minute |
+| Mark price / index candles | `mark-price-candle<bar>`, `index-candle<bar>` | **business** | at most once / second |
+| Liquidation | `liquidation-orders` (parameter `instType`: `SWAP`, `FUTURES`, `MARGIN`, `OPTION`) | public | the docs explicitly say this data **does not represent all** liquidations on OKX |
 
-**Các channel order book:**
+**Order book channels:**
 
-| Channel | Độ sâu | Kiểu | Tần suất | Điều kiện |
+| Channel | Depth | Type | Frequency | Condition |
 |---|---|---|---|---|
-| `books` | 400 mức | snapshot đầu + incremental | 100 ms | — |
-| `books5` | 5 mức | snapshot mỗi lần | 100 ms | — |
-| `bbo-tbt` | 1 mức | snapshot mỗi lần | 10 ms | — |
-| `books50-l2-tbt` | 50 mức | snapshot đầu + incremental | 10 ms | chỉ **VIP4 trở lên**; nếu không nhận lỗi `64003` |
-| `books-l2-tbt` | 400 mức | snapshot đầu + incremental | 10 ms | chỉ **VIP4 trở lên**; nếu không nhận lỗi `64003` |
+| `books` | 400 levels | initial snapshot + incremental | 100 ms | — |
+| `books5` | 5 levels | snapshot every time | 100 ms | — |
+| `bbo-tbt` | 1 level | snapshot every time | 10 ms | — |
+| `books50-l2-tbt` | 50 levels | initial snapshot + incremental | 10 ms | **VIP4 and above** only; otherwise error `64003` |
+| `books-l2-tbt` | 400 levels | initial snapshot + incremental | 10 ms | **VIP4 and above** only; otherwise error `64003` |
 
-Không thể đồng thời subscribe `books-l2-tbt` và `books50-l2-tbt`/`books` cho cùng một symbol.
+You cannot subscribe to `books-l2-tbt` and `books50-l2-tbt`/`books` at the same time for the same symbol.
 
-**Dựng local order book — OKX** (nguồn: <https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel>):
+**Building a local order book — OKX** (source: <https://www.okx.com/docs-v5/en/#order-book-trading-market-data-ws-order-book-channel>):
 
-1. Subscribe `books` (hoặc channel incremental khác). Message đầu tiên có `action: "snapshot"` và `prevSeqId = -1`: dùng nó làm book ban đầu. **Không cần gọi REST** lấy snapshot như Binance.
-2. Các message sau có `action: "update"`. Kiểm tra `prevSeqId` của message mới **bằng** `seqId` của message trước. Nếu không khớp: đã mất dữ liệu, huỷ book và subscribe lại.
-3. Mỗi phần tử trong `asks`/`bids` là `[giá, số lượng, (trường cũ luôn "0"), số lệnh]`; phần tử thứ ba theo docs là "một phần của tính năng đã bỏ, luôn bằng 0". [docs] Số lượng là giá trị tuyệt đối của mức giá; quy tắc **số lượng "0" thì xoá mức giá** chưa đọc lại được nguyên văn trong docs: **[chưa xác minh]**, kiểm tra với dữ liệu thật khi cài đặt.
-4. Trường hợp đặc biệt theo docs:
-   - Khoảng 60 giây không có thay đổi: channel incremental gửi message `asks: []`, `bids: []` với `prevSeqId == seqId` (heartbeat, không phải lỗi).
-   - Sau bảo trì, sequence có thể bị reset: nhận một message có `seqId` **nhỏ hơn** `prevSeqId`; các message sau trở lại quy tắc thường. Ví dụ của docs: snapshot (−1 → 10), update (10 → 15), không đổi (15 → 15), reset (15 → 3), update (3 → 5).
-5. **`checksum` đã bị loại bỏ**: trường vẫn còn trong message của `books`, `books-l2-tbt`, `books50-l2-tbt` nhưng luôn bằng 0; docs yêu cầu dùng `seqId`/`prevSeqId` để kiểm tra tính liên tục. Code cũ kiểm CRC32 phải được gỡ.
+1. Subscribe to `books` (or another incremental channel). The first message has `action: "snapshot"` and `prevSeqId = -1`: use it as the initial book. **No REST snapshot call needed**, unlike Binance.
+2. Subsequent messages have `action: "update"`. Check that the new message's `prevSeqId` **equals** the previous message's `seqId`. If not: data was lost, discard the book and resubscribe.
+3. Each element in `asks`/`bids` is `[price, quantity, (legacy field always "0"), order count]`; per the docs the third element is "part of a deprecated feature, always 0". [docs] The quantity is the absolute value for that price level; the rule **quantity "0" means remove the level** could not be re-read verbatim in the docs: **[unverified]**, check against real data when implementing.
+4. Special cases per the docs:
+   - About 60 seconds without changes: incremental channels send a message with `asks: []`, `bids: []` and `prevSeqId == seqId` (heartbeat, not an error).
+   - After maintenance, the sequence may reset: you receive a message whose `seqId` is **smaller** than `prevSeqId`; subsequent messages follow the normal rule again. Docs example: snapshot (−1 → 10), update (10 → 15), unchanged (15 → 15), reset (15 → 3), update (3 → 5).
+5. **`checksum` has been removed**: the field is still present in `books`, `books-l2-tbt`, `books50-l2-tbt` messages but is always 0; the docs require using `seqId`/`prevSeqId` to check continuity. Old code that checks CRC32 must be removed.
 
-### 2.5 Rate limit và mã lỗi
+### 2.5 Rate limits and error codes
 
-Nguồn: <https://www.okx.com/docs-v5/en/#overview-rate-limits>, <https://www.okx.com/docs-v5/en/#error-code>
+Sources: <https://www.okx.com/docs-v5/en/#overview-rate-limits>, <https://www.okx.com/docs-v5/en/#error-code>
 
-- OKX **không dùng weight**. Mỗi endpoint có giới hạn riêng dạng "N request / 2 giây" ghi ngay trong mô tả endpoint.
-- REST công khai: tính theo **IP**. REST riêng tư: theo **User ID** (mỗi sub-account có User ID riêng). WebSocket login/subscribe: theo kết nối.
-- Bị giới hạn thì nhận mã lỗi **`50011`**. Không có header thông báo lượng đã dùng (kiểm tra header phản hồi không thấy trường rate limit nào [live]); client phải tự đếm.
-- Lệnh giao dịch: giới hạn tính theo instrument ID; REST và WebSocket dùng chung; thêm trần **1000 yêu cầu lệnh / 2 giây** mỗi sub-account (lỗi `50061`).
-- Hình phạt ban IP kiểu 418 của Binance: docs OKX không mô tả — **[chưa xác minh]**.
+- OKX **does not use weights**. Each endpoint has its own limit of the form "N requests / 2 seconds" stated in the endpoint description.
+- Public REST: per **IP**. Private REST: per **User ID** (each sub-account has its own User ID). WebSocket login/subscribe: per connection.
+- When limited you get error code **`50011`**. There is no header reporting usage (response headers showed no rate limit fields [live]); the client must count itself.
+- Trading orders: limits are per instrument ID; REST and WebSocket share them; plus a cap of **1000 order requests / 2 seconds** per sub-account (error `50061`).
+- A Binance-style 418 IP-ban penalty: not described in the OKX docs — **[unverified]**.
 
-| Mã | HTTP | Ý nghĩa |
+| Code | HTTP | Meaning |
 |---|---|---|
-| `0` | 200 | Thành công |
-| `50001` | 503 | Dịch vụ tạm thời không khả dụng |
-| `50004` | 400 | Endpoint timeout (không cho biết yêu cầu thành công hay thất bại) |
-| `50011` | 200 | Chạm rate limit |
-| `50013` | 429 | Hệ thống bận, thử lại sau |
-| `50014` | 200 | Thiếu tham số bắt buộc |
-| `50026` | 500 | Lỗi hệ thống |
-| `50061` | 200 | Vượt giới hạn tần suất lệnh của tài khoản |
-| `50101` | 401 | API key không khớp môi trường (live / demo) |
-| `50102` | 401 | Timestamp hết hạn (lệch quá 30 giây) |
-| `50103` | 401 | Thiếu header `OK-ACCESS-KEY` |
-| `50104`, `50105` | 401 | Thiếu / sai `OK-ACCESS-PASSPHRASE` |
-| `50110` | 401 | IP không nằm trong whitelist của API key |
-| `50111` | 401 | `OK-ACCESS-KEY` không hợp lệ |
-| `50113` | 401 | Chữ ký không hợp lệ |
-| `51000` | 200 | Sai tham số |
-| `51001` | 200 | Instrument ID không tồn tại |
-| `60012` | WS | Request không hợp lệ |
-| `60014` | WS | Gửi request quá thường xuyên |
-| `60018` | WS | Sai URL hoặc channel không tồn tại (ví dụ subscribe `candle1m` trên `/public`) |
-| `64003` | WS | Bậc phí không đủ để dùng channel |
-| `64008` | WS | Kết nối sắp đóng để nâng cấp |
+| `0` | 200 | Success |
+| `50001` | 503 | Service temporarily unavailable |
+| `50004` | 400 | Endpoint timeout (does not tell whether the request succeeded or failed) |
+| `50011` | 200 | Rate limit hit |
+| `50013` | 429 | System busy, retry later |
+| `50014` | 200 | Missing required parameter |
+| `50026` | 500 | System error |
+| `50061` | 200 | Account order rate limit exceeded |
+| `50101` | 401 | API key does not match the environment (live / demo) |
+| `50102` | 401 | Timestamp expired (more than 30 seconds off) |
+| `50103` | 401 | Missing `OK-ACCESS-KEY` header |
+| `50104`, `50105` | 401 | Missing / wrong `OK-ACCESS-PASSPHRASE` |
+| `50110` | 401 | IP not in the API key's whitelist |
+| `50111` | 401 | Invalid `OK-ACCESS-KEY` |
+| `50113` | 401 | Invalid signature |
+| `51000` | 200 | Parameter error |
+| `51001` | 200 | Instrument ID does not exist |
+| `60012` | WS | Invalid request |
+| `60014` | WS | Requests too frequent |
+| `60018` | WS | Wrong URL or channel does not exist (e.g. subscribing `candle1m` on `/public`) |
+| `64003` | WS | Fee tier too low for this channel |
+| `64008` | WS | Connection about to close for upgrade |
 
-Lưu ý `50011` và `51000` đi kèm **HTTP 200**: phải kiểm tra `code` trong body, không chỉ HTTP status.
+Note that `50011` and `51000` come with **HTTP 200**: check `code` in the body, not just the HTTP status.
 
-### 2.6 Xác thực, quyền API key, bảo mật
+### 2.6 Authentication, API key permissions, security
 
-Nguồn: <https://www.okx.com/docs-v5/en/#overview-api-key-creation>, <https://www.okx.com/docs-v5/en/#overview-rest-authentication>
+Sources: <https://www.okx.com/docs-v5/en/#overview-api-key-creation>, <https://www.okx.com/docs-v5/en/#overview-rest-authentication>
 
-Tạo API key nhận ba thứ: **API key**, **Secret key**, **Passphrase** (tự đặt; OKX chỉ lưu hash có salt, mất thì phải tạo key mới).
+Creating an API key gives you three things: **API key**, **Secret key**, **Passphrase** (chosen by you; OKX stores only a salted hash, so if you lose it you must create a new key).
 
-Header bắt buộc cho request riêng tư:
+Required headers for private requests:
 
-| Header | Nội dung |
+| Header | Content |
 |---|---|
 | `OK-ACCESS-KEY` | API key |
-| `OK-ACCESS-SIGN` | Chữ ký, Base64 |
-| `OK-ACCESS-TIMESTAMP` | ISO 8601 UTC có mili giây, ví dụ `2020-12-08T09:08:57.715Z` |
+| `OK-ACCESS-SIGN` | Signature, Base64 |
+| `OK-ACCESS-TIMESTAMP` | ISO 8601 UTC with milliseconds, e.g. `2020-12-08T09:08:57.715Z` |
 | `OK-ACCESS-PASSPHRASE` | Passphrase |
-| `x-simulated-trading: 1` | chỉ khi dùng demo trading |
+| `x-simulated-trading: 1` | only for demo trading |
 
-Chữ ký: `Base64( HMAC_SHA256( secretKey, timestamp + METHOD + requestPath + body ) )`.
-- `METHOD` viết hoa (`GET`, `POST`).
-- `requestPath` gồm cả query string với `GET` (ví dụ `/api/v5/account/balance?ccy=BTC`).
-- `body` là chuỗi JSON của request, bỏ trống nếu không có.
-- Server từ chối khi timestamp lệch quá **30 giây** (lỗi `50102`). Dùng UTC; đồng bộ bằng `GET /api/v5/public/time`.
-- Body request phải là `application/json`.
+Signature: `Base64( HMAC_SHA256( secretKey, timestamp + METHOD + requestPath + body ) )`.
+- `METHOD` uppercase (`GET`, `POST`).
+- `requestPath` includes the query string for `GET` (e.g. `/api/v5/account/balance?ccy=BTC`).
+- `body` is the request's JSON string, empty if none.
+- The server rejects timestamps more than **30 seconds** off (error `50102`). Use UTC; sync with `GET /api/v5/public/time`.
+- The request body must be `application/json`.
 
-Quyền của API key: **Read** (xem tài khoản, lịch sử), **Trade** (đặt/huỷ lệnh, chuyển tiền nội bộ, thay đổi cài đặt), **Withdraw** (rút tiền).
+API key permissions: **Read** (view account, history), **Trade** (place/cancel orders, internal transfers, change settings), **Withdraw** (withdrawals).
 
-Bảo mật theo docs:
-- Mỗi key gắn được tối đa **20 địa chỉ IP** (IPv4, IPv6, dải mạng).
-- Key có quyền `trade` hoặc `withdraw` mà **không gắn IP sẽ hết hạn sau 14 ngày không hoạt động** (key demo không hết hạn).
+Security per the docs:
+- Each key can be bound to at most **20 IP addresses** (IPv4, IPv6, network ranges).
+- Keys with `trade` or `withdraw` permission and **no bound IP expire after 14 days of inactivity** (demo keys do not expire).
 
-Khuyến nghị cho dự án: như mục 1.8 — không cần key cho dữ liệu công khai; key chỉ **Read** khi cần đọc tài khoản; key **Trade** phải gắn IP; **không bật Withdraw**; thử trên demo trading trước.
+Recommendations for the project: as in section 1.8 — no key needed for public data; a **Read**-only key when account reads are needed; **Trade** keys must be IP-bound; **do not enable Withdraw**; test on demo trading first.
 
-Nhóm endpoint giao dịch và tài khoản (chỉ liệt kê):
+Trading and account endpoint groups (listed only):
 
-| Nhóm | Tiền tố | Ví dụ |
+| Group | Prefix | Examples |
 |---|---|---|
-| Lệnh | `/api/v5/trade/` | `POST /api/v5/trade/order`, `GET /api/v5/trade/fills` |
+| Orders | `/api/v5/trade/` | `POST /api/v5/trade/order`, `GET /api/v5/trade/fills` |
 | Trading account | `/api/v5/account/` | `GET /api/v5/account/balance`, `GET /api/v5/account/positions` |
-| Funding account (nạp, rút, chuyển) | `/api/v5/asset/` | `GET /api/v5/asset/balances`, `POST /api/v5/asset/withdrawal` |
-| WebSocket riêng tư | `/ws/v5/private` | channel `account`, `positions`, `orders` |
+| Funding account (deposits, withdrawals, transfers) | `/api/v5/asset/` | `GET /api/v5/asset/balances`, `POST /api/v5/asset/withdrawal` |
+| Private WebSocket | `/ws/v5/private` | channels `account`, `positions`, `orders` |
 
-### 2.7 Dữ liệu lịch sử tải hàng loạt
+### 2.7 Bulk historical data
 
-- Trang tải: <https://www.okx.com/historical-data>. Theo trang này: trade history (từ 2021-09), candlestick (từ 2023-07), funding rate (từ 2022-03), order book L2 (từ 2023-03), borrowing rate (từ 2021-12). Định dạng file và mẫu URL tải: **[chưa xác minh]** (trang chỉ có nút Download).
-- Endpoint trả link file: `GET /api/v5/public/market-data-history` (5 request / 2 giây, theo IP). [docs] <https://www.okx.com/docs-v5/en/#public-data-rest-api-get-historical-market-data>
-  - `module`*: `1` trade từng tick, `2` nến 1 phút, `3` funding rate, `4` order book 400 mức, `5` order book 5000 mức (từ 2025-11-01), `6` order book 50 mức (sẽ bị loại bỏ dần), `11` borrowing rate.
+- Download page: <https://www.okx.com/historical-data>. Per that page: trade history (from 2021-09), candlesticks (from 2023-07), funding rate (from 2022-03), L2 order book (from 2023-03), borrowing rate (from 2021-12). File format and download URL pattern: **[unverified]** (the page only has Download buttons).
+- Endpoint that returns file links: `GET /api/v5/public/market-data-history` (5 requests / 2 seconds, per IP). [docs] <https://www.okx.com/docs-v5/en/#public-data-rest-api-get-historical-market-data>
+  - `module`*: `1` tick-by-tick trades, `2` 1-minute candles, `3` funding rate, `4` 400-level order book, `5` 5000-level order book (from 2025-11-01), `6` 50-level order book (being phased out), `11` borrowing rate.
   - `instType`*: `SPOT`, `FUTURES`, `SWAP`, `OPTION`.
-  - `instIdList` (cho SPOT) hoặc `instFamilyList` (cho loại khác): tối đa 10 mục, hoặc `ANY` với một số module.
-  - `dateAggrType`*: `daily` hoặc `monthly`.
-  - `begin`*, `end`*: Unix ms; khoảng tối đa 10 ngày với `daily`, 10 tháng với `monthly`.
-  - Docs ghi việc bổ sung dữ liệu lịch sử vẫn đang tiếp diễn, độ phủ khác nhau theo module và instrument.
-  - Gọi thử `module=3&instType=SWAP&instFamilyList=BTC-USDT&dateAggrType=monthly` trả danh sách file kèm `filename`, `sizeMB`, `url`, ví dụ `BTC-USDT-SWAP-fundingrates-2026-10.zip` trên host `static.okx.com`. [live] Nội dung và cột bên trong file zip: **[chưa xác minh]**.
+  - `instIdList` (for SPOT) or `instFamilyList` (for other types): max 10 entries, or `ANY` for some modules.
+  - `dateAggrType`*: `daily` or `monthly`.
+  - `begin`*, `end`*: Unix ms; max span 10 days for `daily`, 10 months for `monthly`.
+  - The docs say historical data backfill is still ongoing; coverage varies by module and instrument.
+  - A test call `module=3&instType=SWAP&instFamilyList=BTC-USDT&dateAggrType=monthly` returned a file list with `filename`, `sizeMB`, `url`, e.g. `BTC-USDT-SWAP-fundingrates-2026-10.zip` on host `static.okx.com`. [live] Contents and columns inside the zip: **[unverified]**.
 
-### 2.8 Hạn chế theo khu vực
+### 2.8 Regional restrictions
 
-Nguồn [docs]: <https://www.okx.com/docs-v5/en/#overview>
+Source [docs]: <https://www.okx.com/docs-v5/en/#overview>
 
-- Docs có mục "Regional API Domain Requirement": tài khoản đăng ký ở **Mỹ và Úc** (qua `app.okx.com`) phải dùng domain API **`us.okx.com`**; tài khoản **EU** (qua `my.okx.com`) dùng **`eea.okx.com`**. Docs nói `openapi.okx.com` sẽ không hoạt động cho các khu vực này, và mỗi khu vực có bộ tài liệu API riêng.
-- Tiếp tục sử dụng API đồng nghĩa chấp nhận "OKX API Agreement".
-- Danh sách quốc gia bị hạn chế dịch vụ: nằm trong "Risk and Compliance Disclosure" của OKX, chưa đọc được: **[chưa xác minh]**.
+- The docs have a "Regional API Domain Requirement" section: accounts registered in the **US and Australia** (via `app.okx.com`) must use the API domain **`us.okx.com`**; **EU** accounts (via `my.okx.com`) use **`eea.okx.com`**. The docs say `openapi.okx.com` will not work for these regions, and each region has its own API docs.
+- Continued use of the API means accepting the "OKX API Agreement".
+- The list of countries with restricted service is in OKX's "Risk and Compliance Disclosure", not yet read: **[unverified]**.
 
 ---
 
-## 3. Thư viện Python
+## 3. Python libraries
 
-| Thư viện | Cài đặt | Tính chất | Ghi chú |
+| Library | Install | Nature | Notes |
 |---|---|---|---|
-| `ccxt` | `pip install ccxt` | bên thứ ba, API thống nhất nhiều sàn | bản đã chạy thử: **4.5.92**; id sàn: `binance`, `binanceusdm`, `binancecoinm`, `okx` |
-| `binance-connector-python` | `pip install binance-sdk-spot`, `pip install binance-sdk-derivatives-trading-usds-futures` | SDK của Binance, tách thành nhiều gói theo sản phẩm | yêu cầu **Python 3.11+**; gói hợp nhất cũ có hướng dẫn chuyển đổi `MIGRATION.md` |
-| `python-binance` | `pip install python-binance` | **không chính thức** | README hiển thị v1.0.37; có `AsyncClient`, cờ `testnet=True`, `demo=True` |
-| `python-okx` | `pip install python-okx` | SDK do OKX giới thiệu trong docs | Python ≥ 3.7; module `okx.MarketData`, `okx.PublicData`, `okx.TradingData`; `flag="0"` là live, `"1"` là demo |
+| `ccxt` | `pip install ccxt` | third party, unified API across many exchanges | version tested: **4.5.92**; exchange ids: `binance`, `binanceusdm`, `binancecoinm`, `okx` |
+| `binance-connector-python` | `pip install binance-sdk-spot`, `pip install binance-sdk-derivatives-trading-usds-futures` | Binance's SDK, split into per-product packages | requires **Python 3.11+**; the old unified package has a migration guide `MIGRATION.md` |
+| `python-binance` | `pip install python-binance` | **unofficial** | README shows v1.0.37; has `AsyncClient`, flags `testnet=True`, `demo=True` |
+| `python-okx` | `pip install python-okx` | SDK referenced by OKX in its docs | Python ≥ 3.7; modules `okx.MarketData`, `okx.PublicData`, `okx.TradingData`; `flag="0"` is live, `"1"` is demo |
 
-Nguồn: <https://github.com/ccxt/ccxt>, <https://github.com/binance/binance-connector-python>, <https://github.com/sammchardy/python-binance>, <https://github.com/okxapi/python-okx>.
+Sources: <https://github.com/ccxt/ccxt>, <https://github.com/binance/binance-connector-python>, <https://github.com/sammchardy/python-binance>, <https://github.com/okxapi/python-okx>.
 
-- Tài liệu của `ccxt` không đọc được đầy đủ (trang quá dài); hành vi mô tả ở mục 4.3 dựa trên **chạy thật** bản 4.5.92.
-- Phiên bản mới nhất của `python-okx`, `python-binance`, và việc các thư viện này đã cập nhật theo thay đổi URL năm 2026 (Binance `/market`, OKX `openapi.okx.com`) hay chưa: **[chưa xác minh]**. Kiểm tra URL thư viện thực sự gọi trước khi tin dùng.
+- The `ccxt` docs could not be read in full (page too long); the behavior described in section 4.3 is based on **actually running** version 4.5.92.
+- Latest versions of `python-okx`, `python-binance`, and whether these libraries have been updated for the 2026 URL changes (Binance `/market`, OKX `openapi.okx.com`): **[unverified]**. Check which URLs the library actually calls before trusting it.
 
 ---
 
-## 4. Ví dụ Python
+## 4. Python examples
 
-Cả bốn ví dụ đã chạy thành công ngày 2026-11-13 với Python 3.14, `requests` 2.34.2, `ccxt` 4.5.92, `websockets` 17.4. Cài đặt: `pip install requests ccxt websockets`.
+All four examples ran successfully on 2026-11-13 with Python 3.14, `requests` 2.34.2, `ccxt` 4.5.92, `websockets` 17.4. Install: `pip install requests ccxt websockets`.
 
-### 4.1 Binance klines qua REST thuần
+### 4.1 Binance klines via plain REST
 
 ```python
 import time
 import requests
 
-SPOT = "https://data-api.binance.vision"   # chỉ market data công khai; hoặc https://api.binance.com
+SPOT = "https://data-api.binance.vision"   # public market data only; or https://api.binance.com
 FUT = "https://fapi.binance.com"
 
 
 def binance_klines(symbol, interval, start_ms, end_ms, futures=False):
-    """Tải klines [start_ms, end_ms) bằng cách tịnh tiến startTime."""
+    """Download klines [start_ms, end_ms) by advancing startTime."""
     url = f"{FUT}/fapi/v1/klines" if futures else f"{SPOT}/api/v3/klines"
     limit = 1500 if futures else 1000
     out = []
@@ -644,7 +644,7 @@ def binance_klines(symbol, interval, start_ms, end_ms, futures=False):
         r = requests.get(url, params={"symbol": symbol, "interval": interval,
                                       "startTime": start_ms, "endTime": end_ms - 1,
                                       "limit": limit}, timeout=10)
-        if r.status_code in (418, 429):          # bị rate limit: bắt buộc back off
+        if r.status_code in (418, 429):          # rate limited: must back off
             time.sleep(int(r.headers.get("Retry-After", "5")))
             continue
         r.raise_for_status()
@@ -652,7 +652,7 @@ def binance_klines(symbol, interval, start_ms, end_ms, futures=False):
         if not rows:
             break
         out += rows
-        start_ms = rows[-1][0] + 1               # open time của nến cuối + 1 ms
+        start_ms = rows[-1][0] + 1               # open time of the last candle + 1 ms
         print("used weight 1m:", r.headers.get("X-MBX-USED-WEIGHT-1M"))
     return out
 
@@ -665,9 +665,9 @@ if __name__ == "__main__":
     print(len(k), k[-1][:6])
 ```
 
-Kết quả chạy thử: 2160 nến 1 phút Spot qua 3 trang, 48 nến 1 giờ Futures. Nến cuối cùng có thể **chưa đóng**; lọc theo `closeTime < now` nếu chỉ muốn nến hoàn chỉnh.
+Test run result: 2160 Spot 1-minute candles over 3 pages, 48 Futures 1-hour candles. The last candle may be **not yet closed**; filter by `closeTime < now` if you only want complete candles.
 
-### 4.2 OKX candles qua REST thuần
+### 4.2 OKX candles via plain REST
 
 ```python
 import time
@@ -677,7 +677,7 @@ OKX = "https://openapi.okx.com"
 
 
 def okx_candles(inst_id, bar, start_ms, end_ms):
-    """Tải nến [start_ms, end_ms) — OKX trả MỚI -> CŨ, lùi dần bằng `after`."""
+    """Download candles [start_ms, end_ms) — OKX returns NEW -> OLD, walk back with `after`."""
     out, after = [], end_ms
     while after > start_ms:
         r = requests.get(f"{OKX}/api/v5/market/history-candles",
@@ -688,15 +688,15 @@ def okx_candles(inst_id, bar, start_ms, end_ms):
             continue
         r.raise_for_status()
         body = r.json()
-        if body["code"] != "0":                  # lỗi nằm trong body, vd 50011 = rate limit
+        if body["code"] != "0":                  # errors live in the body, e.g. 50011 = rate limit
             raise RuntimeError(f'{body["code"]}: {body["msg"]}')
         rows = body["data"]
         if not rows:
             break
         out += [x for x in rows if int(x[0]) >= start_ms]
-        after = int(rows[-1][0])                 # ts của nến cũ nhất trong trang
-        time.sleep(0.11)                         # 20 req / 2 s theo IP
-    return out[::-1]                             # đảo lại thành CŨ -> MỚI
+        after = int(rows[-1][0])                 # ts of the oldest candle in the page
+        time.sleep(0.11)                         # 20 req / 2 s per IP
+    return out[::-1]                             # reverse to OLD -> NEW
 
 
 if __name__ == "__main__":
@@ -705,9 +705,9 @@ if __name__ == "__main__":
     print(len(c), c[0])   # [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
 ```
 
-Kết quả chạy thử: 720 nến. Mọi giá trị là **chuỗi**; ép kiểu trước khi tính toán. Trường cuối `confirm == "0"` là nến chưa đóng.
+Test run result: 720 candles. All values are **strings**; cast before computing. The last field `confirm == "0"` means the candle is not closed.
 
-### 4.3 Cả hai sàn qua ccxt
+### 4.3 Both exchanges via ccxt
 
 ```python
 import ccxt
@@ -728,10 +728,10 @@ for ex, symbol in [(binance, "BTC/USDT"),          # spot
         rows += page
         cursor = page[-1][0] + 1
     print(ex.id, symbol, ex.market(symbol)["id"], len(rows), rows[0])
-    # mỗi dòng: [timestamp_ms, open, high, low, close, volume]
+    # each row: [timestamp_ms, open, high, low, close, volume]
 ```
 
-Kết quả chạy thử: `BTC/USDT` → `BTCUSDT` / `BTC-USDT`; `BTC/USDT:USDT` → `BTCUSDT` (futures) / `BTC-USDT-SWAP`. ccxt trả dữ liệu **cũ → mới** với kiểu `float` cho cả hai sàn và tự xử lý phân trang ngược của OKX.
+Test run result: `BTC/USDT` → `BTCUSDT` / `BTC-USDT`; `BTC/USDT:USDT` → `BTCUSDT` (futures) / `BTC-USDT-SWAP`. ccxt returns data **old → new** as `float` for both exchanges and handles OKX's reverse pagination itself.
 
 ### 4.4 WebSocket
 
@@ -742,9 +742,9 @@ import websockets
 
 
 async def binance_futures(n=3):
-    # markPrice và aggTrade thuộc nhóm /market; depth, bookTicker thuộc nhóm /public
+    # markPrice and aggTrade belong to the /market group; depth, bookTicker to /public
     url = "wss://fstream.binance.com/market/stream?streams=btcusdt@aggTrade/btcusdt@markPrice@1s"
-    async with websockets.connect(url) as ws:     # thư viện tự trả pong cho ping frame
+    async with websockets.connect(url) as ws:     # the library answers ping frames with pong automatically
         for _ in range(n):
             msg = json.loads(await ws.recv())
             print("binance", msg["stream"], msg["data"]["E"])
@@ -760,7 +760,7 @@ async def okx_public(n=3):
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=25)
             except asyncio.TimeoutError:
-                await ws.send("ping")             # OKX: chuỗi 'ping' -> nhận 'pong'
+                await ws.send("ping")             # OKX: string 'ping' -> receive 'pong'
                 continue
             if raw == "pong":
                 continue
@@ -776,62 +776,62 @@ async def main():
 asyncio.run(main())
 ```
 
-Ghi chú khi chạy:
-- Trên macOS với Python cài từ python.org, kết nối `wss://` có thể báo `CERTIFICATE_VERIFY_FAILED`. Cách xử lý đã dùng khi thử: đặt biến môi trường `SSL_CERT_FILE` trỏ tới file của gói `certifi` (`python -c "import certifi; print(certifi.where())"`), hoặc chạy `Install Certificates.command` đi kèm bộ cài Python.
-- Trong lúc thử, `requests` thỉnh thoảng gặp `ConnectionError` thoáng qua tới host Binance; chạy lại thì thành công. Code production cần retry có backoff.
-- Code production cần thêm: tự reconnect (Binance ngắt sau 24 giờ; OKX ngắt khi nâng cấp), subscribe lại sau reconnect, và phát hiện mất dữ liệu.
+Notes when running:
+- On macOS with Python installed from python.org, `wss://` connections may report `CERTIFICATE_VERIFY_FAILED`. Fix used during testing: set the environment variable `SSL_CERT_FILE` to the `certifi` package's file (`python -c "import certifi; print(certifi.where())"`), or run the `Install Certificates.command` bundled with the Python installer.
+- During testing, `requests` occasionally hit a transient `ConnectionError` to Binance hosts; rerunning succeeded. Production code needs retries with backoff.
+- Production code also needs: automatic reconnect (Binance disconnects after 24 hours; OKX disconnects on upgrades), resubscribe after reconnect, and data-loss detection.
 
 ---
 
-## 5. Bảng so sánh Binance và OKX
+## 5. Binance vs OKX comparison
 
-| Tiêu chí | Binance | OKX |
+| Criterion | Binance | OKX |
 |---|---|---|
-| Phiên bản | Spot `/api/v3`; USDⓈ-M `/fapi/v1`; COIN-M `/dapi/v1` | `/api/v5` cho mọi sản phẩm |
-| REST host | tách theo sản phẩm: `api`, `fapi`, `dapi` | một host: `openapi.okx.com` |
-| Symbol Spot | `BTCUSDT` | `BTC-USDT` |
-| Symbol perpetual USDT | `BTCUSDT` (trên `fapi`) | `BTC-USDT-SWAP` |
-| Symbol perpetual coin-margined | `BTCUSD_PERP` (trên `dapi`) | `BTC-USD-SWAP` |
-| Symbol ccxt | `BTC/USDT`, `BTC/USDT:USDT` | `BTC/USDT`, `BTC/USDT:USDT` |
-| Symbol trong WebSocket | viết thường trong tên stream: `btcusdt@aggTrade` | giữ nguyên `instId` trong `args` |
-| Interval nến | `1m`, `1h`, `1d`, `1w`, `1M` (chữ thường trừ tháng) | `1m`, `1H`, `1D`, `1W`, `1M` (giờ trở lên viết hoa) |
-| Mốc mở nến ngày | UTC (Spot đổi được bằng `timeZone`) | `1D` = UTC+8; `1Dutc` = UTC |
-| Limit klines mỗi lần gọi | Spot 1000; Futures 1500 | `candles` 300; `history-candles` 300 |
-| Thứ tự dữ liệu | cũ → mới | mới → cũ |
-| Phân trang | `startTime` / `endTime` / `fromId` | `after` (cũ hơn) / `before` (mới hơn) |
-| Kiểu timestamp | số nguyên ms (Spot tuỳ chọn µs) | chuỗi ms |
-| Kiểu giá / khối lượng | chuỗi trong mảng klines | chuỗi |
-| Trạng thái nến đóng | suy từ `closeTime`; WebSocket có `k.x` | trường `confirm` (`"0"` / `"1"`) |
-| Order book REST tối đa | Spot 5000; Futures 1000 | `books` 400; `books-full` 5000 |
-| Local order book | diff stream + REST snapshot; `U`/`u` (Spot), thêm `pu` (Futures) | snapshot đến qua WebSocket; `seqId`/`prevSeqId`; checksum đã bỏ |
-| Funding rate lịch sử | `limit` tối đa 1000 | `limit` tối đa 400; chỉ 3 tháng |
-| Open interest lịch sử | `/futures/data/openInterestHist`, tối đa 500, chỉ 1 tháng | `rubik/.../open-interest-history`, tối đa 100, 1440 bản ghi mới nhất |
-| Liquidation công khai | chỉ WebSocket `@forceOrder` (1 lệnh mới nhất / 1000 ms) | chỉ WebSocket `liquidation-orders` (không đầy đủ) |
-| Rate limit | theo weight: Spot 6000/phút, Futures 2400/phút, theo IP | theo từng endpoint, "N request / 2 giây", theo IP |
-| Đọc lượng đã dùng | header `X-MBX-USED-WEIGHT-1M` | không có header; tự đếm |
-| Khi vượt | HTTP 429 → 418 (ban 2 phút đến 3 ngày), header `Retry-After` | mã `50011` (HTTP 200) hoặc HTTP 429 |
-| Báo lỗi | HTTP 4XX + `{"code": -1121, "msg": ...}` | `{"code": "5xxxx", "msg": ...}`, nhiều lỗi vẫn HTTP 200 |
-| Xác thực | header `X-MBX-APIKEY` + `signature` (HMAC SHA256 hex, hoặc Ed25519/RSA) trong query | 4 header `OK-ACCESS-*`; chữ ký HMAC SHA256 Base64; có **passphrase** |
-| Timestamp xác thực | Unix ms, `recvWindow` mặc định 5000 ms | ISO 8601 UTC, lệch tối đa 30 giây |
-| WebSocket ping | server gửi ping frame (Spot 20 s; Futures 3 phút), client trả pong | client gửi chuỗi `ping` trong vòng 30 giây im lặng |
-| Thời gian sống kết nối | 24 giờ | không nêu giới hạn cố định; ngắt khi nâng cấp (báo trước 60 giây) |
-| Môi trường thử | testnet/demo trên host riêng | cùng REST host + header `x-simulated-trading: 1`; WebSocket `wspap.okx.com` |
-| Dump lịch sử | `data.binance.vision` (file zip theo ngày/tháng, có checksum) | trang historical-data + `GET /api/v5/public/market-data-history` |
+| Version | Spot `/api/v3`; USDⓈ-M `/fapi/v1`; COIN-M `/dapi/v1` | `/api/v5` for all products |
+| REST host | split by product: `api`, `fapi`, `dapi` | one host: `openapi.okx.com` |
+| Spot symbol | `BTCUSDT` | `BTC-USDT` |
+| USDT perpetual symbol | `BTCUSDT` (on `fapi`) | `BTC-USDT-SWAP` |
+| Coin-margined perpetual symbol | `BTCUSD_PERP` (on `dapi`) | `BTC-USD-SWAP` |
+| ccxt symbol | `BTC/USDT`, `BTC/USDT:USDT` | `BTC/USDT`, `BTC/USDT:USDT` |
+| Symbol in WebSocket | lowercase in the stream name: `btcusdt@aggTrade` | `instId` as-is in `args` |
+| Candle intervals | `1m`, `1h`, `1d`, `1w`, `1M` (lowercase except month) | `1m`, `1H`, `1D`, `1W`, `1M` (hour and above uppercase) |
+| Daily candle open time | UTC (Spot can change via `timeZone`) | `1D` = UTC+8; `1Dutc` = UTC |
+| Klines limit per call | Spot 1000; Futures 1500 | `candles` 300; `history-candles` 300 |
+| Data order | old → new | new → old |
+| Pagination | `startTime` / `endTime` / `fromId` | `after` (older) / `before` (newer) |
+| Timestamp type | integer ms (Spot optionally µs) | string ms |
+| Price / volume type | strings in the klines array | strings |
+| Candle closed status | derived from `closeTime`; WebSocket has `k.x` | field `confirm` (`"0"` / `"1"`) |
+| Max REST order book | Spot 5000; Futures 1000 | `books` 400; `books-full` 5000 |
+| Local order book | diff stream + REST snapshot; `U`/`u` (Spot), plus `pu` (Futures) | snapshot arrives over WebSocket; `seqId`/`prevSeqId`; checksum removed |
+| Funding rate history | `limit` max 1000 | `limit` max 400; 3 months only |
+| Open interest history | `/futures/data/openInterestHist`, max 500, 1 month only | `rubik/.../open-interest-history`, max 100, latest 1440 records |
+| Public liquidations | WebSocket `@forceOrder` only (1 latest order / 1000 ms) | WebSocket `liquidation-orders` only (incomplete) |
+| Rate limit | weight-based: Spot 6000/min, Futures 2400/min, per IP | per endpoint, "N requests / 2 seconds", per IP |
+| Reading usage | header `X-MBX-USED-WEIGHT-1M` | no header; count yourself |
+| When exceeded | HTTP 429 → 418 (ban 2 minutes to 3 days), header `Retry-After` | code `50011` (HTTP 200) or HTTP 429 |
+| Error reporting | HTTP 4XX + `{"code": -1121, "msg": ...}` | `{"code": "5xxxx", "msg": ...}`, many errors still HTTP 200 |
+| Authentication | header `X-MBX-APIKEY` + `signature` (HMAC SHA256 hex, or Ed25519/RSA) in the query | 4 `OK-ACCESS-*` headers; HMAC SHA256 Base64 signature; has a **passphrase** |
+| Auth timestamp | Unix ms, `recvWindow` default 5000 ms | ISO 8601 UTC, max 30 seconds skew |
+| WebSocket ping | server sends ping frames (Spot 20 s; Futures 3 minutes), client replies pong | client sends the string `ping` within 30 seconds of silence |
+| Connection lifetime | 24 hours | no fixed limit stated; disconnects on upgrade (60-second notice) |
+| Test environment | testnet/demo on separate hosts | same REST host + header `x-simulated-trading: 1`; WebSocket `wspap.okx.com` |
+| History dumps | `data.binance.vision` (daily/monthly zip files, with checksums) | historical-data page + `GET /api/v5/public/market-data-history` |
 
 ---
 
-## 6. Danh sách điều chưa xác minh
+## 6. Unverified items
 
-1. Weight và limit của `topLongShortAccountRatio`, `topLongShortPositionRatio`, `takerlongshortRatio`, `ticker/24hr`, `ticker/price`, `ticker/bookTicker` trên USDⓈ-M, và `takerBuySellVol` trên COIN-M (trang docs bị cắt; endpoint có trong mục lục và gọi được).
-2. Danh sách interval đầy đủ của klines Futures trong docs (bị ẩn; đã kiểm bằng lời gọi thật).
-3. Tần suất mặc định của depth stream Futures (docs tự mâu thuẫn giữa 250 ms và enum 100/500 ms).
-4. COIN-M WebSocket có tách `/public`, `/market` như USDⓈ-M hay không.
-5. Danh sách quốc gia/khu vực bị hạn chế của cả Binance và OKX.
-6. Danh sách đầy đủ quyền API key của Binance và số key tối đa.
-7. REST `GET /api/v5/public/liquidation-orders` của OKX: còn hoạt động nhưng không còn trong docs.
-8. Quy tắc "số lượng 0 thì xoá mức giá" trong order book WebSocket của OKX (chưa đọc lại nguyên văn).
-9. Giới hạn tổng số kết nối WebSocket public của OKX; hình phạt ban IP của OKX.
-10. Định dạng và cột của file tải từ OKX historical data / `market-data-history`.
-11. Mẫu đường dẫn Futures trên `data.binance.vision` (kiểm bằng HTTP HEAD, không có trong README); nội dung cột của `metrics` và `bookDepth`; vì sao `bookTicker`, `liquidationSnapshot`, `cm/fundingRate` trả 404.
-12. Tài liệu `ccxt` (chỉ xác nhận bằng chạy thật bản 4.5.92); phiên bản mới nhất và mức độ cập nhật URL mới của `python-okx`, `python-binance`.
-13. Các sản phẩm ngoài phạm vi chưa tra: Binance Options, Portfolio Margin, Spot WebSocket API, SBE/FIX; OKX Options, spread trading, block trading.
+1. Weight and limits of `topLongShortAccountRatio`, `topLongShortPositionRatio`, `takerlongshortRatio`, `ticker/24hr`, `ticker/price`, `ticker/bookTicker` on USDⓈ-M, and `takerBuySellVol` on COIN-M (docs page truncated; endpoints are in the index and callable).
+2. The full list of Futures kline intervals in the docs (hidden; checked with real calls).
+3. Default frequency of the Futures depth stream (docs contradict themselves between 250 ms and the 100/500 ms enum).
+4. Whether COIN-M WebSocket splits `/public`, `/market` like USDⓈ-M.
+5. Restricted country/region lists for both Binance and OKX.
+6. Full list of Binance API key permissions and maximum key count.
+7. OKX REST `GET /api/v5/public/liquidation-orders`: still works but no longer in the docs.
+8. The "quantity 0 means remove the level" rule in OKX's WebSocket order book (not re-read verbatim).
+9. OKX's total public WebSocket connection limit; OKX's IP-ban penalty.
+10. Format and columns of files downloaded from OKX historical data / `market-data-history`.
+11. Futures path patterns on `data.binance.vision` (checked with HTTP HEAD, not in the README); column contents of `metrics` and `bookDepth`; why `bookTicker`, `liquidationSnapshot`, `cm/fundingRate` return 404.
+12. `ccxt` docs (only confirmed by running version 4.5.92); latest versions and how up to date `python-okx`, `python-binance` are with the new URLs.
+13. Out-of-scope products not researched: Binance Options, Portfolio Margin, Spot WebSocket API, SBE/FIX; OKX Options, spread trading, block trading.

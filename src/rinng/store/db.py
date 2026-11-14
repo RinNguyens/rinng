@@ -1,7 +1,7 @@
-"""DuckDB chỉ chứa view trỏ vào Parquet; không lưu bản sao dữ liệu.
+"""DuckDB holds only views pointing at Parquet; no copy of the data is stored.
 
-Mỗi bảng curated có một view cùng tên; `manifest` và `gaps` cũng vậy. Các cột phân vùng
-(exchange, symbol, timeframe) đã có sẵn trong file nên không bật hive partitioning.
+Each curated table has a view of the same name; so do `manifest` and `gaps`. Partition columns
+(exchange, symbol, timeframe) are already in the files, so hive partitioning is off.
 """
 
 from pathlib import Path
@@ -18,12 +18,12 @@ def _quote(path: Path) -> str:
 
 
 def connect(paths: DataPaths, database: str = ":memory:") -> duckdb.DuckDBPyConnection:
-    """Mở kết nối và tạo view cho mọi bảng đã có dữ liệu.
+    """Open a connection and create views for every table that has data.
 
-    View trỏ vào danh sách file lúc mở kết nối; phân vùng tạo sau đó cần mở kết nối mới.
+    Views point at the file list at connect time; partitions created later need a new connection.
     """
     con = duckdb.connect(database)
-    # Mặc định DuckDB trả thời gian theo múi giờ của máy; dự án dùng UTC ở mọi nơi.
+    # DuckDB returns times in the machine time zone by default; the project uses UTC everywhere.
     con.execute("SET TimeZone = 'UTC'")
     for name in TABLES:
         files = sorted(paths.curated_dataset(name).rglob(PART_FILE))

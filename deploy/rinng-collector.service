@@ -1,7 +1,7 @@
-# systemd (VPS Linux). Sửa User và WorkingDirectory rồi:
+# systemd (Linux VPS). Edit User and WorkingDirectory, then:
 #   sudo cp deploy/rinng-collector.service /etc/systemd/system/
 #   sudo systemctl enable --now rinng-collector
-# Trước đó chạy `uv run rinng check` trên VPS để chắc sàn không chặn IP.
+# Before that, run `uv run rinng check` on the VPS to make sure the exchange does not block its IP.
 [Unit]
 Description=rinng realtime collector
 After=network-online.target

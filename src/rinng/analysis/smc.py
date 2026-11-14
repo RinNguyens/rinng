@@ -1,59 +1,60 @@
-"""Smart Money Concepts dạng Events/Features (docs/03-pine-script-va-smc.md phần B).
+"""Smart Money Concepts as Events/Features (docs/03-pine-script-and-smc.md part B).
 
-SMC không có định nghĩa chuẩn; module này chọn các định nghĩa dưới đây. Ký hiệu: nến i,
-`close_time(i)` = open_time[i] + độ dài nến. Swing lấy từ `structure.swings(length=L)`, swing ở
-nến s được biết lúc đóng nến s+L.
+SMC has no standard definition; this module picks the definitions below. Notation: candle i,
+`close_time(i)` = open_time[i] + candle duration. Swings come from `structure.swings(length=L)`; a
+swing at candle s is known when candle s+L closes.
 
-Quy tắc dùng swing: khi xét nến i để ra quyết định (phá cấu trúc), chỉ dùng swing có
-known_at <= open_time[i], tức đã biết trước khi nến i mở. Features premium/discount ở dòng i
-(known_at = close_time(i)) dùng swing có known_at <= close_time(i).
+Swing usage rule: when evaluating candle i for a decision (structure break), only use swings with
+known_at <= open_time[i], i.e. known before candle i opens. Premium/discount Features at row i
+(known_at = close_time(i)) use swings with known_at <= close_time(i).
 
-BOS / CHoCH (`structure_breaks`, tham số `swing_length`, `break_on` = "close" | "wick"):
-- Mức trên = swing high đã biết gần nhất chưa bị phá; mức dưới tương tự với swing low. Swing
-  mới được biết thay thế mức cũ cùng loại.
-- Phá lên ở nến i: close[i] > mức trên (`break_on="close"`) hoặc high[i] > mức trên ("wick").
-  Phá xuống đối xứng. Mỗi mức chỉ bị phá một lần.
-- Nhãn theo xu hướng trước nến i: ngược chiều → CHoCH, cùng chiều hoặc chưa có xu hướng → BOS.
-  Sau đó xu hướng = chiều phá. Nếu một nến phá cả hai mức (chỉ xảy ra với "wick"), ghi cả hai
-  sự kiện, đều gán nhãn theo xu hướng trước nến; xu hướng sau = chiều thân nến (close >= open
-  là tăng).
-- kind: bos_bull, bos_bear, choch_bull, choch_bear. event_time = nến phá, known_at =
-  close_time(nến phá), price_low = price_high = mức bị phá.
+BOS / CHoCH (`structure_breaks`, parameters `swing_length`, `break_on` = "close" | "wick"):
+- Upper level = the most recent known, unbroken swing high; lower level likewise with swing low. A
+  newly known swing replaces the old level of the same kind.
+- Break up at candle i: close[i] > upper level (`break_on="close"`) or high[i] > upper level
+  ("wick"). Break down is symmetric. Each level is broken only once.
+- Label by the trend before candle i: opposite direction → CHoCH, same direction or no trend yet →
+  BOS. Afterwards trend = break direction. If one candle breaks both levels (only possible with
+  "wick"), both events are recorded, each labelled by the trend before the candle; the trend after =
+  candle body direction (close >= open is up).
+- kind: bos_bull, bos_bear, choch_bull, choch_bear. event_time = breaking candle, known_at =
+  close_time(breaking candle), price_low = price_high = broken level.
 
 Displacement (`displacement`, `k`=1.5, `atr_length`=14):
-- Nến i là displacement nếu |close - open| > k × ATR[i-1] (ATR của nến trước, để thân nến
-  không tự làm tăng ngưỡng). Chiều theo thân. kind displacement_bull/bear, known_at =
-  close_time(i), vùng = thân nến.
+- Candle i is a displacement if |close - open| > k × ATR[i-1] (ATR of the previous candle, so the
+  body does not raise its own threshold). Direction by body. kind displacement_bull/bear, known_at =
+  close_time(i), zone = candle body.
 
-FVG (`fair_value_gaps`, `min_size_atr`=0, `atr_length`=14), mẫu 3 nến t-2, t-1, t:
-- Bull: low[t] > high[t-2], vùng [high[t-2], low[t]]. Bear: high[t] < low[t-2], vùng
-  [high[t], low[t-2]]. Kích thước vùng phải >= min_size_atr × ATR[t].
-- event_time = nến giữa t-1, known_at = close_time(t).
-- LẤP HOÀN TOÀN: nến j > t đầu tiên có low[j] <= đáy vùng (bull) hoặc high[j] >= đỉnh vùng
-  (bear), tức wick đi xuyên hết vùng. invalidated_at = close_time(j).
+FVG (`fair_value_gaps`, `min_size_atr`=0, `atr_length`=14), 3-candle pattern t-2, t-1, t:
+- Bull: low[t] > high[t-2], zone [high[t-2], low[t]]. Bear: high[t] < low[t-2], zone
+  [high[t], low[t-2]]. Zone size must be >= min_size_atr × ATR[t].
+- event_time = middle candle t-1, known_at = close_time(t).
+- FULL FILL: the first candle j > t with low[j] <= zone bottom (bull) or high[j] >= zone top
+  (bear), i.e. a wick through the whole zone. invalidated_at = close_time(j).
 
 Order block (`order_blocks`):
-- Với mỗi BOS/CHoCH phá lên ở nến b: nến giảm (close < open) cuối cùng j trong
-  [b - max_lookback, b-1]. Nếu `require_displacement`, phải có ít nhất một displacement tăng
-  trong (j, b]; không có thì không sinh OB. Phá xuống đối xứng (nến tăng cuối cùng). Mỗi nến
-  chỉ làm OB một lần mỗi chiều.
-- Vùng = toàn bộ nến j [low, high]. kind ob_bull/ob_bear, event_time = nến j, known_at =
-  close_time(b) (OB chỉ có ý nghĩa sau khi cấu trúc bị phá).
-- Theo dõi từ nến b+1. Mitigation (chạm): nến đầu tiên có low <= đỉnh vùng (bull) hoặc
-  high >= đáy vùng (bear), tính cả nến làm vô hiệu; ghi thành sự kiện riêng
-  ob_bull_mitigated/ob_bear_mitigated tại nến đó (không ghi vào attrs của OB vì attrs không
-  được chứa thông tin tương lai).
-- Vô hiệu: close (hoặc wick nếu `invalidate_on="wick"`) xuyên qua mép bên kia: bull khi
-  < đáy vùng, bear khi > đỉnh vùng. invalidated_at = close_time(nến đó).
-- Breaker = OB bị vô hiệu, đổi vai trò: ob_bull bị phá sinh breaker_bear (và ngược lại) tại
-  nến vô hiệu, cùng vùng. Breaker bị vô hiệu khi giá đóng (hoặc wick) xuyên ngược lại qua mép
-  còn lại: breaker_bear khi > đỉnh vùng, breaker_bull khi < đáy vùng.
+- For each upward BOS/CHoCH at candle b: the last down candle (close < open) j in
+  [b - max_lookback, b-1]. If `require_displacement`, at least one bullish displacement is required
+  in (j, b]; otherwise no OB is emitted. Break down is symmetric (last up candle). Each candle
+  becomes an OB at most once per direction.
+- Zone = the whole candle j [low, high]. kind ob_bull/ob_bear, event_time = candle j, known_at =
+  close_time(b) (an OB only matters after structure breaks).
+- Tracked from candle b+1. Mitigation (touch): the first candle with low <= zone top (bull) or
+  high >= zone bottom (bear), including the invalidating candle; recorded as a separate event
+  ob_bull_mitigated/ob_bear_mitigated at that candle (not stored in the OB's attrs, since attrs must
+  not contain future information).
+- Invalidation: close (or wick if `invalidate_on="wick"`) through the far edge: bull when
+  < zone bottom, bear when > zone top. invalidated_at = close_time(that candle).
+- Breaker = an invalidated OB with flipped role: a broken ob_bull yields breaker_bear (and vice
+  versa) at the invalidating candle, same zone. A breaker is invalidated when price closes (or
+  wicks) back through the other edge: breaker_bear when > zone top, breaker_bull when < zone bottom.
 
-Premium / discount (`premium_discount`, Features): dải [L, H] = swing low và swing high đã
-biết gần nhất. pd_position = (close - L) / (H - L), cắt vào [0, 1]; equilibrium = (H + L) / 2
-(vị trí 0.5). pd_zone = "equilibrium" khi |pd_position - 0.5| <= `equilibrium_band` (mặc định 0,
-cộng dung sai số thực 1e-9), còn lại "premium" (> 0.5) hoặc "discount" (< 0.5). Null khi
-chưa có đủ hai swing hoặc H <= L. Không nới dải theo cực trị mới (khác LuxAlgo "trailing").
+Premium / discount (`premium_discount`, Features): range [L, H] = the most recent known swing low
+and swing high. pd_position = (close - L) / (H - L), clipped to [0, 1]; equilibrium = (H + L) / 2
+(position 0.5). pd_zone = "equilibrium" when |pd_position - 0.5| <= `equilibrium_band` (default 0,
+plus a float tolerance of 1e-9), otherwise "premium" (> 0.5) or "discount" (< 0.5). Null when
+there are not yet two swings or H <= L. The range is not extended by new extremes (unlike LuxAlgo
+"trailing").
 """
 
 from collections.abc import Mapping
@@ -79,9 +80,9 @@ BREAK_SOURCES = ("close", "wick")
 
 
 def known_swings(ohlcv: pl.DataFrame, length: int) -> list[tuple[str, int, float, int]]:
-    """Danh sách (kind, index, price, known_index) sắp theo known_index rồi index.
+    """List of (kind, index, price, known_index) sorted by known_index then index.
 
-    known_index = index + length: swing được biết lúc đóng nến known_index.
+    known_index = index + length: the swing is known when candle known_index closes.
     """
     table = swing_table(swings(ohlcv, length))
     out = [
@@ -92,7 +93,7 @@ def known_swings(ohlcv: pl.DataFrame, length: int) -> list[tuple[str, int, float
 
 
 class _Bars:
-    """Mảng numpy và thời gian của frame nến."""
+    """Numpy arrays and times of the candle frame."""
 
     def __init__(self, ohlcv: pl.DataFrame):
         self.symbol, self.timeframe = check_ohlcv(ohlcv)
@@ -112,11 +113,11 @@ class _Bars:
 
 def _check_source(name: str, value: str) -> None:
     if value not in BREAK_SOURCES:
-        raise ValueError(f"{name} phải là một trong {BREAK_SOURCES}")
+        raise ValueError(f"{name} must be one of {BREAK_SOURCES}")
 
 
 def _breaks(bars: _Bars, ohlcv: pl.DataFrame, swing_length: int, break_on: str) -> list[dict]:
-    """Phá cấu trúc dạng dict nội bộ: i, side, kind, level, swing_index."""
+    """Structure breaks as internal dicts: i, side, kind, level, swing_index."""
     _check_source("break_on", break_on)
     up_src = bars.c if break_on == "close" else bars.h
     dn_src = bars.c if break_on == "close" else bars.l
@@ -127,7 +128,7 @@ def _breaks(bars: _Bars, ohlcv: pl.DataFrame, swing_length: int, break_on: str) 
     trend = 0
     out = []
     for i in range(bars.n):
-        # Chỉ nạp swing đã biết trước khi nến i mở (known_index < i).
+        # Only load swings known before candle i opens (known_index < i).
         while ptr < len(pending) and pending[ptr][3] < i:
             kind, idx, price, _ = pending[ptr]
             if kind == "swing_high":
@@ -181,7 +182,7 @@ def structure_breaks(
 
 
 def _displacement_flags(bars: _Bars, ohlcv: pl.DataFrame, k: float, atr_length: int):
-    """(+1/-1/0 mỗi nến, ATR của nến trước)."""
+    """(+1/-1/0 per candle, ATR of the previous candle)."""
     a = atr(ohlcv, atr_length)
     prev = np.concatenate([[np.nan], a[:-1]])
     body = bars.c - bars.o
@@ -216,7 +217,7 @@ def displacement(ohlcv: pl.DataFrame, k: float = 1.5, atr_length: int = 14) -> p
 def fair_value_gaps(
     ohlcv: pl.DataFrame, min_size_atr: float = 0.0, atr_length: int = 14
 ) -> pl.DataFrame:
-    """Events fvg_bull/fvg_bear, invalidated_at = lúc bị lấp hoàn toàn. attrs: {"size"}."""
+    """Events fvg_bull/fvg_bear, invalidated_at = when fully filled. attrs: {"size"}."""
     bars = _Bars(ohlcv)
     phash = params_hash(MODULE, {"fn": "fvg", "min_size_atr": min_size_atr, "atr": atr_length})
     a = atr(ohlcv, atr_length) if min_size_atr > 0 else None
@@ -231,7 +232,7 @@ def fair_value_gaps(
             size = top - bottom
             if size <= 0:
                 continue
-            if a is not None and not (size >= min_size_atr * a[t]):  # ATR NaN → bỏ
+            if a is not None and not (size >= min_size_atr * a[t]):  # ATR NaN → skip
                 continue
             filled = None
             for j in range(t + 1, bars.n):
@@ -264,7 +265,7 @@ def order_blocks(
 ) -> pl.DataFrame:
     """Events ob_*, ob_*_mitigated, breaker_*.
 
-    attrs của ob: {"break_index", "break_kind", "ob_index"}; của mitigated/breaker:
+    ob attrs: {"break_index", "break_kind", "ob_index"}; mitigated/breaker attrs:
     {"ob_index", "ob_time"}.
     """
     _check_source("invalidate_on", invalidate_on)
@@ -337,7 +338,8 @@ def order_blocks(
                 }
             )
         if invalid is not None:
-            # Breaker: bull OB bị phá thành kháng cự, vô hiệu khi giá xuyên ngược lên trên đỉnh.
+            # Breaker: a broken bull OB becomes resistance, invalidated when price crosses back
+            # above the top.
             ended = None
             for w in range(invalid + 1, bars.n):
                 if (side == 1 and high_src[w] > top) or (side == -1 and low_src[w] < bottom):
@@ -369,7 +371,7 @@ def premium_discount(
     hi = np.full(bars.n, np.nan)
     lo = np.full(bars.n, np.nan)
     for kind, _, price, known in known_swings(ohlcv, swing_length):
-        # Swing biết lúc đóng nến `known` → dùng được từ dòng `known` trở đi.
+        # A swing known at the close of candle `known` → usable from row `known` onward.
         target = hi if kind == "swing_high" else lo
         target[known:] = price
     valid = hi > lo
@@ -401,8 +403,8 @@ def premium_discount(
 
 
 def events(ohlcv: pl.DataFrame, params: Mapping[str, Any] | None = None) -> pl.DataFrame:
-    """Gộp mọi Events SMC. `params` = {"breaks": {...}, "displacement": {...}, "fvg": {...},
-    "order_blocks": {...}}, mỗi mục là kwargs cho hàm tương ứng."""
+    """Combine all SMC Events. `params` = {"breaks": {...}, "displacement": {...}, "fvg": {...},
+    "order_blocks": {...}}, each entry is kwargs for the corresponding function."""
     p = dict(params or {})
     parts = [
         structure_breaks(ohlcv, **p.get("breaks", {})),

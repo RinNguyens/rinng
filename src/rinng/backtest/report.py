@@ -1,11 +1,11 @@
-"""Tách in-sample/out-of-sample, lưu kết quả, bảng so sánh.
+"""In-sample/out-of-sample split, result saving, comparison table.
 
-`save_result` là chỗ duy nhất của gói backtest ghi file. Mỗi lần chạy lưu:
-- `trades.parquet`, `equity.parquet`: frame của Result.
-- `summary.json`: metric (NaN/vô cực ghi thành null).
-- `config.json`: cấu hình người gọi đưa vào, thêm `params_hash` (nếu có `strategy` và
-  `params`), `costs`, `period`, `symbol`, `timeframe`, `initial_equity`, `leverage` lấy từ
-  Result, và `git_commit` nếu `git rev-parse HEAD` chạy được (lỗi thì bỏ qua).
+`save_result` is the only place in the backtest package that writes files. Each run saves:
+- `trades.parquet`, `equity.parquet`: the Result frames.
+- `summary.json`: metrics (NaN/infinity written as null).
+- `config.json`: the caller's config, plus `params_hash` (if `strategy` and
+  `params` are given), `costs`, `period`, `symbol`, `timeframe`, `initial_equity`, `leverage` from
+  Result, and `git_commit` if `git rev-parse HEAD` succeeds (errors are ignored).
 """
 
 import json
@@ -24,8 +24,9 @@ from rinng.backtest.engine import Result
 def split_in_out(ohlcv: pl.DataFrame, split_time: datetime) -> tuple[pl.DataFrame, pl.DataFrame]:
     """(in-sample: open_time < split_time, out-of-sample: open_time >= split_time).
 
-    Lưu ý: chiến lược cần nến khởi động (EMA, cửa sổ hồi quy) sẽ mất phần đầu của tập
-    out-of-sample nếu chạy riêng; muốn liền mạch thì sinh tín hiệu trên toàn bộ rồi lọc.
+    Note: strategies that need warm-up candles (EMA, regression window) lose the start of the
+    out-of-sample set when run separately; for continuity generate signals on the full set, then
+    filter.
     """
     return (
         ohlcv.filter(pl.col("open_time") < split_time),
@@ -50,7 +51,7 @@ def git_commit(cwd: Path | None = None) -> str | None:
 
 
 def _clean(value: Any) -> Any:
-    """Đổi NaN/vô cực thành None để JSON hợp lệ."""
+    """Convert NaN/infinity to None for valid JSON."""
     if isinstance(value, float) and not math.isfinite(value):
         return None
     if isinstance(value, dict):
@@ -77,7 +78,7 @@ def build_config(result: Result, config: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_result(result: Result, directory: str | Path, config: dict[str, Any]) -> Path:
-    """Ghi 4 file vào `directory` (tạo nếu chưa có); trả đường dẫn thư mục."""
+    """Write 4 files to `directory` (created if missing); return the directory path."""
     path = Path(directory)
     path.mkdir(parents=True, exist_ok=True)
     result.trades.write_parquet(path / "trades.parquet")
@@ -92,6 +93,6 @@ def save_result(result: Result, directory: str | Path, config: dict[str, Any]) -
 
 
 def compare(results: dict[str, Result]) -> pl.DataFrame:
-    """Một dòng mỗi kết quả, cột `name` rồi các metric trong summary."""
+    """One row per result: the `name` column, then the summary metrics."""
     rows = [{"name": name, **_clean(r.summary)} for name, r in results.items()]
     return pl.DataFrame(rows, infer_schema_length=None)

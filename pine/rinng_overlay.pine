@@ -1,61 +1,61 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// rinng Overlay — vẽ trên chart giá các khái niệm mà dự án rinng tính bằng Python.
-// Định nghĩa bám theo src/rinng/analysis/{structure,smc,liquidity,volume_profile,wyckoff}.py:
-//   Swing (độ dài L): high[s] > mọi high của L nến trái và >= mọi high của L nến phải; được biết
-//     lúc đóng nến s+L, chỉ dùng từ nến kế tiếp.
-//   BOS/CHoCH: close (hoặc wick) vượt swing đã biết gần nhất chưa bị phá; ngược xu hướng = CHoCH.
-//   FVG 3 nến: bull khi low > high[2]; lấp hoàn toàn khi low <= đáy vùng (bull) / high >= đỉnh (bear).
-//   Order block: nến ngược chiều cuối cùng (trong 50 nến) trước nến phá cấu trúc, cần ít nhất
-//     một displacement (|thân| > 1.5 × ATR nến trước) giữa hai nến đó. Chạm lại = mitigated
-//     (viền đứt). Close xuyên mép bên kia = vô hiệu, đổi thành breaker (màu ngược lại).
-//   Thanh khoản: mỗi swing là một mức BSL/SSL, kéo dài tới khi wick vượt qua. Wick vượt rồi đóng
-//     lại bên trong trong cùng nến = sweep. Hai swing cùng loại lệch <= 0.1 × ATR = EQH/EQL.
-//   Premium/discount: dải giữa swing high và swing low gần nhất đã biết.
-//   Volume profile tuần (UTC, thứ Hai): rải volume mỗi nến đều theo bin; POC, value area 70%,
-//     naked POC. Chỉ vẽ tuần đã đóng.
-//   Wyckoff climax: z-score volume (50 nến) >= 2.5 và biên độ >= 1.8 × ATR.
-// Giới hạn của Pine: tối đa 500 line, 500 box, 500 label mỗi script; vùng cũ nhất bị xóa trước.
+// rinng Overlay — draws on the price chart the concepts the rinng project computes in Python.
+// Definitions follow src/rinng/analysis/{structure,smc,liquidity,volume_profile,wyckoff}.py:
+//   Swing (length L): high[s] > every high of the L bars to the left and >= every high of the L bars to the right; known
+//     at the close of bar s+L, used only from the next bar.
+//   BOS/CHoCH: close (or wick) beyond the most recent known, unbroken swing; against the trend = CHoCH.
+//   3-bar FVG: bull when low > high[2]; fully filled when low <= zone bottom (bull) / high >= zone top (bear).
+//   Order block: last opposite-direction bar (within 50 bars) before the structure-breaking bar, requiring at least
+//     one displacement (|body| > 1.5 × previous bar's ATR) between those two bars. Retouched = mitigated
+//     (dashed border). Close through the far edge = invalidated, turns into a breaker (opposite color).
+//   Liquidity: each swing is a BSL/SSL level, extended until a wick crosses it. Wick through then close
+//     back inside on the same bar = sweep. Two same-type swings within <= 0.1 × ATR = EQH/EQL.
+//   Premium/discount: the range between the most recent known swing high and swing low.
+//   Weekly volume profile (UTC, Monday start): each bar's volume spread evenly across bins; POC, 70% value area,
+//     naked POC. Only closed weeks are drawn.
+//   Wyckoff climax: volume z-score (50 bars) >= 2.5 and range >= 1.8 × ATR.
+// Pine limits: at most 500 lines, 500 boxes, 500 labels per script; the oldest zones are deleted first.
 //@version=6
 indicator("rinng Overlay", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
-grpS = "Cấu trúc"
-L         = input.int(5, "Độ dài swing", minval = 1, group = grpS)
-breakOn   = input.string("close", "Phá cấu trúc bằng", options = ["close", "wick"], group = grpS)
-showSwing = input.bool(true, "Nhãn HH/HL/LH/LL", group = grpS)
+grpS = "Structure"
+L         = input.int(5, "Swing length", minval = 1, group = grpS)
+breakOn   = input.string("close", "Break structure on", options = ["close", "wick"], group = grpS)
+showSwing = input.bool(true, "HH/HL/LH/LL labels", group = grpS)
 showBreak = input.bool(true, "BOS / CHoCH", group = grpS)
 showPD    = input.bool(true, "Premium / discount", group = grpS)
 
-grpZ = "Vùng"
+grpZ = "Zones"
 showFvg  = input.bool(true, "FVG", group = grpZ)
-maxFvg   = input.int(30, "Số FVG tối đa", minval = 1, maxval = 150, group = grpZ)
+maxFvg   = input.int(30, "Max FVGs", minval = 1, maxval = 150, group = grpZ)
 showOb   = input.bool(true, "Order block / breaker", group = grpZ)
-maxOb    = input.int(20, "Số OB tối đa", minval = 1, maxval = 100, group = grpZ)
-dispK    = input.float(1.5, "Displacement: thân > k × ATR", minval = 0.1, group = grpZ)
+maxOb    = input.int(20, "Max OBs", minval = 1, maxval = 100, group = grpZ)
+dispK    = input.float(1.5, "Displacement: body > k × ATR", minval = 0.1, group = grpZ)
 
-grpL = "Thanh khoản"
-showLiq  = input.bool(true, "Mức BSL / SSL", group = grpL)
-maxLiq   = input.int(20, "Số mức tối đa mỗi phía", minval = 1, maxval = 100, group = grpL)
+grpL = "Liquidity"
+showLiq  = input.bool(true, "BSL / SSL levels", group = grpL)
+maxLiq   = input.int(20, "Max levels per side", minval = 1, maxval = 100, group = grpL)
 showEq   = input.bool(true, "EQH / EQL", group = grpL)
-eqTol    = input.float(0.1, "Dung sai EQH/EQL (× ATR)", minval = 0.0, group = grpL)
+eqTol    = input.float(0.1, "EQH/EQL tolerance (× ATR)", minval = 0.0, group = grpL)
 showSweep = input.bool(true, "Sweep", group = grpL)
 
-grpV = "Volume profile tuần"
-showVp   = input.bool(true, "Hiện", group = grpV)
-nBins    = input.int(100, "Số bin", minval = 10, maxval = 400, group = grpV)
+grpV = "Weekly volume profile"
+showVp   = input.bool(true, "Show", group = grpV)
+nBins    = input.int(100, "Bins", minval = 10, maxval = 400, group = grpV)
 vaPct    = input.float(0.70, "Value area", minval = 0.1, maxval = 0.99, group = grpV)
-nWeeks   = input.int(6, "Số tuần", minval = 1, maxval = 30, group = grpV)
+nWeeks   = input.int(6, "Weeks", minval = 1, maxval = 30, group = grpV)
 showNaked = input.bool(true, "Naked POC", group = grpV)
 showHist  = input.bool(true, "Histogram profile", group = grpV)
-histRows  = input.int(24, "Số hàng histogram", minval = 8, maxval = 60, group = grpV)
-showShape = input.bool(true, "Nhãn hình dạng D / P / b / DD", group = grpV)
-ddValley  = input.float(0.30, "DD: đáy giữa hai đỉnh <= tỉ lệ này × đỉnh nhỏ", minval = 0.05, maxval = 0.9, group = grpV)
+histRows  = input.int(24, "Histogram rows", minval = 8, maxval = 60, group = grpV)
+showShape = input.bool(true, "D / P / b / DD shape labels", group = grpV)
+ddValley  = input.float(0.30, "DD: valley between peaks <= this ratio × smaller peak", minval = 0.05, maxval = 0.9, group = grpV)
 
 grpW = "Wyckoff"
 showClimax = input.bool(true, "Climax (SC / BC)", group = grpW)
 
-colBull = input.color(#26a69a, "Màu tăng")
-colBear = input.color(#ef5350, "Màu giảm")
-colPoc  = input.color(#ff9800, "Màu POC")
+colBull = input.color(#26a69a, "Bullish color")
+colBear = input.color(#ef5350, "Bearish color")
+colPoc  = input.color(#ff9800, "POC color")
 
 atr14 = ta.atr(14)
 
@@ -76,7 +76,7 @@ isPivot(bool wantHigh) =>
 pivHigh = isPivot(true)
 pivLow  = isPivot(false)
 
-// ======================= BOS / CHoCH (dùng mức đã biết trước nến này) =======================
+// ======================= BOS / CHoCH (uses levels known before this bar) =======================
 var float upLevel = na
 var int   upIndex = na
 var float dnLevel = na
@@ -108,19 +108,19 @@ else if brokeDn and not brokeUp
 else if brokeUp and brokeDn
     trend := close >= open ? 1 : -1
 
-alertcondition(brokeUp and trendBefore == -1, "CHoCH tăng", "rinng: CHoCH tăng {{ticker}} {{interval}}")
-alertcondition(brokeDn and trendBefore == 1, "CHoCH giảm", "rinng: CHoCH giảm {{ticker}} {{interval}}")
+alertcondition(brokeUp and trendBefore == -1, "Bullish CHoCH", "rinng: bullish CHoCH {{ticker}} {{interval}}")
+alertcondition(brokeDn and trendBefore == 1, "Bearish CHoCH", "rinng: bearish CHoCH {{ticker}} {{interval}}")
 
 // ======================= Order block =======================
 var array<box> obBoxes = array.new<box>()
-var array<int> obSide  = array.new<int>()     // 1 = ob tăng, -1 = ob giảm
-var array<int> obState = array.new<int>()     // 0 = OB, 1 = đã chạm, 2 = breaker
+var array<int> obSide  = array.new<int>()     // 1 = bullish OB, -1 = bearish OB
+var array<int> obState = array.new<int>()     // 0 = OB, 1 = touched, 2 = breaker
 
 bool dispUp = math.abs(close - open) > dispK * nz(atr14[1]) and close > open
 bool dispDn = math.abs(close - open) > dispK * nz(atr14[1]) and close < open
 
 findOb(int side) =>
-    // Nến ngược chiều cuối cùng trong 50 nến trước; cần displacement cùng chiều phá từ sau nó tới nay.
+    // Last opposite bar within the previous 50; needs a displacement in the break direction from after it until now.
     int found = -1
     bool sawDisp = side == 1 ? dispUp : dispDn
     for k = 1 to 50
@@ -134,11 +134,11 @@ findOb(int side) =>
         sawDisp := sawDisp or d
     [found, sawDisp]
 
-// Gọi mỗi nến ở phạm vi toàn cục (Pine yêu cầu hàm dùng lịch sử phải chạy mọi nến).
+// Called on every bar at global scope (Pine requires functions that use history to run on every bar).
 [obUpK, obUpOk] = findOb(1)
 [obDnK, obDnOk] = findOb(-1)
 
-// Cập nhật OB đang theo dõi (từ nến sau nến phá).
+// Update tracked OBs (from the bar after the break).
 if obBoxes.size() > 0
     for i = obBoxes.size() - 1 to 0
         box b = obBoxes.get(i)
@@ -178,13 +178,13 @@ while obBoxes.size() > maxOb
     obSide.shift()
     obState.shift()
 
-// ======================= Swing mới → mức cấu trúc, nhãn, thanh khoản =======================
+// ======================= New swing → structure level, labels, liquidity =======================
 var float lastSH = na
 var float lastSL = na
 var int   lastSHi = na
 var int   lastSLi = na
 var array<line>  liqLines = array.new<line>()
-var array<int>   liqSide  = array.new<int>()   // 1 = BSL (trên), -1 = SSL (dưới)
+var array<int>   liqSide  = array.new<int>()   // 1 = BSL (above), -1 = SSL (below)
 
 if pivHigh
     float p = high[L]
@@ -217,7 +217,7 @@ if pivLow
         liqLines.push(line.new(bar_index - L, p, bar_index, p, color = color.new(colBear, 50), style = line.style_dotted, extend = extend.right))
         liqSide.push(-1)
 
-// Mức thanh khoản bị lấy: dừng đường; nếu đóng lại bên trong thì đánh dấu sweep.
+// Liquidity level taken: stop the line; if price closes back inside, mark a sweep.
 if liqLines.size() > 0
     for i = liqLines.size() - 1 to 0
         line ln = liqLines.get(i)
@@ -277,7 +277,7 @@ if showPD and barstate.islast and not na(lastSH) and not na(lastSL) and lastSH >
     discBox := box.new(x0, mid, bar_index + 10, lastSL, border_color = na, bgcolor = color.new(colBull, 93), text = "discount", text_size = size.tiny, text_color = color.new(colBull, 40), text_valign = text.align_bottom)
     eqLine := line.new(x0, mid, bar_index + 10, mid, color = color.gray, style = line.style_dashed)
 
-// ======================= Volume profile tuần =======================
+// ======================= Weekly volume profile =======================
 var array<float> wh = array.new<float>()
 var array<float> wl = array.new<float>()
 var array<float> wv = array.new<float>()
@@ -354,7 +354,7 @@ closeWeek(int firstBar, int lastBar) =>
         if showNaked
             nakedPoc.push(line.new(lastBar, pocPrice, lastBar + 1, pocPrice, color = colPoc, style = line.style_dotted, extend = extend.right))
         if showHist
-            // Gộp nBins bin thành histRows hàng; độ dài thanh tỉ lệ volume, tối đa 70% độ rộng tuần.
+            // Merge nBins bins into histRows rows; bar length proportional to volume, at most 70% of the week width.
             int per = math.max(1, int(math.ceil(nBins / histRows)))
             int rows = int(math.ceil(nBins / per))
             array<float> agg = array.new<float>(rows, 0.0)
