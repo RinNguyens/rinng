@@ -7,11 +7,32 @@ dashboard và indicator Pine Script.
 Tài liệu: [docs/](docs/README.md). Kiến trúc: [docs/08-kien-truc.md](docs/08-kien-truc.md).
 Lộ trình và trạng thái từng phase: [docs/09-lo-trinh-phase.md](docs/09-lo-trinh-phase.md).
 
-## Cài
+> **Cảnh báo:** rinng chỉ phân tích và backtest, không đặt lệnh và không phải lời khuyên đầu tư.
+> Dùng kết quả với rủi ro của bạn.
+
+## Yêu cầu
+
+- macOS hoặc Linux (Windows nên dùng WSL2)
+- [uv](https://docs.astral.sh/uv/) (tự cài Python 3.12)
+- Node.js 22+ và [pnpm](https://pnpm.io/) nếu chạy giao diện web
+- Không cần API key: rinng chỉ dùng dữ liệu công khai của Binance và OKX
+
+## Bắt đầu nhanh
 
 ```bash
-uv sync
+git clone https://github.com/RinNguyens/rinng.git
+cd rinng
+uv sync                                   # cài thư viện Python
+uv run rinng check                        # thử kết nối sàn
+uv run rinng backfill --start 2024-01-01  # tải dữ liệu lịch sử vào data/
+uv run rinng resample && uv run rinng analyze --timeframe 4h
+pnpm --dir web install && pnpm --dir web build
+uv run rinng live                         # mở http://127.0.0.1:8000
 ```
+
+Nếu cài `ta-lib` báo lỗi, cài thư viện C trước (`brew install ta-lib` hoặc `apt install libta-lib-dev`)
+rồi chạy lại `uv sync`. Nếu kết nối OKX bị treo, kiểm tra mạng IPv6. Cấu hình coin, sàn, khung thời gian
+nằm trong `configs/`.
 
 ## Quy trình
 
@@ -87,3 +108,12 @@ uv run ruff check && uv run ruff format --check
 ```
 
 Hệ thống chỉ phân tích và backtest; không đặt lệnh.
+
+## Đóng góp
+
+Mọi người đều có thể clone, dùng và đề xuất thay đổi qua pull request. Chỉ chủ repo được merge
+vào `main` và `dev`. Xem [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Giấy phép
+
+[MIT](LICENSE) © 2026 Nguyễn Văn Rin
