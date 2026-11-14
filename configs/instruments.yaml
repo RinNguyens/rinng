@@ -1,5 +1,5 @@
-# Mặc định theo docs/07-ke-hoach-trien-khai.md mục 1.
-# Thứ tự ở đây là thứ tự hiển thị trong web (watchlist). Coin khác: tìm trong ô tìm kiếm.
+# Defaults follow docs/07-implementation-plan.md section 1.
+# The order here is the display order in the web watchlist. Other coins: use the search box.
 data_dir: data
 base_timeframe: 1m
 timeframes: [5m, 15m, 1h, 4h, 1d, 1w]

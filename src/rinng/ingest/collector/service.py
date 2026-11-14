@@ -1,4 +1,4 @@
-"""Tiến trình collector: WebSocket + poller của hai sàn, dừng sạch khi nhận SIGINT/SIGTERM."""
+"""Collector process: WebSocket + poller for both exchanges, clean shutdown on SIGINT/SIGTERM."""
 
 import asyncio
 import logging
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 async def collect(settings: Settings, duration: float | None = None) -> dict[str, dict]:
-    """Chạy tới khi bị dừng (hoặc hết `duration` giây). Trả về thống kê để in ra."""
+    """Run until stopped (or after `duration` seconds). Returns stats to print."""
     paths = DataPaths(settings.data_dir)
     perps = [i for i in settings.instruments if i.kind == "perp"]
     stop = asyncio.Event()

@@ -1,3 +1,3 @@
-"""rinng: phân tích quant cho crypto."""
+"""rinng: quant analysis for crypto."""
 
 __version__ = "0.1.0"

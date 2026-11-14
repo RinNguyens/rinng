@@ -1,8 +1,8 @@
-"""Kiểm chất lượng dữ liệu nến đã curated.
+"""Quality checks for curated bar data.
 
-- Nến 1 phút: số nến thiếu và các khoảng thiếu, nến trùng, OHLC vô lý, volume âm.
-- Khung lớn: so nến tự gộp với nến sàn trả về (cần mạng, `compare_with_exchange`).
-- Hai sàn: độ lệch giá đóng giữa Binance và OKX ở cùng mốc.
+- 1-minute bars: missing count and gaps, duplicates, impossible OHLC, negative volume.
+- Larger timeframes: compare own aggregates with exchange bars (network, `compare_with_exchange`).
+- Two exchanges: close-price deviation between Binance and OKX at the same timestamps.
 """
 
 from dataclasses import dataclass, field
@@ -58,7 +58,7 @@ def check_candles(ohlcv: pl.DataFrame, step: timedelta = timedelta(minutes=1)) -
 
 
 def compare_frames(ours: pl.DataFrame, theirs: pl.DataFrame, rel_tol: float = 1e-9) -> dict:
-    """So từng nến cùng open_time. Trả số nến chung, số nến lệch và vài ví dụ."""
+    """Compare bars with the same open_time. Returns shared/mismatched counts and examples."""
     cols = ["open", "high", "low", "close", "volume"]
     joined = ours.select("open_time", *cols).join(
         theirs.select("open_time", *cols), on="open_time", suffix="_x"
@@ -88,7 +88,7 @@ def compare_with_exchange(
     start: datetime,
     end: datetime,
 ) -> dict:
-    """So nến đã có với nến sàn trả về qua REST trong [start, end). Chỉ so nến đã đóng."""
+    """Compare stored bars with exchange REST bars over [start, end). Closed bars only."""
     rows = [r for page in api.klines(venue_symbol, timeframe, start, end) for r in page]
     theirs = rows_to_frame(
         OHLCV, rows, exchange=api.name, symbol=ours["symbol"][0], timeframe=timeframe

@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Chạy `rinng collect` liên tục trên macOS và tự khởi động lại khi chết.
-  Cài (chưa cài sẵn):
+  Runs `rinng collect` continuously on macOS and restarts it if it dies.
+  Install (not installed by default):
     cp deploy/com.rinng.collector.plist ~/Library/LaunchAgents/
     launchctl load ~/Library/LaunchAgents/com.rinng.collector.plist
-  Gỡ:
+  Uninstall:
     launchctl unload ~/Library/LaunchAgents/com.rinng.collector.plist
-  Máy ngủ thì collector cũng dừng; khoảng đó được ghi vào data/meta/gaps khi nối lại.
+  When the machine sleeps the collector stops too; the gap is recorded in data/meta/gaps on reconnect.
 -->
 <plist version="1.0">
 <dict>

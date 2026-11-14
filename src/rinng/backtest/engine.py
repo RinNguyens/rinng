@@ -1,39 +1,48 @@
-"""Engine backtest event-driven theo nến cho MỘT symbol perpetual.
+"""Event-driven, candle-by-candle backtest engine for ONE perpetual symbol.
 
-Quy tắc khớp lệnh:
+Fill rules:
 
-1. Tín hiệu có `time = T` (lúc đóng nến sinh ra nó) khớp ở GIÁ MỞ của nến có `open_time == T`,
-   tức nến kế tiếp. Nếu `time` không trùng mốc nến nào thì khớp ở nến đầu tiên có
-   `open_time >= time`. Vì vậy một tín hiệu không bao giờ khớp ở chính nến sinh ra nó.
-   Tín hiệu sau nến cuối không được khớp (đếm vào `signals_unfilled`). Nhiều tín hiệu rơi
-   vào cùng một nến thì chỉ tín hiệu sau cùng có hiệu lực (đếm vào `signals_ignored`).
-2. Một tín hiệu mới thay thế vị thế hiện tại: đóng vị thế cũ (lý do "signal") rồi mở vị thế
-   mới ở cùng giá mở. "flat" hoặc size = 0 chỉ đóng. Tín hiệu cùng chiều với vị thế đang mở
-   bị bỏ qua (không đổi cỡ, không đổi stop/TP; đếm vào `signals_ignored`).
-3. Lệnh vào/ra là market: giá khớp = giá tham chiếu cộng slippage bất lợi, phí taker trên
-   notional khớp (xem rinng.backtest.costs; tùy chọn take-profit dạng limit dùng phí maker).
-4. Stop/take-profit kiểm trong từng nến kể từ nến vào lệnh (vào ở giá mở nên phần còn lại của
-   nến đó đã là "sau khi vào"), bằng high/low:
-   - giá mở đã vượt qua stop (gap) → thoát ở giá mở, lý do "stop_gap";
-   - giá mở đã vượt qua take-profit → thoát ở giá mở, lý do "take_profit_gap";
-   - stop và take-profit cùng chạm trong một nến → coi STOP chạm trước (bảo thủ), lý do "stop";
-   - chỉ một mức chạm → thoát ở đúng mức đó, lý do "stop" hoặc "take_profit".
-   Thoát bởi stop/TP thì đứng ngoài tới tín hiệu kế tiếp.
-5. Cỡ vị thế: qty = size × equity lúc vào × leverage / giá khớp vào. Equity lúc vào = tiền mặt
-   sau khi đóng vị thế cũ; phí vào trừ thêm vào tiền mặt (nên notional + phí nhỉnh hơn equity
-   một chút ở size = 1). Không vào lệnh mới khi equity <= 0.
-6. Funding: mỗi dòng funding gán vào nến có open_time <= funding_time < open_time kế tiếp và
-   tính trên vị thế sau khi khớp tín hiệu ở giá mở nến đó, trước khi kiểm stop/TP. Với
-   funding_time trùng mốc mở nến (trường hợp thường gặp) điều này nghĩa là vị thế mở đúng lúc
-   funding_time được tính, vị thế đóng đúng lúc đó thì không.
-7. Equity mark-to-market theo giá đóng mỗi nến; cột `time` của equity là lúc đóng nến.
-   Hết dữ liệu mà còn vị thế thì đóng ở giá đóng nến cuối (lý do "end", có slippage và phí);
-   equity của nến cuối đã gồm chi phí đóng này.
+1. A signal with `time = T` (close of the candle that produced it) fills at the OPEN of the candle
+   with `open_time == T`,
+   i.e. the next candle. If `time` matches no candle boundary it fills at the first candle with
+   `open_time >= time`. So a signal never fills on the candle that produced it.
+   Signals after the last candle are not filled (counted in `signals_unfilled`). If several signals
+   land on the same candle only the last one takes effect (counted in `signals_ignored`).
+2. A new signal replaces the current position: close the old one (reason "signal") then open the
+   new one at the same open. "flat" or size = 0 only closes. A signal in the same direction as the
+   open position
+   is ignored (no resize, no stop/TP change; counted in `signals_ignored`).
+3. Entries/exits are market orders: fill price = reference price plus adverse slippage, taker fee on
+   filled notional (see rinng.backtest.costs; the limit take-profit option uses the maker fee).
+4. Stop/take-profit are checked in every candle from the entry candle on (entry is at the open, so
+   the rest of
+   that candle is already "after entry"), using high/low:
+   - open already beyond the stop (gap) → exit at the open, reason "stop_gap";
+   - open already beyond the take-profit → exit at the open, reason "take_profit_gap";
+   - stop and take-profit both hit in one candle → assume the STOP hit first (conservative), reason
+     "stop";
+   - only one level hit → exit exactly at that level, reason "stop" or "take_profit".
+   After a stop/TP exit, stay flat until the next signal.
+5. Position size: qty = size × equity at entry × leverage / entry fill price. Equity at entry = cash
+   after closing the old position; the entry fee is also deducted from cash (so notional + fee
+   slightly exceeds equity
+   at size = 1). No new entries when equity <= 0.
+6. Funding: each funding row is assigned to the candle with open_time <= funding_time < next
+   open_time and
+   applied to the position after filling signals at that candle's open, before checking stop/TP.
+   With
+   funding_time on a candle open (the common case) this means a position opened exactly at
+   funding_time is charged, one closed at that moment is not.
+7. Equity is marked to market at each candle close; the equity `time` column is the candle close.
+   A position still open at the end of data is closed at the last close (reason "end", with
+   slippage and fees);
+   the last candle's equity already includes this closing cost.
 
-Giới hạn: không mô phỏng thanh lý, margin, khớp một phần hay giới hạn khối lượng. Ở đòn bẩy 1,
-long không thể lỗ quá vốn; short vẫn có thể làm equity âm nếu giá tăng hơn gấp đôi — engine chỉ
-ngừng mở lệnh mới, không thanh lý. Với leverage > 1 kết quả lạc quan hơn thực tế ở vùng gần
-giá thanh lý.
+Limitations: no simulation of liquidation, margin, partial fills or volume limits. At leverage 1,
+a long cannot lose more than its capital; a short can still drive equity negative if price more
+than doubles — the engine only
+stops opening new positions, it does not liquidate. With leverage > 1 results are optimistic near
+the liquidation price.
 """
 
 from dataclasses import dataclass, field
@@ -67,7 +76,7 @@ TRADE_SCHEMA: dict[str, pl.DataType] = {
 EQUITY_SCHEMA: dict[str, pl.DataType] = {
     "time": TIME,
     "equity": pl.Float64(),
-    "position": pl.Float64(),  # qty có dấu lúc đóng nến: > 0 long, < 0 short
+    "position": pl.Float64(),  # signed qty at candle close: > 0 long, < 0 short
 }
 
 
@@ -114,8 +123,8 @@ def _funding_by_bar(funding: pl.DataFrame | None, open_ms: np.ndarray, end_ms: i
 
 
 def _beyond(direction: int, level: float | None, price: float, adverse: bool) -> bool:
-    """Giá đã chạm/vượt mức `level` chưa. adverse=True: phía bất lợi (stop), False: phía có
-    lợi (take-profit). Long bất lợi là giá <= mức, short bất lợi là giá >= mức."""
+    """Whether price touched/crossed `level`. adverse=True: adverse side (stop), False: favourable
+    side (take-profit). Adverse for long is price <= level, for short price >= level."""
     if level is None:
         return False
     return (price <= level) if (direction > 0) == adverse else (price >= level)
@@ -129,14 +138,14 @@ def run(
     initial_equity: float = 10_000,
     leverage: float = 1.0,
 ) -> Result:
-    """Chạy backtest. Xem quy tắc khớp lệnh ở docstring của module.
+    """Run a backtest. See the fill rules in the module docstring.
 
-    `ohlcv`: nến curated của một symbol, một khung thời gian. `funding`: bảng `funding`
-    (funding_time, rate, mark_price tùy chọn) của cùng symbol. Engine không đọc file.
+    `ohlcv`: curated candles of one symbol and timeframe. `funding`: the `funding` table
+    (funding_time, rate, optional mark_price) of the same symbol. The engine does not read files.
     """
     costs = costs or CostModel()
     if initial_equity <= 0 or leverage <= 0:
-        raise ValueError("initial_equity và leverage phải > 0")
+        raise ValueError("initial_equity and leverage must be > 0")
     sig = validate_signals(signals)
     symbol, timeframe = check_ohlcv(ohlcv)
     duration = bar_duration(timeframe)
@@ -197,7 +206,7 @@ def run(
         pos = None
 
     for i in range(n):
-        # 1. Khớp tín hiệu ở giá mở.
+        # 1. Fill signals at the open.
         s = pending.get(i)
         if s is not None:
             target = (
@@ -218,14 +227,14 @@ def run(
                         s["stop"], s["take_profit"],
                     )  # fmt: skip
 
-        # 2. Funding trên vị thế đang mở.
+        # 2. Funding on the open position.
         for rate, mark in fund.get(i, ()):
             if pos is not None:
                 flow = costs.funding_flow(pos.direction, pos.qty, mark or o[i], rate)
                 cash += flow
                 pos.funding += flow
 
-        # 3. Stop / take-profit trong nến.
+        # 3. Stop / take-profit within the candle.
         if pos is not None:
             d, stop, tp = pos.direction, pos.stop, pos.take_profit
             exit_px = reason = None
@@ -242,7 +251,7 @@ def run(
                 fill = exit_px if limit else costs.fill_price(exit_px, buy=d < 0)
                 close(fill, open_times[i], reason, maker=limit)
 
-        # 4. Mark-to-market ở giá đóng.
+        # 4. Mark to market at the close.
         if pos is not None:
             eq_values[i] = cash + pos.direction * pos.qty * (c[i] - pos.entry_price)
             eq_pos[i] = pos.direction * pos.qty

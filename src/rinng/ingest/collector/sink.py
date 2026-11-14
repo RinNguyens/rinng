@@ -1,8 +1,8 @@
-"""Gom bản ghi trong bộ nhớ rồi xả ra raw/ theo lô.
+"""Buffer records in memory and flush them to raw/ in batches.
 
-Mỗi lần xả tạo một file Parquet mới (bất biến) cho mỗi (bảng, sàn, symbol, ngày):
+Each flush creates a new (immutable) Parquet file per (table, exchange, symbol, date):
 raw/{exchange}/{table}/{symbol}/date=YYYY-MM-DD/{first_ms}-{uuid}.parquet
-Nội dung đã đúng schema curated; bước curate chỉ cần gộp và khử trùng.
+Content already matches the curated schema; curate only needs to merge and dedupe.
 """
 
 import time
@@ -43,7 +43,7 @@ class Sink:
         kept = 0
         for r in records:
             if r.table == "ohlcv" and not r.row.get("is_closed", True):
-                continue  # nến đang chạy chỉ dùng cho realtime, không lưu
+                continue  # running candles are realtime only, not stored
             self._rows[(r.table, r.symbol, r.timeframe)].append(r.row)
             kept += 1
         self._count += kept
@@ -51,7 +51,7 @@ class Sink:
             self.flush()
 
     def flush(self) -> int:
-        """Ghi mọi thứ đang giữ. Trả về số dòng đã ghi."""
+        """Write everything buffered. Returns the number of rows written."""
         written = 0
         for (name, symbol, timeframe), rows in self._rows.items():
             if not rows:

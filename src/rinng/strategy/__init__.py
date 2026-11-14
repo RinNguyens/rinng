@@ -1,1 +1,1 @@
-"""L4: biến features và events thành tín hiệu vào/ra."""
+"""L4: turn features and events into entry/exit signals."""

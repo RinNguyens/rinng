@@ -1,13 +1,14 @@
-"""Chiến lược mẫu dựa trên SMC: theo phá cấu trúc, stop ở swing đối diện đã biết.
+"""Sample SMC strategy: follow structure breaks, stop at the known opposite swing.
 
-Mục đích là minh họa cách nối Events vào backtest, KHÔNG phải một chiến lược đã được kiểm
-định có lợi thế.
+It illustrates how to wire Events into a backtest; it is NOT a strategy proven
+to have an edge.
 
-- Vào long khi có `choch_bull` hoặc `bos_bull` (tùy `kinds`), short khi có bản bear.
-- Tín hiệu có time = known_at của sự kiện (lúc đóng nến phá), nên engine khớp ở nến sau.
-- Stop: swing low gần nhất đã biết trước tín hiệu (long) / swing high (short).
-- Take-profit: entry ước lượng (close của nến phá) ± `rr` × khoảng cách tới stop.
-- Bỏ tín hiệu nếu không có swing đối diện hợp lệ.
+- Go long on `choch_bull` or `bos_bull` (per `kinds`), short on the bear variants.
+- Signal time = the event's known_at (close of the breaking candle), so the engine fills on the
+  next candle.
+- Stop: the latest swing low known before the signal (long) / swing high (short).
+- Take-profit: estimated entry (close of the breaking candle) ± `rr` × distance to the stop.
+- Drop the signal if there is no valid opposite swing.
 """
 
 from dataclasses import dataclass, field

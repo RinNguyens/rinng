@@ -41,7 +41,7 @@ def test_candles_with_events_panels_and_profile():
     assert shapes.count("rect") == 1
     assert shapes.count("line") == 1
     names = [tr.name for tr in fig.data]
-    assert {"giá", "swing", "sma10", "volume profile"} <= set(names)
+    assert {"price", "swing", "sma10", "volume profile"} <= set(names)
 
 
 def test_candles_kind_filter_and_equity():

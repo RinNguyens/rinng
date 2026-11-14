@@ -25,7 +25,7 @@ def paths(tmp_path) -> DataPaths:
     return DataPaths(tmp_path / "data")
 
 
-# --- parse: mẫu lấy từ message thật ngày 2026-11-13 ---
+# --- parse: samples from real messages on 2026-11-13 ---
 
 
 def test_binance_agg_trade():
@@ -284,7 +284,7 @@ def test_poller_survives_one_failing_endpoint(paths):
     assert n == 3
 
 
-# --- run_feed với server WebSocket giả ---
+# --- run_feed against a fake WebSocket server ---
 
 
 def test_feed_reconnects_records_gap_and_flushes_on_stop(paths):
@@ -310,7 +310,7 @@ def test_feed_reconnects_records_gap_and_flushes_on_stop(paths):
                     )
                 )
             if len(connections) == 1:
-                await ws.close()  # lần đầu: ngắt giữa chừng
+                await ws.close()  # first time: drop mid-stream
             else:
                 await asyncio.sleep(10)
 
@@ -336,7 +336,7 @@ def test_feed_reconnects_records_gap_and_flushes_on_stop(paths):
 
     feed, sink = asyncio.run(scenario())
     assert feed.stats["reconnects"] == 1
-    assert sink.written_rows == 6  # dòng còn trong bộ nhớ được xả khi dừng
+    assert sink.written_rows == 6  # rows still in memory are flushed on stop
     gaps = catalog.read_meta(paths, "gaps")
     assert gaps.height == 1
     assert gaps["dataset"][0] == "mark_price"

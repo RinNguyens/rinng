@@ -1,15 +1,15 @@
-"""Giao diện chung mà mọi sàn phải cài (docs/08-kien-truc.md mục 6).
+"""Common interface every exchange must implement (docs/08-architecture.md section 6).
 
-Quy ước cho mọi phương thức:
-- `symbol` là tên gốc trên sàn (lấy từ `Instrument.venue_symbol`).
-- Khoảng thời gian là [start, end): gồm `start`, không gồm `end`.
-- Kết quả trả về từng trang. Trong một trang các dòng tăng dần theo thời gian;
-  thứ tự giữa các trang thì không đảm bảo (OKX trả từ mới về cũ).
-- Thời gian là mili giây UTC kiểu int; giá và khối lượng kiểu float.
-- Khối lượng tính bằng đồng base (BTC với BTCUSDT), không tính bằng số hợp đồng.
-- Trường mà sàn không cung cấp có giá trị None.
+Conventions for all methods:
+- `symbol` is the venue-native name (from `Instrument.venue_symbol`).
+- Time ranges are [start, end): `start` inclusive, `end` exclusive.
+- Results are returned page by page. Rows within a page ascend in time;
+    order across pages is not guaranteed (OKX returns newest first).
+- Times are int UTC milliseconds; prices and volumes are floats.
+- Volume is in base currency (BTC for BTCUSDT), not in contracts.
+- Fields the exchange does not provide are None.
 
-Các trường của từng loại dòng:
+Fields per row type:
 - kline: open_time, open, high, low, close, volume, quote_volume, trades,
   taker_buy_volume, is_closed
 - mark kline: open_time, open, high, low, close, is_closed
@@ -32,9 +32,9 @@ Pages = Iterator[list[Row]]
 
 
 def to_ms(moment: datetime) -> int:
-    """Đổi datetime sang mili giây UTC. Từ chối datetime không có múi giờ."""
+    """Convert a datetime to UTC milliseconds. Rejects naive datetimes."""
     if moment.tzinfo is None:
-        raise ValueError("datetime phải có múi giờ (dùng timezone UTC)")
+        raise ValueError("datetime must be timezone-aware (use UTC)")
     return int(moment.astimezone(UTC).timestamp() * 1000)
 
 

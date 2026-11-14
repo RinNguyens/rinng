@@ -1,13 +1,14 @@
-"""Metric hiệu suất (docs/05-quant-backtest-va-du-lieu.md mục 3).
+"""Performance metrics (docs/05-quant-backtest-and-data.md section 3).
 
-Quy ước:
-- Return mỗi kỳ tính từ equity mark-to-market cuối mỗi nến, kỳ đầu so với vốn ban đầu.
-- `periods_per_year` = số nến mỗi năm của crypto 24/7, 365 ngày (1h → 8 760, 1d → 365).
-- Lãi suất phi rủi ro r_f = 0 và MAR = 0 cho Sharpe/Sortino.
-- Sharpe dùng độ lệch chuẩn mẫu (ddof=1). Sortino: downside deviation chia cho TOÀN BỘ số kỳ.
-- Số năm = số nến / periods_per_year (cùng quy ước 365 ngày với hệ số annualize).
-- Max drawdown là số âm (−0.2 = sụt 20%), tính cả điểm vốn ban đầu.
-- Giá trị không xác định (độ lệch chuẩn 0, không có lệnh lỗ, ...) trả NaN.
+Conventions:
+- Per-period returns come from mark-to-market equity at each candle close; the first period is vs
+  initial capital.
+- `periods_per_year` = candles per year for 24/7 crypto, 365 days (1h → 8 760, 1d → 365).
+- Risk-free rate r_f = 0 and MAR = 0 for Sharpe/Sortino.
+- Sharpe uses the sample standard deviation (ddof=1). Sortino: downside deviation over ALL periods.
+- Years = candles / periods_per_year (same 365-day convention as the annualization factor).
+- Max drawdown is negative (−0.2 = 20% drop) and includes the initial capital point.
+- Undefined values (zero standard deviation, no losing trades, ...) return NaN.
 """
 
 import math
@@ -21,7 +22,7 @@ YEAR_DAYS = 365
 
 
 def periods_per_year(timeframe: str) -> float:
-    """Số nến mỗi năm cho thị trường 24/7."""
+    """Candles per year for a 24/7 market."""
     return YEAR_DAYS * 86_400_000 / (bar_duration(timeframe).total_seconds() * 1000)
 
 
@@ -67,7 +68,7 @@ def summarize(
     initial_equity: float,
     periods: float,
 ) -> dict[str, float | int]:
-    """Bảng metric từ frame equity (cột equity, position) và frame trades của engine."""
+    """Metric table from the engine's equity frame (equity, position columns) and trades frame."""
     eq = equity["equity"].to_numpy().astype(float)
     n = len(eq)
     final = float(eq[-1]) if n else initial_equity
@@ -101,8 +102,9 @@ def summarize(
         "profit_factor": float(wins.sum()) / gross_loss if gross_loss > 0 else math.nan,
         "expectancy": float(pnl.mean()) if len(pnl) else math.nan,
         "exposure": float((equity["position"] != 0).mean()) if n else math.nan,
-        # Turnover năm theo quy ước Σ|Δw|/2: tổng notional khớp (vào + ra) / 2 / equity trung
-        # bình / số năm. Một vòng vào-ra toàn bộ vốn = 1.
+        # Annual turnover by the Σ|Δw|/2 convention: total filled notional (entries + exits) / 2 /
+        # mean
+        # equity / years. One full-capital round trip = 1.
         "turnover": float(notional) / 2 / mean_equity / years if years > 0 else math.nan,
         "fees": float(trades["fees"].sum()) if trades.height else 0.0,
         "funding": float(trades["funding"].sum()) if trades.height else 0.0,

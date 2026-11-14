@@ -12,12 +12,12 @@ T0_MS = int(T0.timestamp() * 1000)
 
 
 def candle(ts: int, confirm: str = "1") -> list[str]:
-    # [ts, o, h, l, c, vol (hợp đồng), volCcy (base), volCcyQuote, confirm]
+    # [ts, o, h, l, c, vol (contracts), volCcy (base), volCcyQuote, confirm]
     return [str(ts), "100", "110", "90", "105", "1250", "12.5", "1300", confirm]
 
 
 class FakeOkx:
-    """Trả nến 1h mới-trước-cũ-sau, tôn trọng `after` và `limit` như sàn thật."""
+    """Return 1h candles newest first, honouring `after` and `limit` like the real exchange."""
 
     def __init__(self, total_bars: int) -> None:
         self.total = total_bars
@@ -50,10 +50,10 @@ def test_klines_paginates_backwards_without_gaps_or_duplicates():
     )
     for page in pages:
         times = [r["open_time"] for r in page]
-        assert times == sorted(times)  # trong một trang: tăng dần
+        assert times == sorted(times)  # within a page: ascending
     all_times = sorted(r["open_time"] for page in pages for r in page)
     assert all_times == [T0_MS + i * H for i in range(100, 800)]
-    assert len(fake.requests) == 3  # 300 + 300 + 100 (trang cuối chạm mốc bắt đầu)
+    assert len(fake.requests) == 3  # 300 + 300 + 100 (last page reaches the start)
 
 
 def test_klines_stops_when_history_runs_out():
@@ -158,7 +158,7 @@ def test_stats_rows_and_column_order():
             [str(T0_MS), "3400000", "34000", "2300000000"]
         ],
         "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract": [[str(T0_MS), "2.5"]],
-        "/api/v5/rubik/stat/taker-volume-contract": [[str(T0_MS), "20", "10"]],  # [ts, bán, mua]
+        "/api/v5/rubik/stat/taker-volume-contract": [[str(T0_MS), "20", "10"]],  # [ts, sell, buy]
     }
     api = make(lambda r: httpx.Response(200, json={"code": "0", "data": bodies[r.url.path]}))
     end = T0 + timedelta(hours=1)

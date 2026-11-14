@@ -1,31 +1,31 @@
-"""Indicator kỹ thuật dạng Features (một dòng mỗi nến).
+"""Technical indicators as Features (one row per candle).
 
-Phần lớn bọc TA-Lib; VWAP và anchored VWAP tự viết bằng polars.
+Mostly wraps TA-Lib; VWAP and anchored VWAP are implemented in polars.
 
-Định nghĩa và tham số mặc định (khóa trong `params` của `compute`):
-- RSI(`rsi`=14): Wilder, như TA-Lib (trung bình đầu = SMA của n thay đổi đầu tiên).
-- MACD(`macd_fast`=12, `macd_slow`=26, `macd_signal`=9): line = EMA nhanh - EMA chậm,
-  signal = EMA của line, hist = line - signal. Cách seed EMA theo TA-Lib nên vài chục giá trị
-  đầu có thể lệch nhẹ so với TradingView; về sau hội tụ.
+Definitions and defaults (keys in the `params` of `compute`):
+- RSI(`rsi`=14): Wilder, as in TA-Lib (first average = SMA of the first n changes).
+- MACD(`macd_fast`=12, `macd_slow`=26, `macd_signal`=9): line = fast EMA - slow EMA,
+  signal = EMA of line, hist = line - signal. EMA is seeded as in TA-Lib, so the first few dozen
+  values may differ slightly from TradingView; they converge later.
 - ROC(`roc`=10): 100 × (close / close[n] - 1).
 - Stochastic(`stoch_k`=14, `stoch_k_smooth`=3, `stoch_d`=3): %K = SMA(raw %K, k_smooth),
-  %D = SMA(%K, d). Raw %K = 100 × (close - LL) / (HH - LL) trên `stoch_k` nến. Như TA-Lib,
-  %K chỉ có giá trị từ nến đầu tiên %D có giá trị.
+  %D = SMA(%K, d). Raw %K = 100 × (close - LL) / (HH - LL) over `stoch_k` candles. As in TA-Lib,
+  %K only has values from the first candle where %D has a value.
 - Williams %R(`willr`=14): -100 × (HH - close) / (HH - LL).
-- ATR(`atr`=14): Wilder, seed = SMA của n true range đầu tiên (true range bắt đầu từ nến 1).
-- Bollinger(`bb_length`=20, `bb_std`=2.0): mid = SMA, upper/lower = mid ± k × độ lệch chuẩn
-  tổng thể (ddof=0).
-- EMA(`ema`=[9, 21, 50, 200]) và SMA(`sma`=[20, 50, 200]): mỗi chu kỳ một cột `ema_<n>`,
-  `sma_<n>`. EMA seed bằng SMA của n giá đầu (TA-Lib).
-- ADX(`adx`=14): Wilder, như TA-Lib.
-- OBV: cộng dồn volume có dấu theo chiều close; giá trị đầu = volume[0] (như TA-Lib).
-- VWAP ngày (`vwap`=True): Σ(typical × volume) / Σ volume, reset lúc 00:00 UTC mỗi ngày;
-  typical = (high + low + close) / 3. Ngày có tổng volume = 0 cho null.
-- Anchored VWAP (`avwap_anchor`=None): như trên nhưng cộng dồn từ nến đầu tiên có
-  `open_time >= anchor`, không reset; trước mốc là null.
+- ATR(`atr`=14): Wilder, seed = SMA of the first n true ranges (true range starts at candle 1).
+- Bollinger(`bb_length`=20, `bb_std`=2.0): mid = SMA, upper/lower = mid ± k × population standard
+  deviation (ddof=0).
+- EMA(`ema`=[9, 21, 50, 200]) and SMA(`sma`=[20, 50, 200]): one column per period, `ema_<n>`,
+  `sma_<n>`. EMA is seeded with the SMA of the first n prices (TA-Lib).
+- ADX(`adx`=14): Wilder, as in TA-Lib.
+- OBV: cumulative signed volume by close direction; first value = volume[0] (as in TA-Lib).
+- Daily VWAP (`vwap`=True): Σ(typical × volume) / Σ volume, reset at 00:00 UTC each day;
+  typical = (high + low + close) / 3. Days with zero total volume give null.
+- Anchored VWAP (`avwap_anchor`=None): as above but accumulated from the first candle with
+  `open_time >= anchor`, never reset; null before the anchor.
 
-Giá trị khởi động (TA-Lib trả NaN) giữ là null. Mọi giá trị ở nến i chỉ dùng nến <= i nên
-known_at = thời điểm đóng nến (do `features_frame` gán).
+Warm-up values (TA-Lib returns NaN) stay null. Every value at candle i only uses candles <= i, so
+known_at = candle close time (set by `features_frame`).
 """
 
 from collections.abc import Mapping
@@ -62,7 +62,7 @@ DEFAULTS: dict[str, Any] = {
 
 
 def _series(values: np.ndarray) -> pl.Series:
-    """numpy → polars Float64, NaN thành null."""
+    """numpy → polars Float64, NaN to null."""
     return pl.Series(np.asarray(values, dtype=np.float64)).fill_nan(None)
 
 
@@ -74,7 +74,7 @@ def _arrays(ohlcv: pl.DataFrame) -> tuple[np.ndarray, ...]:
 
 
 def atr(ohlcv: pl.DataFrame, length: int = 14) -> np.ndarray:
-    """ATR Wilder (TA-Lib) dạng numpy, NaN ở giai đoạn khởi động. Dùng chung cho smc/liquidity."""
+    """Wilder ATR (TA-Lib) as numpy, NaN during warm-up. Shared by smc/liquidity."""
     _, high, low, close, _ = _arrays(ohlcv)
     return talib.ATR(high, low, close, timeperiod=length)
 
@@ -96,22 +96,22 @@ def _vwap(ohlcv: pl.DataFrame, group: pl.Expr | None, mask: pl.Expr | None) -> p
 
 
 def vwap_daily(ohlcv: pl.DataFrame) -> pl.Series:
-    """VWAP reset theo ngày UTC."""
+    """VWAP reset per UTC day."""
     return _vwap(ohlcv, pl.col("open_time").dt.convert_time_zone("UTC").dt.date(), None)
 
 
 def anchored_vwap(ohlcv: pl.DataFrame, anchor: datetime) -> pl.Series:
-    """VWAP cộng dồn từ nến đầu tiên có open_time >= anchor; trước mốc là null."""
+    """VWAP accumulated from the first candle with open_time >= anchor; null before the anchor."""
     dtype = ohlcv.schema["open_time"]
     return _vwap(ohlcv, None, pl.col("open_time") >= pl.lit(anchor).cast(dtype))
 
 
 def compute(ohlcv: pl.DataFrame, params: Mapping[str, Any] | None = None) -> pl.DataFrame:
-    """Features gồm mọi indicator ở docstring module. `params` ghi đè `DEFAULTS`."""
+    """Features with every indicator in the module docstring. `params` overrides `DEFAULTS`."""
     check_ohlcv(ohlcv)
     unknown = set(params or {}) - set(DEFAULTS)
     if unknown:
-        raise ValueError(f"tham số không biết: {sorted(unknown)}")
+        raise ValueError(f"unknown params: {sorted(unknown)}")
     p = {**DEFAULTS, **(params or {})}
     _, high, low, close, volume = _arrays(ohlcv)
 

@@ -1,1 +1,1 @@
-"""Dữ liệu realtime: LiveHub, cập nhật curated tăng dần, tiến trình `rinng live`."""
+"""Realtime data: LiveHub, incremental curated updates, the `rinng live` process."""

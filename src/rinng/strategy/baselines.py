@@ -1,14 +1,14 @@
-"""Chiến lược baseline để so sánh (docs/09-lo-trinh-phase.md Phase 9).
+"""Baseline strategies for comparison (docs/09-phase-roadmap.md Phase 9).
 
-- BuyAndHold: long từ lúc đóng nến đầu tiên tới hết dữ liệu.
+- BuyAndHold: long from the first candle close to the end of data.
 - LinearRegression: baseline trong paper QuantHarness (docs/01-quantharness-paper.md):
-  OLS của close theo chỉ số nến trên `window` nến đóng gần nhất; dốc > 0 → long, ngược lại
-  (kể cả dốc = 0) → short. Đánh giá ở mỗi nến, chỉ phát tín hiệu khi chiều đổi.
-- EmaCross: EMA nhanh > EMA chậm → long, < → short. EMA bằng polars
-  `ewm_mean(span=..., adjust=False)`. Chỉ đánh giá từ nến thứ `slow` (bỏ giai đoạn khởi động),
-  bỏ qua nến hai EMA bằng nhau, chỉ phát tín hiệu khi chiều đổi.
+  OLS of close on candle index over the last `window` closed candles; slope > 0 → long, otherwise
+  (including slope = 0) → short. Evaluated every candle, emits only when direction changes.
+- EmaCross: fast EMA > slow EMA → long, < → short. EMA via polars
+  `ewm_mean(span=..., adjust=False)`. Evaluated only from candle `slow` on (skipping warm-up),
+  skips candles where the EMAs are equal, emits only when direction changes.
 
-Mọi tín hiệu có `time` = lúc đóng nến dùng để tính (open_time + độ dài nến).
+Every signal has `time` = close of the candle it was computed from (open_time + candle length).
 """
 
 from dataclasses import dataclass, field
@@ -43,14 +43,14 @@ class LinearRegression:
 
     def __post_init__(self) -> None:
         if self.window < 2:
-            raise ValueError("window phải >= 2")
+            raise ValueError("window must be >= 2")
 
     @property
     def params(self) -> dict[str, Any]:
         return {"window": self.window}
 
     def slopes(self, ohlcv: pl.DataFrame) -> np.ndarray:
-        """Dốc OLS (giá/nến) tại mỗi nến; NaN khi chưa đủ `window` nến."""
+        """OLS slope (price/candle) at each candle; NaN until `window` candles are available."""
         close = ohlcv["close"].to_numpy().astype(float)
         out = np.full(len(close), np.nan)
         if len(close) < self.window:
@@ -78,7 +78,7 @@ class EmaCross:
 
     def __post_init__(self) -> None:
         if not 1 <= self.fast < self.slow:
-            raise ValueError("cần 1 <= fast < slow")
+            raise ValueError("requires 1 <= fast < slow")
 
     @property
     def params(self) -> dict[str, Any]:

@@ -1,1 +1,1 @@
-"""L5: chart, dashboard, báo cáo. Chỉ đọc."""
+"""L5: charts, dashboard, reports. Read-only."""

@@ -1,4 +1,4 @@
-"""Dựng nến giả cho test phân tích."""
+"""Synthetic candles for analysis tests."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -6,7 +6,7 @@ import polars as pl
 
 from rinng.store.schemas import OHLCV, conform
 
-T0 = datetime(2026, 1, 5, tzinfo=UTC)  # thứ Hai
+T0 = datetime(2026, 1, 5, tzinfo=UTC)  # Monday
 
 
 def make_ohlcv(
@@ -21,9 +21,9 @@ def make_ohlcv(
     symbol: str = "BTC-USDT-PERP",
     start: datetime = T0,
 ) -> pl.DataFrame:
-    """Nến từ danh sách giá. Thiếu high/low thì lấy max/min của open, close."""
+    """Candles from a price list. Missing high/low default to max/min of open, close."""
     if closes is None:
-        raise ValueError("cần closes")
+        raise ValueError("closes required")
     n = len(closes)
     opens = opens or [closes[0]] + closes[:-1]
     highs = highs or [max(o, c) for o, c in zip(opens, closes, strict=True)]

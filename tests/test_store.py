@@ -24,7 +24,7 @@ T0_MS = int(T0.timestamp() * 1000)
 
 
 def kline_row(open_ms: int, close: float = 105.0) -> dict:
-    """Dòng nến đúng như bộ chuyển đổi sàn trả về."""
+    """Candle rows exactly as the exchange adapter returns them."""
     return {
         "open_time": open_ms,
         "open": 100.0,
@@ -74,13 +74,13 @@ def test_rows_to_frame_fills_columns_adapter_does_not_send():
 
 
 def test_null_key_rejected():
-    rows = [{"time": T0_MS, "oi_base": 1.0, "oi_value": 2.0}]  # thiếu source
-    with pytest.raises(ValueError, match="khóa"):
+    rows = [{"time": T0_MS, "oi_base": 1.0, "oi_value": 2.0}]  # missing source
+    with pytest.raises(ValueError, match="key"):
         rows_to_frame(OPEN_INTEREST, rows, exchange="binance", symbol="BTC-USDT-PERP")
 
 
 def test_missing_column_rejected():
-    with pytest.raises(ValueError, match="thiếu cột"):
+    with pytest.raises(ValueError, match="missing column"):
         conform(pl.DataFrame({"exchange": ["x"]}), FUNDING)
 
 
@@ -108,7 +108,7 @@ def test_writing_same_rows_twice_makes_no_duplicates(paths):
 
 def test_newer_value_wins_on_same_key(paths):
     write_curated(paths, OHLCV, candles(3, close=105.0))
-    write_curated(paths, OHLCV, candles(1, close=200.0))  # nến đầu được sàn sửa lại
+    write_curated(paths, OHLCV, candles(1, close=200.0))  # first candle revised by the exchange
     got = read_curated(paths, OHLCV, exchange="binance", symbol="BTC-USDT-PERP", timeframe="1h")
     assert got["close"].to_list() == [200.0, 105.0, 105.0]
 
@@ -167,7 +167,7 @@ def test_sources_are_kept_apart(paths):
     assert sorted(got["source"].to_list()) == ["api", "dump"]
 
 
-# --- an toàn khi ghi ---
+# --- write safety ---
 
 
 def test_raw_refuses_overwrite(paths, tmp_path):
@@ -206,9 +206,9 @@ def test_crash_during_write_keeps_old_file(paths, monkeypatch):
     monkeypatch.undo()
 
     got = read_curated(paths, OHLCV, exchange="binance", symbol="BTC-USDT-PERP", timeframe="1h")
-    assert got.height == 3  # file chính thức còn nguyên
+    assert got.height == 3  # the committed file is intact
     parquet_files = [p.name for p in paths.root.rglob("*.parquet")]
-    assert parquet_files == [PART_FILE]  # file dở chỉ mang đuôi .tmp
+    assert parquet_files == [PART_FILE]  # the partial file only has the .tmp suffix
 
 
 def _merge_worker(partition: str, start_hour: int) -> None:
@@ -219,8 +219,8 @@ def _merge_worker(partition: str, start_hour: int) -> None:
 
 
 def test_concurrent_merges_do_not_lose_rows(paths):
-    # Tiến trình con chạy qua subprocess thay vì multiprocessing: spawn chạy lại module
-    # __main__ của tiến trình cha, mà test dashboard (AppTest) có thể đã thay __main__.
+    # Child process via subprocess instead of multiprocessing: spawn re-runs the parent's
+    # __main__ module, and the dashboard test (AppTest) may have replaced __main__.
     import subprocess
     import sys
 
@@ -308,7 +308,7 @@ def test_duckdb_views_count_written_rows(paths):
     assert con.execute("SELECT count(*) FROM gaps").fetchone() == (1,)
     first = con.execute("SELECT min(open_time) FROM ohlcv").fetchone()[0]
     assert first == T0
-    assert first.utcoffset() == timedelta(0)  # không theo múi giờ của máy
+    assert first.utcoffset() == timedelta(0)  # independent of the machine's timezone
 
 
 def test_duckdb_without_data_has_no_views(paths):

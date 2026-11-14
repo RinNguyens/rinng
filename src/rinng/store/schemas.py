@@ -1,11 +1,12 @@
-"""Schema các bảng ở vùng curated (docs/08-kien-truc.md mục 5.2).
+"""Schemas of the curated-zone tables (docs/08-architecture.md section 5.2).
 
-Mọi bảng có `exchange` và `symbol` (tên chuẩn của dự án, ví dụ BTC-USDT-PERP).
-Thời gian lưu dạng Datetime mili giây, múi giờ UTC.
+Every table has `exchange` and `symbol` (the project canonical name, e.g. BTC-USDT-PERP).
+Times are stored as millisecond Datetime, UTC.
 
-Một số bảng có cột `source` vì cùng một chuỗi đến từ hai nguồn cho số hơi khác nhau.
-Ví dụ open interest lúc 2026-11-10 05:40 UTC: API trả 98690.01, file `metrics` của
-data.binance.vision ghi 98691.69. Hai nguồn được giữ song song, không trộn.
+Some tables have a `source` column because the same series comes from two
+sources with slightly different numbers.
+E.g. open interest at 2026-11-10 05:40 UTC: the API returns 98690.01, the `metrics` file from
+data.binance.vision records 98691.69. Both sources are kept side by side, never mixed.
 """
 
 from dataclasses import dataclass, replace
@@ -22,9 +23,9 @@ class Table:
     key: tuple[str, ...]
     time_column: str
     has_timeframe: bool = False
-    # Làm tròn cột thời gian khi chuẩn hóa. Funding của Binance lệch vài mili giây so với mốc
-    # tròn và lệch khác nhau giữa REST (…400002) và dump (…800001); không làm tròn thì cùng
-    # một lần funding thành hai dòng.
+    # Round time columns when normalizing. Binance funding is a few ms off the round mark
+    # and differs between REST (…400002) and dumps (…800001); without rounding the same
+    # funding event becomes two rows.
     round_time: str | None = None
 
     @property
@@ -115,7 +116,7 @@ TAKER_VOLUME = _table(
     extra_key=("source",),
 )
 
-# Mark price theo tick từ WebSocket (Binance mỗi 1 giây, OKX khi thay đổi).
+# Mark price per tick from WebSocket (Binance every 1 second, OKX on change).
 MARK_PRICE = _table(
     "mark_price",
     "time",
@@ -135,7 +136,7 @@ TRADES = _table(
     extra_key=("trade_id",),
 )
 
-# Không có id từ sàn; coi cả bản ghi là khóa.
+# No exchange id; the whole record is the key.
 LIQUIDATIONS = _table(
     "liquidations",
     "time",
@@ -143,7 +144,7 @@ LIQUIDATIONS = _table(
     extra_key=("side", "price", "qty"),
 )
 
-# Độ sâu sổ lệnh lũy kế trong ±percentage % quanh giá (file bookDepth, mỗi 30 giây).
+# Cumulative order book depth within ±percentage % of price (bookDepth files, every 30 seconds).
 BOOK_DEPTH = _table(
     "book_depth",
     "time",
@@ -172,14 +173,14 @@ def table(name: str) -> Table:
     try:
         return TABLES[name]
     except KeyError:
-        raise KeyError(f"không có bảng {name!r}; các bảng: {list(TABLES)}") from None
+        raise KeyError(f"no table {name!r}; tables: {list(TABLES)}") from None
 
 
 def conform(frame: pl.DataFrame, tbl: Table) -> pl.DataFrame:
-    """Ép frame về đúng cột, thứ tự và kiểu của bảng. Thiếu cột hoặc khóa rỗng thì báo lỗi."""
+    """Coerce a frame to the table columns, order and types. Raises on missing cols/null keys."""
     missing = [c for c in tbl.columns if c not in frame.columns]
     if missing:
-        raise ValueError(f"bảng {tbl.name} thiếu cột {missing}")
+        raise ValueError(f"table {tbl.name} is missing columns {missing}")
     casts = []
     for name, dtype in tbl.schema.items():
         col = pl.col(name)
@@ -191,7 +192,7 @@ def conform(frame: pl.DataFrame, tbl: Table) -> pl.DataFrame:
         out = out.with_columns(pl.col(tbl.time_column).dt.round(tbl.round_time))
     null_keys = [k for k in tbl.key if out[k].null_count()]
     if null_keys:
-        raise ValueError(f"bảng {tbl.name} có giá trị rỗng ở cột khóa {null_keys}")
+        raise ValueError(f"table {tbl.name} has nulls in key columns {null_keys}")
     return out
 
 
@@ -204,12 +205,12 @@ def rows_to_frame(
     timeframe: str | None = None,
     **constants: str,
 ) -> pl.DataFrame:
-    """Đổi các dòng mà bộ chuyển đổi sàn trả về thành frame đúng schema.
+    """Turn rows returned by an exchange adapter into a frame with the right schema.
 
-    `constants` điền các cột cố định mà bộ chuyển đổi không trả, ví dụ source="api".
+    `constants` fills fixed columns the adapter does not return, e.g. source="api".
     """
     if tbl.has_timeframe and timeframe is None:
-        raise ValueError(f"bảng {tbl.name} cần timeframe")
+        raise ValueError(f"table {tbl.name} requires timeframe")
     fixed = {"exchange": exchange, "symbol": symbol, **constants}
     if tbl.has_timeframe:
         fixed["timeframe"] = timeframe
@@ -219,5 +220,5 @@ def rows_to_frame(
 
 
 def _int_time_schema(tbl: Table) -> dict[str, pl.DataType]:
-    """Schema để dựng frame từ dict: cột thời gian vẫn là int ms, sẽ đổi trong `conform`."""
+    """Schema for building a frame from dicts: time columns stay int ms, converted in `conform`."""
     return {name: (pl.Int64() if dtype == TIME else dtype) for name, dtype in tbl.schema.items()}

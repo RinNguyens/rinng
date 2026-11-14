@@ -1,4 +1,4 @@
-"""Số liệu dashboard (rinng.web.summary) trên nến giả."""
+"""Dashboard figures (rinng.web.summary) on fake candles."""
 
 from datetime import timedelta
 
@@ -10,14 +10,14 @@ from tests.analysis.helpers import T0, make_ohlcv, random_walk
 
 
 def test_price_block_changes_and_delta():
-    # 6 ngày giá 100, 1 ngày 105, 1 ngày 110: mốc 24h trước là nến 105, mốc 7 ngày trước là 100.
+    # 6 days at 100, 1 day at 105, 1 day at 110: 24h ago is the 105 candle, 7 days ago is 100.
     closes = [100.0] * 24 * 6 + [105.0] * 24 + [110.0] * 24
     o = make_ohlcv(closes, volumes=[10.0] * len(closes), taker_buy=[6.0] * len(closes))
     p = summary.price_block(o)
     assert p["close"] == 110.0
     assert p["chg_24h"] == pytest.approx((110 / 105 - 1) * 100)
     assert p["chg_7d"] == pytest.approx(10.0)
-    # Mỗi nến: mua 6, bán 4 → delta 2; 24 nến trong 24h.
+    # Each candle: buy 6, sell 4 → delta 2; 24 candles in 24h.
     assert p["delta_24h"] == pytest.approx(48.0)
     assert len(p["spark"]) == 24 * 7
 

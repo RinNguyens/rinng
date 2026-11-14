@@ -1,1 +1,1 @@
-"""L3: hàm thuần nhận bảng dữ liệu, trả Features hoặc Events. Không I/O."""
+"""L3: pure functions taking data tables and returning Features or Events. No I/O."""

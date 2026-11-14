@@ -61,15 +61,15 @@ def test_funding_asof_uses_points_up_to_close_only():
         [
             {"funding_time": T0 - 2 * H, "rate": 0.1, "mark_price": 1.0},
             {"funding_time": T0, "rate": 0.2, "mark_price": 1.0},
-            {"funding_time": T0 + 2 * H, "rate": 0.3, "mark_price": 1.0},  # = close nến 1
-            {"funding_time": T0 + 4.5 * H, "rate": 0.4, "mark_price": 1.0},  # giữa nến 4
-            {"funding_time": T0 + 7 * H, "rate": 0.9, "mark_price": 1.0},  # sau nến cuối
+            {"funding_time": T0 + 2 * H, "rate": 0.3, "mark_price": 1.0},  # = close of candle 1
+            {"funding_time": T0 + 4.5 * H, "rate": 0.4, "mark_price": 1.0},  # middle of candle 4
+            {"funding_time": T0 + 7 * H, "rate": 0.9, "mark_price": 1.0},  # after the last candle
         ],
     )
     f = funding_features(o, funding, z_window=3, sum_periods=2)
     assert f["funding_rate"].to_list() == [0.2, 0.3, 0.3, 0.3, 0.4, 0.4]
     assert f["funding_sum"].to_list() == pytest.approx([0.3, 0.5, 0.5, 0.5, 0.7, 0.7])
-    # z-score trên chuỗi kỳ funding: [0.1, 0.2, 0.3] -> z của 0.3 = 1
+    # z-score over the funding-period series: [0.1, 0.2, 0.3] -> z of 0.3 = 1
     assert f["funding_z"][0] is None
     assert f["funding_z"][1] == pytest.approx(1.0)
     assert f["known_at"].to_list() == [T0 + (i + 1) * H for i in range(6)]
@@ -107,7 +107,7 @@ def test_price_oi_states():
         "short_cover",
         "short_build",
         "long_liquidation",
-        None,  # giá đứng yên
+        None,  # flat price
     ]
     assert f["oi_change_pct"][1] == pytest.approx(0.1)
     assert f["price_change_pct"][1] == pytest.approx(0.01)
@@ -120,7 +120,7 @@ def test_oi_asof_ignores_points_after_close_and_value_column():
     ]
     oi = _frame(OPEN_INTEREST, rows)
     f = open_interest_features(o, oi, n=1)
-    # điểm lúc 1h30 nằm trong nến 1 (close 2h) nhưng điểm 2h mới hơn và vẫn <= close
+    # the 1h30 point is inside candle 1 (close 2h) but the 2h point is newer and still <= close
     assert f["oi"].to_list() == [10.0, 20.0, 30.0]
     f2 = open_interest_features(make_ohlcv([100.0, 100.0]), oi.filter(pl.col("oi_base") == 99.0))
     assert f2["oi"].to_list() == [None, 99.0]
@@ -134,8 +134,8 @@ def test_oi_gap_nulls_level_and_change_window():
     gaps = pl.concat(
         [
             _gaps((T0 + 2 * H + timedelta(minutes=10), T0 + 2 * H + timedelta(minutes=20))),
-            _gaps((T0, T0 + 5 * H), dataset="funding"),  # dataset khác: bỏ qua
-            _gaps((T0, T0 + 5 * H), symbol="ETH-USDT-PERP"),  # symbol khác: bỏ qua
+            _gaps((T0, T0 + 5 * H), dataset="funding"),  # different dataset: ignored
+            _gaps((T0, T0 + 5 * H), symbol="ETH-USDT-PERP"),  # different symbol: ignored
         ]
     )
     f = open_interest_features(o, oi, n=1, gaps=gaps)
@@ -148,7 +148,8 @@ def test_oi_gap_nulls_level_and_change_window():
 
 def test_gap_mask_boundaries():
     o = make_ohlcv([1.0, 1.0, 1.0])
-    # khoảng kết thúc đúng lúc mở nến 1 và bắt đầu đúng lúc đóng nến 1: không giao nến 1
+    # a gap ending exactly at candle 1 open and one starting exactly at its close: no overlap with
+    # candle 1
     gaps = _gaps((T0 - H, T0 + H), (T0 + 2 * H, T0 + 3 * H))
     assert gap_mask(o, gaps, "open_interest").tolist() == [True, False, True]
     assert gap_mask(o, None, "open_interest").tolist() == [False] * 3
@@ -203,7 +204,7 @@ def test_basis_premium_and_missing_index():
     f = basis_features(o, mp)
     assert f["premium"][0] == pytest.approx(0.01)
     assert f["premium"][1] is None
-    assert f["premium"][2] == pytest.approx(-0.02)  # điểm đúng lúc đóng nến 2
+    assert f["premium"][2] == pytest.approx(-0.02)  # point exactly at the close of candle 2
 
 
 # ---------------------------------------------------------------- liquidation
@@ -220,9 +221,9 @@ def test_liquidation_sums_per_bar():
             {"time": T0 + 0.1 * H, "side": "sell", "price": 100.0, "qty": 1.0},
             {"time": T0 + 0.2 * H, "side": "sell", "price": 90.0, "qty": 2.0},
             {"time": T0 + 0.3 * H, "side": "buy", "price": 101.0, "qty": 2.0},
-            {"time": T0 + H, "side": "buy", "price": 50.0, "qty": 1.0},  # mở nến 1 -> nến 1
-            {"time": T0 - H, "side": "buy", "price": 50.0, "qty": 1.0},  # trước nến đầu
-            {"time": T0 + 3 * H, "side": "buy", "price": 50.0, "qty": 1.0},  # sau nến cuối
+            {"time": T0 + H, "side": "buy", "price": 50.0, "qty": 1.0},  # candle 1 open
+            {"time": T0 - H, "side": "buy", "price": 50.0, "qty": 1.0},  # before the first candle
+            {"time": T0 + 3 * H, "side": "buy", "price": 50.0, "qty": 1.0},  # after the last candle
         ]
     )
     f = liquidation_features(o, liq)
@@ -266,7 +267,8 @@ def test_liquidation_cluster_z_and_quantile():
     attrs = json.loads(row["attrs"])
     assert attrs["notional"] == pytest.approx(20000.0)
     assert attrs["long_notional"] == pytest.approx(20000.0) and attrs["method"] == "z"
-    # phân vị 0.99 của 10 nến trước: chỉ vượt khi notional lớn hơn gần như mọi nến trước
+    # 0.99 percentile of the previous 10 candles: exceeded only when notional beats almost all of
+    # them
     evq = liquidation_clusters(o, liq, window=10, quantile=0.99)
     hours = [(t - T0) // H for t in evq["event_time"].to_list()]
     assert 25 in hours and 26 not in hours
@@ -283,10 +285,10 @@ def test_liquidation_cluster_none_without_spike_and_in_gap():
     notionals[25] = 20000.0
     gaps = _gaps((T0 + 20 * H, T0 + 20.5 * H), dataset="liquidations")
     ev = liquidation_clusters(o, _liq_series(notionals), window=10, gaps=gaps)
-    assert ev.is_empty()  # cửa sổ 10 nến trước nến 25 chứa khoảng trống
+    assert ev.is_empty()  # the 10-candle window before candle 25 contains a gap
 
 
-# ---------------------------------------------------------------- chống nhìn trước
+# ---------------------------------------------------------------- no lookahead
 
 
 def test_derivatives_no_lookahead():

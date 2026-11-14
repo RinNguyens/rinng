@@ -1,10 +1,11 @@
-"""Tiến trình `rinng live`: collector + cập nhật curated tăng dần + web, trên cùng event loop.
+"""The `rinng live` process: collector + incremental curated updates + web, on one event loop.
 
-- Collector như `rinng collect`, thêm stream nến 1m; mọi bản ghi đi qua LiveHub.
-- Updater: nến 1m đóng → ghi curated + resample đuôi → báo LiveHub (nến khung lớn đóng thì
-  client vẽ lại lens). Lúc khởi động và mỗi phút: lấp nến 1m thiếu bằng REST (mất kết nối,
-  máy ngủ...). Mỗi 5 phút: curate các bảng phái sinh mà poller ghi vào raw.
-- Web: FastAPI như `rinng web`, thêm WebSocket /ws/live.
+- Collector as in `rinng collect`, plus the 1m candle stream; every record goes through LiveHub.
+- Updater: 1m candle closed → write curated + resample tail → notify LiveHub (when a higher-TF
+  candle closes the client redraws lenses). On startup and every minute: fill missing 1m candles
+  via REST (lost connection, machine sleep...). Every 5 minutes: curate the derivative tables the
+  poller wrote to raw.
+- Web: FastAPI as in `rinng web`, plus WebSocket /ws/live.
 """
 
 import asyncio
@@ -32,7 +33,7 @@ from rinng.timeframes import bucket_start_ms, timeframe_ms
 log = logging.getLogger(__name__)
 
 DERIVED_TABLES = {"funding", "open_interest", "long_short", "taker_volume", "mark_price"}
-MAX_GAP_FILL = timedelta(days=3)  # thiếu lâu hơn thì nên chạy `rinng backfill`
+MAX_GAP_FILL = timedelta(days=3)  # longer gaps should use `rinng backfill`
 
 
 def _ms_rows(frame: pl.DataFrame) -> list[dict]:
@@ -59,7 +60,7 @@ class Updater:
             self.hub.set_tail(exchange, symbol, tf, _ms_rows(frame))
 
     def _fill_gap(self, exchange: str, symbol: str, venue: str) -> int:
-        """Lấy nến 1m đã đóng từ REST cho phần curated còn thiếu tới hiện tại."""
+        """Fetch closed 1m candles via REST for the curated gap up to now."""
         last = latest_1m_open(self.paths, exchange, symbol)
         now = datetime.now(UTC)
         start = (last + timedelta(minutes=1)) if last else now - timedelta(days=1)
@@ -76,9 +77,9 @@ class Updater:
             try:
                 n = self._fill_gap(ex, sym, venue)
                 if n:
-                    log.info("%s %s: lấp %d nến 1m bằng REST", ex, sym, n)
-            except Exception as exc:  # một sàn lỗi không làm dừng sàn kia
-                log.warning("%s %s: lấp nến thất bại: %s", ex, sym, exc)
+                    log.info("%s %s: filled %d 1m candles via REST", ex, sym, n)
+            except Exception as exc:  # one exchange failing does not stop the other
+                log.warning("%s %s: candle fill failed: %s", ex, sym, exc)
 
     async def run(self, stop: asyncio.Event) -> None:
         await asyncio.to_thread(self.fill_all)
@@ -90,7 +91,9 @@ class Updater:
             try:
                 ex, sym, row = await asyncio.wait_for(self.hub.closed_queue.get(), 1.0)
                 batch.setdefault((ex, sym), []).append(row)
-                await asyncio.sleep(0.3)  # gom nến của các symbol khác đóng cùng phút
+                await asyncio.sleep(
+                    0.3
+                )  # batch candles of other symbols closing in the same minute
                 while not self.hub.closed_queue.empty():
                     ex, sym, row = self.hub.closed_queue.get_nowait()
                     batch.setdefault((ex, sym), []).append(row)
@@ -100,7 +103,7 @@ class Updater:
                 try:
                     await asyncio.to_thread(self._apply, ex, sym, rows)
                 except Exception as exc:
-                    log.warning("%s %s: ghi nến thất bại: %s", ex, sym, exc)
+                    log.warning("%s %s: candle write failed: %s", ex, sym, exc)
             now = loop.time()
             if now >= next_gap:
                 next_gap = now + 60
@@ -110,11 +113,11 @@ class Updater:
                 try:
                     await asyncio.to_thread(curate, self.paths, self.settings, only=DERIVED_TABLES)
                 except Exception as exc:
-                    log.warning("curate phái sinh thất bại: %s", exc)
+                    log.warning("derivatives curate failed: %s", exc)
 
 
 class _Server(uvicorn.Server):
-    """uvicorn không tự bắt tín hiệu; tiến trình live tự dừng mọi thứ theo thứ tự."""
+    """uvicorn does not install signal handlers; the live process stops everything in order."""
 
     @contextlib.contextmanager
     def capture_signals(self):
@@ -129,7 +132,7 @@ async def _status_loop(hub: LiveHub, stop: asyncio.Event) -> None:
 
 
 class _NullSink:
-    """Coin mở thêm khi tìm kiếm: chỉ dùng cho realtime, không lưu raw."""
+    """Coins opened from search: realtime only, not stored in raw."""
 
     written_rows = 0
 
@@ -141,8 +144,8 @@ class _NullSink:
 
 
 class OnDemandFeeds:
-    """Mở feed WebSocket cho coin ngoài cấu hình khi có client xem nó (tối đa `cap` coin;
-    vượt thì đóng coin lâu nhất)."""
+    """Open a WebSocket feed for an unconfigured coin when a client watches it (at most `cap` coins;
+    beyond that the oldest is closed)."""
 
     def __init__(self, hub: LiveHub, catalog: Catalog, paths: DataPaths, cap: int = 8):
         self.hub = hub
@@ -160,7 +163,7 @@ class OnDemandFeeds:
         try:
             await self._start(key)
         except Exception as exc:
-            log.warning("%s %s: không mở được feed realtime: %s", key[0], key[1], exc)
+            log.warning("%s %s: could not open realtime feed: %s", key[0], key[1], exc)
         finally:
             self.pending.discard(key)
 
@@ -170,7 +173,7 @@ class OnDemandFeeds:
         venue = getattr(inst, exchange)
         if not venue:
             return
-        # Nền cho nến đang chạy của mọi khung: nến 1m đã đóng từ đầu nến lớn nhất hiện tại.
+        # Base for every TF's running candle: closed 1m since the largest current candle opened.
         now = datetime.now(UTC)
         longest = max(self.hub.timeframes, key=timeframe_ms)
         start = datetime.fromtimestamp(
@@ -192,7 +195,7 @@ class OnDemandFeeds:
             f.on_records = self.hub.ingest
             tasks.append(asyncio.create_task(run_feed(f, _NullSink(), self.paths, stop)))
         self.running[key] = (stop, tasks)
-        log.info("%s %s: mở feed realtime theo yêu cầu", exchange, symbol)
+        log.info("%s %s: opened on-demand realtime feed", exchange, symbol)
         while len(self.running) > self.cap:
             old = next(iter(self.running))
             self.stop(old)

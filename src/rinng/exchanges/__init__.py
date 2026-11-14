@@ -1,1 +1,1 @@
-"""L1: bộ chuyển đổi từng sàn sau một giao diện chung."""
+"""L1: per-exchange adapters behind a common interface."""

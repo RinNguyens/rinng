@@ -1,7 +1,7 @@
-"""Đổi message WebSocket của từng sàn thành dòng theo schema curated. Hàm thuần, không I/O.
+"""Convert each exchange's WebSocket messages into curated-schema rows. Pure functions, no I/O.
 
-Mỗi hàm trả về list các `Record(table, symbol, row)`; `symbol` là tên chuẩn của dự án.
-Định dạng message đã đối chiếu với dữ liệu thật ngày 2026-11-13.
+Each function returns a list of `Record(table, symbol, row)`; `symbol` is the canonical name.
+Message formats checked against real data on 2026-11-13.
 """
 
 import json
@@ -14,10 +14,10 @@ class Record:
     table: str
     symbol: str
     row: dict[str, Any]
-    timeframe: str | None = None  # chỉ bảng nến cần
+    timeframe: str | None = None  # only for candle tables
 
 
-# --- Binance USDⓈ-M, URL dạng /market/stream?streams=... ---
+# --- Binance USDⓈ-M, URLs like /market/stream?streams=... ---
 
 
 def binance_streams(venue_symbols: list[str]) -> list[str]:
@@ -34,7 +34,7 @@ def binance_streams(venue_symbols: list[str]) -> list[str]:
 
 
 def parse_binance(raw: str, symbols: dict[str, str]) -> list[Record]:
-    """`symbols`: tên trên sàn (BTCUSDT) → tên chuẩn (BTC-USDT-PERP)."""
+    """`symbols`: venue name (BTCUSDT) → canonical name (BTC-USDT-PERP)."""
     msg = json.loads(raw)
     data = msg.get("data")
     if not isinstance(data, dict):
@@ -70,7 +70,9 @@ def parse_binance(raw: str, symbols: dict[str, str]) -> list[Record]:
             return []
         row = {
             "time": int(order["T"]),
-            "side": order["S"].lower(),  # bên của lệnh thanh lý: sell = vị thế long bị thanh lý
+            "side": order[
+                "S"
+            ].lower(),  # side of the liquidation order: sell = a long was liquidated
             "price": float(order["ap"] or order["p"]),
             "qty": float(order["z"] or order["q"]),
         }
@@ -90,7 +92,7 @@ def parse_binance(raw: str, symbols: dict[str, str]) -> list[Record]:
             "quote_volume": float(k["q"]),
             "trades": int(k["n"]),
             "taker_buy_volume": float(k["V"]),
-            "is_closed": bool(k["x"]),  # nến đang chạy cũng được gửi, x=true khi đã đóng
+            "is_closed": bool(k["x"]),  # running candles are sent too, x=true once closed
         }
         return [Record("ohlcv", sym, row, "1m")]
     return []
@@ -107,14 +109,14 @@ def okx_subscribe(venue_symbols: list[str]) -> str:
 
 
 def okx_candle_subscribe(venue_symbols: list[str]) -> str:
-    """Kênh nến nằm ở endpoint /ws/v5/business, không phải /public."""
+    """Candle channels live on the /ws/v5/business endpoint, not /public."""
     args = [{"channel": "candle1m", "instId": s} for s in venue_symbols]
     return json.dumps({"op": "subscribe", "args": args})
 
 
 @dataclass(frozen=True)
 class OkxControl:
-    """Message điều khiển của OKX: lỗi, thông báo sắp ngắt kết nối (64008)..."""
+    """OKX control message: error, upcoming disconnect notice (64008)..."""
 
     event: str
     code: str | None
@@ -124,10 +126,10 @@ class OkxControl:
 def parse_okx(
     raw: str, symbols: dict[str, str], contract_values: dict[str, float]
 ) -> list[Record] | OkxControl | None:
-    """Trả list Record cho message dữ liệu, OkxControl cho message điều khiển, None cho pong.
+    """Return a list of Records for data messages, OkxControl for control messages, None for pong.
 
-    `contract_values`: tên trên sàn → số đồng base mỗi hợp đồng. Thiếu thì bỏ dòng,
-    vì không đổi được khối lượng.
+    `contract_values`: venue name → base units per contract. Missing ones drop the row,
+    since the volume cannot be converted.
     """
     if raw == "pong":
         return None
@@ -151,7 +153,7 @@ def parse_okx(
                         "high": float(x[2]),
                         "low": float(x[3]),
                         "close": float(x[4]),
-                        # x[5] là số hợp đồng; x[6] là khối lượng tính bằng đồng base.
+                        # x[5] is contracts; x[6] is volume in base currency.
                         "volume": float(x[6]),
                         "quote_volume": float(x[7]),
                         "trades": None,
@@ -176,7 +178,7 @@ def parse_okx(
                 "time": int(item["ts"]),
                 "price": float(item["px"]),
                 "qty": float(item["sz"]) * ct,
-                # side là bên taker; taker bán nghĩa là bên mua là maker.
+                # side is the taker side; taker sell means the buyer is the maker.
                 "is_buyer_maker": item["side"] == "sell",
             }
             records.append(Record("trades", sym, row))

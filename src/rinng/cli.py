@@ -1,4 +1,4 @@
-"""Điểm vào dòng lệnh: `rinng <lệnh>`."""
+"""Command-line entry point: `rinng <command>`."""
 
 import asyncio
 import logging
@@ -9,15 +9,15 @@ import typer
 from rinng.config import DEFAULT_CONFIG, load_settings
 from rinng.exchanges.check import run_checks
 
-app = typer.Typer(no_args_is_help=True, help="rinng: phân tích quant cho crypto")
+app = typer.Typer(no_args_is_help=True, help="rinng: quant analysis for crypto")
 
 
 @app.command()
 def check() -> None:
-    """Kiểm tra kết nối tới Binance và OKX, in giới hạn tốc độ đang áp dụng."""
+    """Check connectivity to Binance and OKX and print the active rate limits."""
     results = run_checks()
     for r in results:
-        mark = "OK  " if r.ok else "LỖI "
+        mark = "OK  " if r.ok else "FAIL"
         latency = f"{r.latency_ms} ms" if r.latency_ms is not None else "-"
         typer.echo(f"{mark}{r.name:<14} HTTP {r.status}  {latency}  {r.detail}")
         for limit in r.rate_limits:
@@ -28,20 +28,24 @@ def check() -> None:
 
 @app.command()
 def config(path: Path = DEFAULT_CONFIG) -> None:
-    """Đọc file cấu hình và in ra nội dung đã kiểm tra."""
+    """Read the config file and print the validated contents."""
     settings = load_settings(path)
     typer.echo(f"data_dir: {settings.data_dir}")
-    typer.echo(f"nến gốc: {settings.base_timeframe}; khung phân tích: {settings.timeframes}")
+    typer.echo(
+        f"base timeframe: {settings.base_timeframe}; analysis timeframes: {settings.timeframes}"
+    )
     for inst in settings.instruments:
         typer.echo(f"  {inst.id} ({inst.kind})  binance={inst.binance}  okx={inst.okx}")
 
 
 @app.command()
 def collect(
-    duration: float = typer.Option(None, help="Dừng sau số giây này; bỏ trống để chạy mãi"),
+    duration: float = typer.Option(
+        None, help="Stop after this many seconds; leave empty to run forever"
+    ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Chạy bộ thu realtime (WebSocket + poller 5 phút), ghi vào data/raw."""
+    """Run the realtime collector (WebSocket + 5-minute poller), writing to data/raw."""
     from rinng.ingest.collector.service import collect as run
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -58,18 +62,18 @@ def _date(value: str):
 
 @app.command()
 def backfill(
-    start: str = typer.Option("2020-01-01", help="Ngày bắt đầu, YYYY-MM-DD"),
-    exchange: list[str] = typer.Option(["binance"], help="binance và/hoặc okx"),
+    start: str = typer.Option("2020-01-01", help="Start date, YYYY-MM-DD"),
+    exchange: list[str] = typer.Option(["binance"], help="binance and/or okx"),
     dataset: list[str] = typer.Option(
         ["klines_1m", "funding", "metrics"],
         help="Dump Binance: klines_1m, funding, metrics, agg_trades, book_depth",
     ),
     symbol: list[str] = typer.Option(
-        [], help="Chỉ các instrument này (id, ví dụ SOL-USDT-PERP); bỏ trống = tất cả"
+        [], help="Only these instruments (id, e.g. SOL-USDT-PERP); empty = all"
     ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Tải lịch sử vào data/raw rồi chạy curate."""
+    """Download history into data/raw, then run curate."""
     from rinng.ingest.backfill import backfill as run
     from rinng.pipeline.curate import curate as do_curate
     from rinng.store.paths import DataPaths
@@ -83,15 +87,15 @@ def backfill(
         )
     reports = run(settings, _date(start), exchanges=tuple(exchange), datasets=tuple(dataset))
     for key, r in reports.items():
-        missing = f", thiếu {len(r.missing)} file" if r.missing else ""
-        typer.echo(f"{key}: tải {r.downloaded} file dump{missing}, REST {r.rest_rows}")
+        missing = f", {len(r.missing)} files missing" if r.missing else ""
+        typer.echo(f"{key}: downloaded {r.downloaded} dump files{missing}, REST {r.rest_rows}")
     totals = do_curate(DataPaths(settings.data_dir), settings)
     typer.echo(f"curate: {totals}")
 
 
 @app.command()
 def curate(path: Path = DEFAULT_CONFIG) -> None:
-    """Đưa mọi file mới trong data/raw vào data/curated."""
+    """Move every new file in data/raw into data/curated."""
     from rinng.pipeline.curate import curate as do_curate
     from rinng.store.paths import DataPaths
 
@@ -101,7 +105,7 @@ def curate(path: Path = DEFAULT_CONFIG) -> None:
 
 @app.command()
 def resample(path: Path = DEFAULT_CONFIG) -> None:
-    """Gộp nến 1m đã curated lên các khung trong cấu hình."""
+    """Resample curated 1m candles to the configured timeframes."""
     from rinng.store.paths import DataPaths
     from rinng.store.reader import read_curated
     from rinng.store.resample import resample_ohlcv
@@ -118,15 +122,17 @@ def resample(path: Path = DEFAULT_CONFIG) -> None:
             for tf in settings.timeframes:
                 out = resample_ohlcv(base, tf)
                 write_curated(paths, OHLCV, out)
-                typer.echo(f"{ex} {inst.id} {tf}: {out.height} nến")
+                typer.echo(f"{ex} {inst.id} {tf}: {out.height} candles")
 
 
 @app.command()
 def validate(
-    sample_days: int = typer.Option(3, help="Số ngày gần nhất để so nến 1h với sàn (0 = bỏ)"),
+    sample_days: int = typer.Option(
+        3, help="Recent days to compare 1h candles against the exchange (0 = skip)"
+    ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Báo cáo nến thiếu/trùng/vô lý, so nến tự gộp với sàn, so hai sàn."""
+    """Report missing/duplicate/bad candles; compare resampled vs exchange and across exchanges."""
     from datetime import UTC, datetime, timedelta
 
     from rinng.exchanges.binance import Binance
@@ -149,11 +155,11 @@ def validate(
             base[ex] = m1
             r = check_candles(m1)
             typer.echo(
-                f"{ex} {inst.id} 1m: {r.rows} nến {r.first} → {r.last}; thiếu {r.missing} "
-                f"({len(r.gaps)} khoảng); trùng {r.duplicates}; OHLC vô lý {r.invalid_ohlc}"
+                f"{ex} {inst.id} 1m: {r.rows} candles {r.first} → {r.last}; missing {r.missing} "
+                f"({len(r.gaps)} gaps); duplicates {r.duplicates}; invalid OHLC {r.invalid_ohlc}"
             )
             for a, b in r.gaps[:5]:
-                typer.echo(f"    thiếu {a} → {b}")
+                typer.echo(f"    missing {a} → {b}")
             if sample_days:
                 h1 = read_curated(paths, OHLCV, exchange=ex, symbol=inst.id, timeframe="1h")
                 if not h1.is_empty():
@@ -161,7 +167,7 @@ def validate(
                     res = compare_with_exchange(
                         h1, apis[ex], venue, "1h", end - timedelta(days=sample_days), end
                     )
-                    typer.echo(f"    1h tự gộp so với sàn: {res}")
+                    typer.echo(f"    resampled 1h vs exchange: {res}")
         if len(base) == 2:
             typer.echo(f"  binance vs okx 1m: {cross_exchange(base['binance'], base['okx'])}")
 
@@ -177,11 +183,11 @@ def analyze(
     symbol: str = typer.Option("BTC-USDT-PERP"),
     timeframe: str = typer.Option("4h"),
     exchange: str = typer.Option("binance"),
-    module: list[str] = typer.Option([], help="Bỏ trống = mọi module"),
+    module: list[str] = typer.Option([], help="Empty = all modules"),
     start: str = typer.Option(None, help="YYYY-MM-DD"),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Chạy các module phân tích, ghi vào data/features và data/events."""
+    """Run the analysis modules, writing to data/features and data/events."""
     from rinng.pipeline.run import analyze as run
     from rinng.store.paths import DataPaths
 
@@ -195,7 +201,7 @@ def analyze(
         start=_when(start),
     )
     for name, (features, events) in out.items():
-        f = "-" if features is None else f"{features.height} dòng × {features.width} cột"
+        f = "-" if features is None else f"{features.height} rows × {features.width} columns"
         e = (
             "-"
             if events is None
@@ -214,10 +220,10 @@ def backtest(
     timeframe: str = typer.Option("4h"),
     exchange: str = typer.Option("binance"),
     start: str = typer.Option(None, help="YYYY-MM-DD"),
-    split: str = typer.Option(None, help="Mốc tách in/out-of-sample, YYYY-MM-DD"),
+    split: str = typer.Option(None, help="In/out-of-sample split date, YYYY-MM-DD"),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Chạy backtest có phí, slippage, funding; so các chiến lược; lưu vào data/results."""
+    """Run backtests with fees, slippage, funding; compare strategies; save to data/results."""
     import uuid
 
     import polars as pl
@@ -236,7 +242,7 @@ def backtest(
     paths = DataPaths(settings.data_dir)
     ohlcv = load_ohlcv(paths, exchange, symbol, timeframe, _when(start))
     if ohlcv.is_empty():
-        raise typer.BadParameter(f"không có nến {exchange} {symbol} {timeframe}")
+        raise typer.BadParameter(f"no candles for {exchange} {symbol} {timeframe}")
     funding = read_curated(paths, FUNDING, exchange=exchange, symbol=symbol)
     events = pl.concat([structure.swings(ohlcv, 5), smc.events(ohlcv)])
     makers = {
@@ -300,14 +306,14 @@ def backtest(
         with pl.Config(tbl_rows=20, tbl_cols=12, float_precision=3):
             typer.echo(table.select(cols))
     typer.echo(
-        f"\nĐã lưu vào {paths.results}. Số lần chạy backtest đã lưu trước lần này: {previous}"
-        " (càng thử nhiều cấu hình, kết quả tốt nhất càng dễ là do may)."
+        f"\nSaved to {paths.results}. Backtest runs saved before this one: {previous}"
+        " (the more configurations you try, the more likely the best result is luck)."
     )
 
 
 @app.command()
 def dashboard(path: Path = DEFAULT_CONFIG, port: int = 8501) -> None:
-    """Mở dashboard Streamlit (chart có lớp phủ, kết quả backtest)."""
+    """Open the Streamlit dashboard (charts with overlays, backtest results)."""
     import os
     import subprocess
     import sys
@@ -322,15 +328,15 @@ def dashboard(path: Path = DEFAULT_CONFIG, port: int = 8501) -> None:
 
 @app.command()
 def vpchart(
-    symbol: str = typer.Option("BTCUSDT", help="Tên trên Binance USDⓈ-M"),
-    weeks: int = typer.Option(10, help="Số tuần"),
-    base: str = typer.Option("15m", help="Khung nến để dựng profile"),
-    display: str = typer.Option("4h", help="Khung nến để vẽ"),
-    out: Path = typer.Option(None, help="File HTML; mặc định data/charts/vp_<symbol>.html"),
+    symbol: str = typer.Option("BTCUSDT", help="Symbol on Binance USDⓈ-M"),
+    weeks: int = typer.Option(10, help="Number of weeks"),
+    base: str = typer.Option("15m", help="Timeframe used to build the profile"),
+    display: str = typer.Option("4h", help="Timeframe to plot"),
+    out: Path = typer.Option(None, help="HTML file; default data/charts/vp_<symbol>.html"),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Vẽ volume profile từng tuần kèm nhãn D / P / b / DD từ dữ liệu Binance mới nhất."""
+    """Plot weekly volume profiles with D / P / b / DD labels from the latest Binance data."""
     import webbrowser
 
     from rinng.viz.vp_chart import fetch_live, figure, weekly_profiles
@@ -338,17 +344,17 @@ def vpchart(
     base_df, display_df = fetch_live(symbol, base, display, weeks)
     profiles = weekly_profiles(base_df)
     for p in profiles:
-        state = "đóng" if p["closed"] else "chưa đóng"
+        state = "closed" if p["closed"] else "open"
         typer.echo(
-            f"tuần {p['start']:%Y-%m-%d} ({state}): {p['shape']:<2}  POC {p['poc']:,.0f}  "
+            f"week {p['start']:%Y-%m-%d} ({state}): {p['shape']:<2}  POC {p['poc']:,.0f}  "
             f"VA {p['val']:,.0f} – {p['vah']:,.0f}"
         )
     settings = load_settings(path)
     target = out or Path(settings.data_dir) / "charts" / f"vp_{symbol}.html"
     target.parent.mkdir(parents=True, exist_ok=True)
-    title = f"{symbol} perpetual — volume profile tuần ({base}), nến {display}"
+    title = f"{symbol} perpetual — weekly volume profile ({base}), {display} candles"
     figure(display_df, profiles, title).write_html(target, include_plotlyjs="cdn")
-    typer.echo(f"Đã ghi {target}")
+    typer.echo(f"Wrote {target}")
     if open_browser:
         webbrowser.open(target.resolve().as_uri())
 
@@ -357,11 +363,11 @@ def vpchart(
 def live(
     port: int = typer.Option(8000),
     host: str = typer.Option(
-        "127.0.0.1", help="Chỉ mở cho máy này; đổi sang 0.0.0.0 để máy khác vào"
+        "127.0.0.1", help="Local machine only; use 0.0.0.0 to allow other machines"
     ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Chạy web với dữ liệu realtime: collector + cập nhật curated mỗi phút + WebSocket."""
+    """Run the web app with realtime data: collector + per-minute curated updates + WebSocket."""
     import asyncio
     import logging
 
@@ -369,7 +375,7 @@ def live(
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    typer.echo(f"rinng live: http://{host}:{port}  (Ctrl+C để dừng)")
+    typer.echo(f"rinng live: http://{host}:{port}  (Ctrl+C to stop)")
     asyncio.run(serve_live(load_settings(path), host, port))
 
 
@@ -377,11 +383,11 @@ def live(
 def web(
     port: int = typer.Option(8000),
     host: str = typer.Option(
-        "127.0.0.1", help="Chỉ mở cho máy này; đổi sang 0.0.0.0 để máy khác vào"
+        "127.0.0.1", help="Local machine only; use 0.0.0.0 to allow other machines"
     ),
     path: Path = DEFAULT_CONFIG,
 ) -> None:
-    """Mở web rinng: nhiều tab, mỗi tab nhiều chart với lens riêng."""
+    """Open the rinng web app: multiple tabs, each with several charts and their own lenses."""
     import uvicorn
 
     from rinng.web.app import create_app

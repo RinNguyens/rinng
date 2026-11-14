@@ -1,1 +1,1 @@
-"""Điều phối raw → curated → features → events."""
+"""Orchestration raw → curated → features → events."""

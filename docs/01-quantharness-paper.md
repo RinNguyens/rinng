@@ -1,148 +1,148 @@
-# 01 — QuantHarness: tóm tắt paper, repo và đánh giá phản biện
+# 01 — QuantHarness: paper and repo summary, with a critical review
 
-> Nguồn đã đọc:
-> - **Paper**: "QuantHarness: Price-Driven Multi-Agent LLMs for High-Frequency Trading", arXiv 2509.09995**v4** (dấu ngày trên bản PDF: 27 Jul 2026), 32 trang, đọc toàn bộ kể cả phụ lục A–H. Tác giả: Fei Xiong, Xiang Zhang (đồng đóng góp), Aosong Feng, Siqi Sun, Chenyu You (Stony Brook, CMU, UBC, Yale, Fudan) — tr.1.
-> - **Repo**: https://github.com/Y-Research-SBU/QuantHarness, đọc tại commit `2e64c7b` (2026-08-18, "Merge pull request #24 … upgrade-minimax-m3").
-> - **Trang dự án**: https://Y-Research-SBU.github.io/QuantHarness/ (chỉ đọc được phần chữ; các bảng trên trang là ảnh).
+> Sources read:
+> - **Paper**: "QuantHarness: Price-Driven Multi-Agent LLMs for High-Frequency Trading", arXiv 2509.09995**v4** (date stamp on the PDF: 27 Jul 2026), 32 pages, read in full including appendices A–H. Authors: Fei Xiong, Xiang Zhang (equal contribution), Aosong Feng, Siqi Sun, Chenyu You (Stony Brook, CMU, UBC, Yale, Fudan) — p.1.
+> - **Repo**: https://github.com/Y-Research-SBU/QuantHarness, read at commit `2e64c7b` (2026-08-18, "Merge pull request #24 … upgrade-minimax-m3").
+> - **Project page**: https://Y-Research-SBU.github.io/QuantHarness/ (text only; the tables on the page are images).
 >
-> Quy ước: `[tr.N]` = trang N của PDF; `[code: file]` = đọc trực tiếp từ repo; **chưa xác minh** = không tìm thấy bằng chứng trong paper lẫn repo.
-> Tài liệu này không phải lời khuyên đầu tư.
+> Conventions: `[p.N]` = page N of the PDF; `[code: file]` = read directly from the repo; **unverified** = no evidence found in either the paper or the repo.
+> This document is not investment advice.
 
 ---
 
-## 0. Kết luận nhanh
+## 0. TL;DR
 
-1. Ý tưởng kiến trúc (tách indicator / pattern / trend / decision, chỉ dùng OHLC, có tool tính toán thật thay vì để LLM tự bịa số) là hợp lý và dễ tái dùng.
-2. **Bằng chứng thực nghiệm yếu.** Ở Bảng 1 (bảng duy nhất có Sharpe / cumulative return), QuantHarness **không đứng đầu cumulative return ở bất kỳ tài sản nào (0/8)** và **không đứng đầu Sharpe ở bất kỳ tài sản nào (0/8)**. Linear Regression có cumulative return cao hơn ở **7/7** tài sản có số liệu LR. Một số ô in đậm trong Bảng 1 không phải giá trị tốt nhất của cột.
-3. Ở Bảng 2 (4h), hệ thống đứng đầu accuracy ở 8/8 tài sản, nhưng mức chênh nhỏ (có chỗ 0,3 điểm %), n = 100 đoạn/tài sản, không có khoảng tin cậy, không lặp lại nhiều seed.
-4. Paper **không** tính phí giao dịch, slippage, spread; **không** nêu tên model LLM dùng cho thực nghiệm; **không** công bố code đánh giá/baseline.
-5. Repo là một bản demo phân tích (Flask + LangGraph), **không có** RiskAgent, **không có** stop-loss 0.0005, **không có** backtest, **không có** ngưỡng độ dốc τ của Thuật toán 1.
+1. The architectural idea (separate indicator / pattern / trend / decision, OHLC only, real computation tools instead of letting the LLM invent numbers) is sound and easy to reuse.
+2. **The empirical evidence is weak.** In Table 1 (the only table with Sharpe / cumulative return), QuantHarness **does not top cumulative return on any asset (0/8)** and **does not top Sharpe on any asset (0/8)**. Linear Regression has higher cumulative return on **7/7** assets that have LR figures. Some bolded cells in Table 1 are not the best value in their column.
+3. In Table 2 (4h), the system tops accuracy on 8/8 assets, but the margins are small (0.3 percentage points in one case), n = 100 segments/asset, no confidence intervals, no repeated seeds.
+4. The paper does **not** account for trading fees, slippage, or spread; does **not** name the LLM used in the experiments; does **not** release evaluation/baseline code.
+5. The repo is an analysis demo (Flask + LangGraph): **no** RiskAgent, **no** 0.0005 stop-loss, **no** backtest, **no** slope threshold τ from Algorithm 1.
 
 ---
 
-## 1. Kiến trúc
+## 1. Architecture
 
-Paper mô tả "bốn agent chuyên biệt" Indicator, Pattern, Trend, Risk [tr.1, tr.3], cộng thêm DecisionAgent ở tầng cuối [tr.5–6]. Hệ thống xây trên LangGraph [tr.3], chỉ dùng dữ liệu giá OHLC, không dùng tin tức/sentiment [tr.3].
+The paper describes "four specialized agents" Indicator, Pattern, Trend, Risk [p.1, p.3], plus a DecisionAgent at the final layer [p.5–6]. The system is built on LangGraph [p.3], uses only OHLC price data, no news/sentiment [p.3].
 
-Luồng thực tế trong code là **tuần tự**, không có debate, không có nhánh song song [code: `graph_setup.py`]:
+The actual flow in code is **sequential**: no debate, no parallel branches [code: `graph_setup.py`]:
 
 ```
 START → Indicator Agent → Pattern Agent → Trend Agent → Decision Maker → END
 ```
 
-State dùng chung là `IndicatorAgentState` (TypedDict) gồm `kline_data`, `time_frame`, `stock_name`, `indicator_report`, `pattern_report`, `trend_report`, `final_trade_decision`, ảnh base64… [code: `agent_state.py`].
+The shared state is `IndicatorAgentState` (TypedDict) with `kline_data`, `time_frame`, `stock_name`, `indicator_report`, `pattern_report`, `trend_report`, `final_trade_decision`, base64 images… [code: `agent_state.py`].
 
 ### 1.1 IndicatorAgent
 
-| Mục | Paper | Code |
+| Item | Paper | Code |
 |---|---|---|
-| Đầu vào | OHLC gần nhất + `time_frame` [tr.18] | `state["kline_data"]` (dict các list), dump JSON vào system prompt [code: `indicator_agent.py`] |
-| Tool | `compute_rsi`, `compute_macd`, `compute_roc`, `compute_stoch`, `compute_willr` [tr.18] | Giống paper, tính bằng TA-Lib [code: `graph_util.py`] |
-| Đầu ra | Báo cáo văn bản tóm tắt tín hiệu (ví dụ "bullish but extended") [tr.31] | `indicator_report` (text tự do) |
-| LLM | không nêu | `graph_llm` (mặc định `gpt-4o`) [code: `graph_setup.py`, `default_config.py`] |
+| Input | Latest OHLC + `time_frame` [p.18] | `state["kline_data"]` (dict of lists), dumped as JSON into the system prompt [code: `indicator_agent.py`] |
+| Tools | `compute_rsi`, `compute_macd`, `compute_roc`, `compute_stoch`, `compute_willr` [p.18] | Same as paper, computed with TA-Lib [code: `graph_util.py`] |
+| Output | Text report summarizing signals (e.g. "bullish but extended") [p.31] | `indicator_report` (free text) |
+| LLM | not stated | `graph_llm` (default `gpt-4o`) [code: `graph_setup.py`, `default_config.py`] |
 
-Tham số indicator:
+Indicator parameters:
 
-| Indicator | Tham số | Nguồn |
+| Indicator | Parameters | Source |
 |---|---|---|
-| MACD | fast EMA 12, slow EMA 26, signal 9; α = 2/(N+1) | Paper Phụ lục G [tr.32] và code |
-| RSI | period 14 | **Chỉ có trong code** (paper không ghi chu kỳ) |
-| ROC | period 10 | Chỉ có trong code |
-| Stochastic | `fastk_period=14, slowk_period=3, slowd_period=3` | Chỉ có trong code |
-| Williams %R | period 14 | Chỉ có trong code |
+| MACD | fast EMA 12, slow EMA 26, signal 9; α = 2/(N+1) | Paper Appendix G [p.32] and code |
+| RSI | period 14 | **Code only** (paper gives no period) |
+| ROC | period 10 | Code only |
+| Stochastic | `fastk_period=14, slowk_period=3, slowd_period=3` | Code only |
+| Williams %R | period 14 | Code only |
 
-Chi tiết code đáng chú ý [code: `graph_util.py`]:
-- Các chu kỳ là giá trị mặc định của tool; LLM được phép truyền chu kỳ khác khi gọi tool (trừ Stochastic bị hard-code).
-- Mỗi tool chỉ trả về **28 giá trị cuối**, làm tròn 2 chữ số (riêng `macd` trả toàn bộ chuỗi).
-- Giá trị NaN ở giai đoạn warm-up bị thay bằng **0** (`fillna(0)`). Với cửa sổ 45 nến của web demo, MACD signal cần khoảng 33 nến warm-up, nên phần lớn chuỗi MACD LLM nhìn thấy là số 0 giả. Đây là lỗi thiết kế cần sửa nếu tái dùng.
-- Vòng lặp tool tối đa 5 lượt [code: `indicator_agent.py`].
+Notable code details [code: `graph_util.py`]:
+- Periods are tool defaults; the LLM may pass other periods when calling a tool (except Stochastic, which is hard-coded).
+- Each tool returns only the **last 28 values**, rounded to 2 decimals (except `macd`, which returns the full series).
+- NaN values in the warm-up period are replaced with **0** (`fillna(0)`). With the web demo's 45-candle window, the MACD signal needs about 33 warm-up candles, so most of the MACD series the LLM sees is fake zeros. This is a design bug to fix if reused.
+- Tool loop is capped at 5 rounds [code: `indicator_agent.py`].
 
-Prompt (Phụ lục C.1 [tr.18], tóm tắt): "You are a high-frequency trading (HFT) analyst assistant working under strict latency constraints…", liệt kê 5 tool, nói dữ liệu OHLC đến từ khung `{time_frame}`, chèn `{kline_data}`, kết thúc bằng "Call necessary tools, and analyze the results." Prompt trong code gần như trùng khớp.
+Prompt (Appendix C.1 [p.18], summarized): "You are a high-frequency trading (HFT) analyst assistant working under strict latency constraints…", lists 5 tools, says the OHLC data comes from the `{time_frame}` timeframe, inserts `{kline_data}`, ends with "Call necessary tools, and analyze the results." The prompt in code is nearly identical.
 
-Ngưỡng diễn giải trong Hình 1 [tr.2]: RSI > 70 bearish, RSI < 30 bullish, 30–70 neutral; Williams %R > −20 bearish, < −80 bullish; ROC > 0 bullish, < 0 bearish. Các ngưỡng này chỉ là minh hoạ; không có trong prompt hay code — LLM tự diễn giải.
+Interpretation thresholds in Figure 1 [p.2]: RSI > 70 bearish, RSI < 30 bullish, 30–70 neutral; Williams %R > −20 bearish, < −80 bullish; ROC > 0 bullish, < 0 bearish. These thresholds are illustrative only; they are not in the prompt or code — the LLM interprets on its own.
 
 ### 1.2 PatternAgent
 
-| Mục | Paper | Code |
+| Item | Paper | Code |
 |---|---|---|
-| Đầu vào | OHLC → vẽ thành ảnh nến [tr.4, tr.19] | `kline_data`, hoặc ảnh dựng sẵn trong state |
-| Tool | `generate_kline_image` [tr.19] | mplfinance, **40 nến cuối** (`df.tail(40)`), figsize 12×6, dpi 600 [code: `graph_util.py`] |
-| Đầu ra | Tên pattern + giải thích theo structure / trend / symmetry [tr.7, tr.19] | `pattern_report` (text tự do) |
-| LLM | "multimodal" | Bước gọi tool: `agent_llm` (`gpt-4o-mini`); bước đọc ảnh: `graph_llm` (`gpt-4o`) |
+| Input | OHLC → rendered as a candlestick image [p.4, p.19] | `kline_data`, or a prebuilt image in state |
+| Tool | `generate_kline_image` [p.19] | mplfinance, **last 40 candles** (`df.tail(40)`), figsize 12×6, dpi 600 [code: `graph_util.py`] |
+| Output | Pattern name + explanation by structure / trend / symmetry [p.7, p.19] | `pattern_report` (free text) |
+| LLM | "multimodal" | Tool-calling step: `agent_llm` (`gpt-4o-mini`); image-reading step: `graph_llm` (`gpt-4o`) |
 
-Thư viện 16 pattern trong prompt (Phụ lục C.2 [tr.19], trùng với code `pattern_agent.py`):
+Library of 16 patterns in the prompt (Appendix C.2 [p.19], matches code `pattern_agent.py`):
 
 1. Inverse Head and Shoulders — 2. Double Bottom — 3. Rounded Bottom — 4. Hidden Base — 5. Falling Wedge — 6. Rising Wedge — 7. Ascending Triangle — 8. Descending Triangle — 9. Bullish Flag — 10. Bearish Flag — 11. Rectangle — 12. Island Reversal — 13. V-shaped Reversal — 14. Rounded Top / Bottom — 15. Expanding Triangle — 16. Symmetrical Triangle.
 
-Mỗi pattern chỉ có một câu mô tả. Không có Head and Shoulders (đỉnh), Double Top, Triple Top/Bottom trong danh sách, dù Hình 1 [tr.2] vẽ "Double Top". Nhận diện pattern hoàn toàn do LLM nhìn ảnh; không có thuật toán hình học nào kiểm tra lại. Phụ lục F [tr.29–30] mô tả việc "extracts swing pivots… least-squares fit through those highs" nhưng code PatternAgent không có bước này — **chưa xác minh** mô tả đó ứng với phần code nào.
+Each pattern has a one-sentence description. Head and Shoulders (top), Double Top, Triple Top/Bottom are not in the list, even though Figure 1 [p.2] draws a "Double Top". Pattern recognition is done entirely by the LLM looking at the image; no geometric algorithm double-checks it. Appendix F [p.29–30] describes "extracts swing pivots… least-squares fit through those highs" but the PatternAgent code has no such step — **unverified** which code that description corresponds to.
 
 ### 1.3 TrendAgent
 
-| Mục | Paper | Code |
+| Item | Paper | Code |
 |---|---|---|
-| Đầu vào | OHLC → ảnh nến có kênh xu hướng [tr.5, tr.20] | `kline_data` hoặc ảnh dựng sẵn |
-| Tool | `generate_trend_image` [tr.20] | **50 nến cuối** (`data.iloc[-50:]`) [code: `graph_util.py`] |
-| Đầu ra | Dự đoán upward / downward / sideways + "prediction, reasoning, signals" [tr.20] | `trend_report` (text tự do) |
+| Input | OHLC → candlestick image with trend channel [p.5, p.20] | `kline_data` or prebuilt image |
+| Tool | `generate_trend_image` [p.20] | **Last 50 candles** (`data.iloc[-50:]`) [code: `graph_util.py`] |
+| Output | Upward / downward / sideways prediction + "prediction, reasoning, signals" [p.20] | `trend_report` (free text) |
 
-Prompt (Phụ lục C.3 [tr.20], tóm tắt): bắt buộc gọi `generate_trend_image` trước; chỉ sau khi có ảnh mới dự đoán; prompt đọc ảnh nói đường **xanh dương = support**, **đỏ = resistance**, "both derived from recent closing prices".
+Prompt (Appendix C.3 [p.20], summarized): must call `generate_trend_image` first; only predict after the image exists; the image-reading prompt says the **blue line = support**, **red = resistance**, "both derived from recent closing prices".
 
-Lệch giữa paper và code:
-- Paper nói đường resistance/support fit qua **highs/lows** [tr.5, Thuật toán 1 tr.3]. Code tính cả hai bộ đường (theo close, và theo high/low), nhưng bộ high/low được vẽ **màu trắng trên nền trắng** nên không nhìn thấy; LLM chỉ thấy bộ đường theo **close** [code: `graph_util.py`, `color_style.py`].
-- Đường trend trong code không phải OLS thuần: lấy OLS làm điểm khởi đầu, tìm pivot xa nhất, rồi tối ưu độ dốc sao cho đường đi qua pivot và không cắt giá (hàm `optimize_slope`, lấy từ repo `neurotrader888/TechnicalAnalysisAutomation` theo README).
-- Code **không có** bước phân loại theo ngưỡng τ (mục 2). Việc phân loại uptrend/downtrend/sideways do LLM nhìn ảnh quyết định.
+Paper vs code discrepancies:
+- The paper says resistance/support lines are fit through **highs/lows** [p.5, Algorithm 1 p.3]. The code computes both sets of lines (on close, and on high/low), but the high/low set is drawn **white on a white background**, so it is invisible; the LLM sees only the **close**-based lines [code: `graph_util.py`, `color_style.py`].
+- The code's trend line is not pure OLS: it starts from OLS, finds the farthest pivot, then optimizes the slope so the line passes through the pivot without crossing price (function `optimize_slope`, taken from the `neurotrader888/TechnicalAnalysisAutomation` repo per the README).
+- The code **does not have** the τ threshold classification step (section 2). Uptrend/downtrend/sideways classification is decided by the LLM looking at the image.
 
 ### 1.4 RiskAgent
 
-Theo paper [tr.5, Hình 2 tr.4]:
-- Không sinh tín hiệu; gom đầu ra các agent khác vào khung risk–reward.
-- Stop-loss cố định **ρ = 0.0005** (0,05%).
-- Take-profit **R = r · ρ**, với **r ∈ [1.2, 1.8]** do LLM dự đoán.
-- Hình 2 vẽ radar 6 trục: Momentum Strength, Trend Certainty, Pattern Reliability, Breakout Likelihood, S/R Strength, Volatility Risk.
+According to the paper [p.5, Figure 2 p.4]:
+- Does not generate signals; aggregates other agents' outputs into a risk–reward frame.
+- Fixed stop-loss **ρ = 0.0005** (0.05%).
+- Take-profit **R = r · ρ**, with **r ∈ [1.2, 1.8]** predicted by the LLM.
+- Figure 2 shows a 6-axis radar: Momentum Strength, Trend Certainty, Pattern Reliability, Breakout Likelihood, S/R Strength, Volatility Risk.
 
-Trong repo: **không có file/nút RiskAgent nào**; không có hằng số 0.0005; không có radar chart. Phần duy nhất còn lại là câu yêu cầu `risk_reward_ratio` 1.2–1.8 trong prompt của DecisionAgent. Paper không có prompt riêng cho RiskAgent trong Phụ lục C. Trang dự án cũng chỉ liệt kê Indicator / Pattern / Trend / Decision.
+In the repo: **no RiskAgent file/node at all**; no 0.0005 constant; no radar chart. The only remnant is the request for `risk_reward_ratio` 1.2–1.8 in the DecisionAgent prompt. The paper has no separate RiskAgent prompt in Appendix C. The project page also lists only Indicator / Pattern / Trend / Decision.
 
 ### 1.5 DecisionAgent
 
-| Mục | Nội dung |
+| Item | Content |
 |---|---|
-| Đầu vào | `indicator_report`, `pattern_report`, `trend_report`, `time_frame`, `stock_name` [tr.21; code: `decision_agent.py`] |
-| Tool | Không có |
-| Đầu ra | JSON: `forecast_horizon`, `decision` (LONG/SHORT), `justification`, `risk_reward_ratio` (1.2–1.8) [tr.21] |
-| LLM | `graph_llm` (mặc định `gpt-4o`), một lần gọi |
+| Input | `indicator_report`, `pattern_report`, `trend_report`, `time_frame`, `stock_name` [p.21; code: `decision_agent.py`] |
+| Tools | None |
+| Output | JSON: `forecast_horizon`, `decision` (LONG/SHORT), `justification`, `risk_reward_ratio` (1.2–1.8) [p.21] |
+| LLM | `graph_llm` (default `gpt-4o`), a single call |
 
-Quy tắc trong prompt (Phụ lục C.4 [tr.21], tóm tắt):
+Prompt rules (Appendix C.4 [p.21], summarized):
 - "Issue an immediate execution order: LONG or SHORT. (HOLD is prohibited.)"
-- Horizon: dự đoán **3 nến tiếp theo** (ví dụ 15-min → 45 phút; 4-hour → 12 giờ).
-- Indicator: ưu tiên tín hiệu mạnh (MACD cross, RSI divergence, vùng cực trị), giảm trọng số tín hiệu trung tính.
-- Pattern: chỉ hành động khi pattern đã hình thành rõ và có xác nhận breakout.
-- Trend: support dốc lên = lực mua; resistance dốc xuống = lực bán; không suy ra hướng breakout chỉ từ hình học.
-- Khi các báo cáo mâu thuẫn: chọn phía có xác nhận mạnh và gần hơn; khi đi ngang: theo độ dốc trendline chủ đạo.
-- Đề xuất risk-reward 1.2–1.8.
+- Horizon: predict the **next 3 candles** (e.g. 15-min → 45 minutes; 4-hour → 12 hours).
+- Indicators: prioritize strong signals (MACD cross, RSI divergence, extreme zones), down-weight neutral signals.
+- Patterns: act only when the pattern is clearly formed and breakout is confirmed.
+- Trend: rising support = buying pressure; falling resistance = selling pressure; do not infer breakout direction from geometry alone.
+- When reports conflict: pick the side with stronger and more recent confirmation; when sideways: follow the dominant trendline slope.
+- Propose risk-reward 1.2–1.8.
 
-Ghi chú:
-- Prompt in trong paper còn sót câu trả lời của chatbot: "Here is a LaTeX-style refactored version of your original decision guideline…" và "Let me know if you want this formatted directly in LaTeX code or exported to PDF." [tr.21].
-- Prompt trong code tự mâu thuẫn về horizon: phần thân ghi ví dụ "N = 1 → Predict the next 4 hours", phần output format ghi "Predicting next 3 candlestick" [code: `decision_agent.py`]. Hình 10 [tr.25] cũng hiện "Predicting next 1 candlestick (4 hours)".
-- Code không parse JSON trong graph; `final_trade_decision` là chuỗi thô, `risk_reward_ratio` là string.
-- Vì cấm HOLD, hệ thống luôn ở trong thị trường. Prompt vừa nói "Only act on confirmed signals" vừa cấm không hành động — hai yêu cầu này không thể cùng thoả.
+Notes:
+- The prompt printed in the paper still contains chatbot replies: "Here is a LaTeX-style refactored version of your original decision guideline…" and "Let me know if you want this formatted directly in LaTeX code or exported to PDF." [p.21].
+- The prompt in code contradicts itself on horizon: the body gives the example "N = 1 → Predict the next 4 hours", the output format says "Predicting next 3 candlestick" [code: `decision_agent.py`]. Figure 10 [p.25] also shows "Predicting next 1 candlestick (4 hours)".
+- The code does not parse JSON in the graph; `final_trade_decision` is a raw string, `risk_reward_ratio` is a string.
+- Because HOLD is banned, the system is always in the market. The prompt says "Only act on confirmed signals" while also forbidding inaction — the two requirements cannot both be satisfied.
 
-### 1.6 Số nến đưa vào — các nguồn không khớp nhau
+### 1.6 Number of input candles — sources disagree
 
-| Nguồn | Số nến |
+| Source | Candles |
 |---|---|
-| Benchmark, paper [tr.6, tr.28] | Đoạn 100 nến, giấu 3 nến cuối → 97 nến đầu vào |
-| Hình 9, paper [tr.24] | "the most recent 40–50 price bars" |
-| README repo | "the most recent 30 candlesticks" |
-| Code web [`web_interface.py`, dòng 317] | `df.tail(45)` |
-| Tool pattern / trend [code] | 40 / 50 nến cuối |
+| Benchmark, paper [p.6, p.28] | 100-candle segments, last 3 hidden → 97 input candles |
+| Figure 9, paper [p.24] | "the most recent 40–50 price bars" |
+| Repo README | "the most recent 30 candlesticks" |
+| Web code [`web_interface.py`, line 317] | `df.tail(45)` |
+| Pattern / trend tools [code] | last 40 / 50 candles |
 
 ---
 
-## 2. Thuật toán 1 — Slope-aware trend detection [tr.3]
+## 2. Algorithm 1 — Slope-aware trend detection [p.3]
 
 ```
-Input: P_{0:T-1} (chuỗi nến), N (độ dài cửa sổ), τ (ngưỡng độ dốc)
+Input: P_{0:T-1} (candle series), N (window length), τ (slope threshold)
 for t = N-1 to T-1:
-    Fit OLS trên highs / lows → m_r, m_s
+    Fit OLS on highs / lows → m_r, m_s
     κ_t ← (m_r + m_s) / 2
     if   κ_t >  τ : Trend ← Uptrend
     elif κ_t < -τ : Trend ← Downtrend
@@ -150,59 +150,59 @@ for t = N-1 to T-1:
 Render chart K_t(P_t, κ_t, Trend)
 ```
 
-Công thức đi kèm [tr.5]:
-- Resistance: `R_t(x) = m_r·x + b_r` (qua các đỉnh cục bộ gần đây).
-- Support: `S_t(x) = m_s·x + b_s` (qua các đáy cục bộ gần đây).
-- Độ dốc trung bình: `κ_t = (m_r + m_s) / 2`.
+Accompanying formulas [p.5]:
+- Resistance: `R_t(x) = m_r·x + b_r` (through recent local highs).
+- Support: `S_t(x) = m_s·x + b_s` (through recent local lows).
+- Average slope: `κ_t = (m_r + m_s) / 2`.
 
-Điều paper không nói:
-- **Giá trị của N và τ không được nêu ở bất kỳ đâu** trong 32 trang. → **chưa xác minh**.
-- τ có được chuẩn hoá theo giá hay không (độ dốc tính theo đơn vị giá/nến sẽ không so sánh được giữa BTC ~80.000 và VIX ~20) — không nêu.
-- Code không cài đặt bước so ngưỡng này (mục 1.3).
+What the paper does not say:
+- **The values of N and τ are not given anywhere** in the 32 pages. → **unverified**.
+- Whether τ is normalized by price (a slope in price units/candle is not comparable between BTC ~80,000 and VIX ~20) — not stated.
+- The code does not implement this threshold step (section 1.3).
 
 ---
 
-## 3. Metric đánh giá
+## 3. Evaluation metrics
 
-### 3.1 Bảng 2 (định nghĩa ở tr.6–7)
+### 3.1 Table 2 (defined on p.6–7)
 
-- **Accuracy α = C / T**. Với LONG, mỗi nến trong 3 nến kế tiếp có close **cao hơn close cuối cùng đã thấy** tính 1 điểm (tối đa 3); SHORT thì ngược lại. Mỗi mẫu được 0–3 điểm, lấy trung bình trên các mẫu. Lưu ý: cả 3 nến đều so với cùng một mốc nên 3 điểm trong một mẫu tương quan mạnh với nhau; số quan sát độc lập gần 100 hơn là 300.
-- **Δα%**: mức cải thiện tương đối so với baseline ngẫu nhiên (kiểm tra lại: NQ 55.3 / 43.7 − 1 = +26.5%, khớp Bảng 2).
-- **R_cc, R_max, R_min**: các ước lượng Rate of Return, "incorporate risk-constrained execution": thoát lệnh tại mức giá đầu tiên trong 3 nến kế tiếp chạm stop-loss hoặc take-profit. Stop-loss ρ = 0.0005; ngưỡng lời R = r·ρ, với r do LLM đưa ra.
-- **R_max**: lợi suất tốt nhất có thể đạt trong 3 nến (high cao nhất với LONG, low thấp nhất với SHORT).
-- **R_min**: biến động bất lợi nhất trong cùng khoảng.
+- **Accuracy α = C / T**. For LONG, each of the next 3 candles whose close is **higher than the last seen close** scores 1 point (max 3); SHORT is the reverse. Each sample scores 0–3 points, averaged over samples. Note: all 3 candles are compared against the same reference, so the 3 points in one sample are strongly correlated; the number of independent observations is closer to 100 than 300.
+- **Δα%**: relative improvement over the random baseline (rechecked: NQ 55.3 / 43.7 − 1 = +26.5%, matches Table 2).
+- **R_cc, R_max, R_min**: Rate of Return estimates that "incorporate risk-constrained execution": exit at the first price within the next 3 candles that hits stop-loss or take-profit. Stop-loss ρ = 0.0005; profit threshold R = r·ρ, with r given by the LLM.
+- **R_max**: best achievable return within 3 candles (highest high for LONG, lowest low for SHORT).
+- **R_min**: most adverse move over the same span.
 
-Chỗ chưa rõ:
-- **Công thức chính xác của R_cc không được viết ra** (không nêu "cc" là gì, giá vào lệnh là gì, thoát ở đâu khi không chạm ngưỡng nào). → **chưa xác minh**.
-- **Đơn vị của R không được nêu.** Nếu là %, thì R_min ≈ −1.2 (BTC) hay −3.1 (VIX) lớn gấp hàng chục lần stop-loss 0,05% — không tương thích với việc "đã áp stop-loss". Nếu stop 0,05% thật sự được áp trên nến 4h, gần như lệnh nào cũng bị quét. Paper không giải thích. → **chưa xác minh**.
+Unclear points:
+- **The exact formula for R_cc is not written out** (what "cc" means, what the entry price is, where to exit if neither threshold is hit). → **unverified**.
+- **The unit of R is not stated.** If it is %, then R_min ≈ −1.2 (BTC) or −3.1 (VIX) is tens of times larger than the 0.05% stop-loss — incompatible with "stop-loss applied". If a 0.05% stop were really applied on 4h candles, almost every trade would get stopped out. The paper does not explain. → **unverified**.
 
-### 3.2 Bảng 1
+### 3.2 Table 1
 
-Bảng 1 [tr.8] dùng Sharpe, Sortino, Cumulative Return, Max Drawdown. **Paper không định nghĩa cách tính các metric này** (chu kỳ lợi suất, lãi suất phi rủi ro, annualize hay không, khung thời gian, giai đoạn, quy mô vị thế). Phần chữ của paper cũng không hề dẫn chiếu tới Bảng 1 (mục 5.1 chỉ bàn Bảng 2). → **chưa xác minh** toàn bộ thiết lập của Bảng 1.
+Table 1 [p.8] uses Sharpe, Sortino, Cumulative Return, Max Drawdown. **The paper does not define how these metrics are computed** (return period, risk-free rate, annualized or not, timeframe, period, position size). The paper's text never even references Table 1 (section 5.1 discusses only Table 2). → **unverified** for the entire Table 1 setup.
 
-### 3.3 Công thức MACD (Phụ lục G [tr.32])
+### 3.3 MACD formula (Appendix G [p.32])
 
 - `E_t = α·P_t + (1−α)·E_{t−1}`, `α = 2/(N+1)`
-- `M_t = E_t^(f) − E_t^(s)` với N = 12 (fast), 26 (slow)
-- `S_t = EMA_9(M_t)`; bullish khi M_t cắt lên S_t.
+- `M_t = E_t^(f) − E_t^(s)` with N = 12 (fast), 26 (slow)
+- `S_t = EMA_9(M_t)`; bullish when M_t crosses above S_t.
 
 ---
 
-## 4. Thiết lập thực nghiệm
+## 4. Experimental setup
 
-| Hạng mục | Nội dung | Nguồn |
+| Item | Content | Source |
 |---|---|---|
-| Khung thời gian | 1h và 4h | tr.6, tr.28 |
-| Dữ liệu | 5.000 nến lịch sử mỗi tài sản, mỗi khung | tr.6, tr.28 |
-| Nguồn dữ liệu | "public TradingView data extraction tool API" [tr.6]; Phụ lục ghi "YFinance and TradingView" [tr.28] | |
-| Lấy mẫu | Mỗi tài sản lấy ngẫu nhiên **100 đoạn**, mỗi đoạn **100 nến liên tiếp**, giấu **3 nến cuối** để chấm | tr.6, tr.28 |
-| Chế độ | Zero-shot, không fine-tune, không ví dụ mẫu | tr.6 |
-| Model LLM | **Không nêu trong paper.** Phụ lục H chỉ nói GPT-4o dùng để chỉnh câu chữ [tr.32]. Code mặc định `gpt-4o` + `gpt-4o-mini`, temperature 0.1 | **chưa xác minh** model của thực nghiệm |
-| Case study | 1 đoạn SPX 100 nến, 10 cửa sổ chồng nhau lệch 5 nến, đúng 8/10 | tr.10, Hình 6 |
+| Timeframes | 1h and 4h | p.6, p.28 |
+| Data | 5,000 historical candles per asset, per timeframe | p.6, p.28 |
+| Data source | "public TradingView data extraction tool API" [p.6]; Appendix says "YFinance and TradingView" [p.28] | |
+| Sampling | Per asset, **100 random segments**, each of **100 consecutive candles**, last **3 candles hidden** for scoring | p.6, p.28 |
+| Mode | Zero-shot, no fine-tuning, no examples | p.6 |
+| LLM model | **Not stated in the paper.** Appendix H only says GPT-4o was used for copy-editing [p.32]. Code defaults to `gpt-4o` + `gpt-4o-mini`, temperature 0.1 | **unverified** experiment model |
+| Case study | 1 SPX segment of 100 candles, 10 overlapping windows offset by 5 candles, 8/10 correct | p.10, Figure 6 |
 
-Tài sản 4h (Bảng 3 [tr.28]), mỗi dòng 5.000 nến:
+4h assets (Table 3 [p.28]), 5,000 candles per row:
 
-| Asset | Loại | Bắt đầu | Kết thúc |
+| Asset | Type | Start | End |
 |---|---|---|---|
 | BTC/USD | Cryptocurrency | 2023-04-01 | 2025-06-23 |
 | CL | Commodity Futures | 2022-04-25 | 2025-06-19 |
@@ -213,9 +213,9 @@ Tài sản 4h (Bảng 3 [tr.28]), mỗi dòng 5.000 nến:
 | SPX | Equity Index (Spot) | 2015-08-25 | 2025-05-16 |
 | VIX | Volatility Index (CBOE) | 2020-10-20 | 2025-08-27 |
 
-Tài sản 1h (Bảng 4 [tr.29]), mỗi dòng 5.000 nến:
+1h assets (Table 4 [p.29]), 5,000 candles per row:
 
-| Asset | Loại | Bắt đầu | Kết thúc |
+| Asset | Type | Start | End |
 |---|---|---|---|
 | BTC/USD | Cryptocurrency | 2025-02-21 | 2025-09-13 |
 | CL | Commodity Futures | 2024-11-12 | 2025-09-10 |
@@ -226,23 +226,23 @@ Tài sản 1h (Bảng 4 [tr.29]), mỗi dòng 5.000 nến:
 | SPX | Equity Index (Spot) | 2022-11-14 | 2025-09-02 |
 | DAX | Equity Index (Futures) | 2024-10-21 | 2025-09-22 |
 
-Baseline [tr.6]:
-1. **Random**: chọn ngẫu nhiên LONG/SHORT và risk-reward ∈ [1.2, 1.8].
-2. **Linear Regression (LR)**: fit tuyến tính trên **40 nến close** gần nhất; slope > 0 → LONG, ngược lại SHORT.
-3. **XGBoost**: feature từ TA-Lib (RSI, MACD, SMA); train trên "hàng trăm mẫu sliding-window" từ 50 file CSV chọn ngẫu nhiên, test trên 50 file còn lại; bỏ phiếu đa số ra LONG/SHORT/HOLD, **quyết định HOLD bị loại khỏi phép tính trung bình**.
+Baselines [p.6]:
+1. **Random**: random LONG/SHORT and risk-reward ∈ [1.2, 1.8].
+2. **Linear Regression (LR)**: linear fit on the last **40 closes**; slope > 0 → LONG, otherwise SHORT.
+3. **XGBoost**: TA-Lib features (RSI, MACD, SMA); trained on "hundreds of sliding-window samples" from 50 randomly chosen CSV files, tested on the other 50; majority vote outputs LONG/SHORT/HOLD, **HOLD decisions are excluded from the average**.
 4. **QuantHarness**.
 
-Bảng 1 có thêm dòng **TradingAgent** nhưng mục Baselines không mô tả cách chạy baseline này. → **chưa xác minh**.
+Table 1 also has a **TradingAgent** row, but the Baselines section does not describe how it was run. → **unverified**.
 
-Số lượng tài sản không nhất quán: abstract ghi "nine financial instruments" [tr.1]; trang dự án ghi "ten"; Bảng 2 có 8; Bảng 3 và 4 mỗi bảng 8 (hợp lại là 9: thêm DAX); Bảng 1 lại có AAPL và AMZN, hai mã **không xuất hiện** trong phần mô tả benchmark.
+Asset counts are inconsistent: the abstract says "nine financial instruments" [p.1]; the project page says "ten"; Table 2 has 8; Tables 3 and 4 have 8 each (9 combined: plus DAX); Table 1 also has AAPL and AMZN, two tickers that **do not appear** in the benchmark description.
 
 ---
 
-## 5. Kết quả
+## 5. Results
 
-### 5.1 Bảng 1 — Sharpe, Sortino, Cumulative Return, Max Drawdown [tr.8]
+### 5.1 Table 1 — Sharpe, Sortino, Cumulative Return, Max Drawdown [p.8]
 
-Chép nguyên từ paper. Dòng "Baseline" trong paper toàn dấu "–" nên lược bỏ. "Our" = QuantHarness.
+Copied verbatim from the paper. The "Baseline" row in the paper is all "–", so it is omitted. "Our" = QuantHarness.
 
 | Asset | Method | Sharpe | Sortino | CumReturn | MaxDrawdown |
 |---|---|---|---|---|---|
@@ -277,34 +277,34 @@ Chép nguyên từ paper. Dòng "Baseline" trong paper toàn dấu "–" nên l�
 | VIX | TradingAgent | -0.129 | -0.189 | -30.40% | 32.28% |
 | | **Our** | -0.141 | -0.460 | -38.70% | -41.14% |
 
-**Kiểm tra lại nhận định "LR có cumulative return cao hơn trên hầu hết mã": đúng, và còn mạnh hơn thế.**
+**Rechecking the claim "LR has higher cumulative return on most tickers": true, and even stronger than that.**
 
-| Asset | CumReturn LR | CumReturn Our | Phương pháp cao nhất | Our xếp hạng |
+| Asset | CumReturn LR | CumReturn Our | Best method | Our rank |
 |---|---|---|---|---|
-| AAPL | 10.21% | -22.51% | LR | 4/4 (tệ nhất) |
+| AAPL | 10.21% | -22.51% | LR | 4/4 (worst) |
 | AMZN | 153.29% | 44.85% | LR | 2/4 |
 | DJI | 41.46% | 15.50% | LR | 2/4 |
 | ES | 74.50% | 25.43% | LR | 2/4 |
-| QQQ | 59.16% | 1.44% | LR | 4/4 (thua cả XGBoost 15.54% và TradingAgent 3.82%) |
-| SPX | 77.78% | 12.52% | LR | 3/4 (thua XGBoost 15.34%) |
+| QQQ | 59.16% | 1.44% | LR | 4/4 (loses even to XGBoost 15.54% and TradingAgent 3.82%) |
+| SPX | 77.78% | 12.52% | LR | 3/4 (loses to XGBoost 15.34%) |
 | NQ | 59.11% | 19.76% | LR | 2/4 |
-| VIX | (không có) | -38.70% | TradingAgent -30.40% | 2/2 (tệ nhất) |
+| VIX | (none) | -38.70% | TradingAgent -30.40% | 2/2 (worst) |
 
-- **Cumulative return**: LR thắng QuantHarness ở **7/7** tài sản có số LR. QuantHarness đứng đầu **0/8**.
-- **Sharpe**: QuantHarness đứng đầu **0/8** (LR tốt nhất ở AAPL, AMZN, DJI, NQ; XGBoost ở ES, QQQ, SPX; TradingAgent ở VIX).
-- **Sortino**: QuantHarness đứng đầu **0/8**.
-- **Max drawdown**: nếu coi số ít âm hơn là tốt hơn, QuantHarness tốt nhất duy nhất ở QQQ (-0.27%). Dòng TradingAgent mang dấu **dương** (15.25%, 32.28%…) trong khi các dòng khác âm — quy ước dấu không nhất quán, không so sánh trực tiếp được.
+- **Cumulative return**: LR beats QuantHarness on **7/7** assets with LR figures. QuantHarness is best on **0/8**.
+- **Sharpe**: QuantHarness is best on **0/8** (LR best on AAPL, AMZN, DJI, NQ; XGBoost on ES, QQQ, SPX; TradingAgent on VIX).
+- **Sortino**: QuantHarness is best on **0/8**.
+- **Max drawdown**: if less negative is better, QuantHarness is best only on QQQ (-0.27%). The TradingAgent rows carry a **positive** sign (15.25%, 32.28%…) while other rows are negative — the sign convention is inconsistent, so they cannot be compared directly.
 
-**Ô in đậm sai trong paper** (in đậm thường nghĩa là tốt nhất cột):
-- CumReturn của "Our" được in đậm ở DJI (15.50%), ES (25.43%), QQQ (1.44%), SPX (12.52%), NQ (19.76%) dù LR cao hơn ở cả năm.
-- Sharpe/Sortino của "Our" được in đậm ở AMZN (0.236 / 0.502) dù LR là 0.298 / 0.709; ở NQ (0.190 / 0.289) dù LR là 0.246 / 0.399.
-- Bảng 1 không có chú thích giải thích quy tắc in đậm.
+**Wrongly bolded cells in the paper** (bold usually means best in column):
+- "Our" CumReturn is bolded for DJI (15.50%), ES (25.43%), QQQ (1.44%), SPX (12.52%), NQ (19.76%) even though LR is higher on all five.
+- "Our" Sharpe/Sortino is bolded for AMZN (0.236 / 0.502) though LR is 0.298 / 0.709; for NQ (0.190 / 0.289) though LR is 0.246 / 0.399.
+- Table 1 has no caption explaining the bolding rule.
 
-Điểm bất thường khác: QQQ "Our" có Sharpe 0.516 nhưng Sortino 0.000 và CumReturn chỉ 1.44%, MaxDD -0.27% — tổ hợp này gợi ý gần như không có lệnh hoặc lỗi tính toán; paper không giải thích.
+Another anomaly: QQQ "Our" has Sharpe 0.516 but Sortino 0.000 and CumReturn only 1.44%, MaxDD -0.27% — this combination suggests almost no trades or a computation bug; the paper does not explain.
 
-### 5.2 Bảng 2 — khung 4h [tr.9]
+### 5.2 Table 2 — 4h timeframe [p.9]
 
-Chép nguyên. Baseline = random.
+Copied verbatim. Baseline = random.
 
 | Asset | Method | Acc α | Δα% | R_cc | R_max | R_min |
 |---|---|---|---|---|---|---|
@@ -341,138 +341,138 @@ Chép nguyên. Baseline = random.
 | | XGBoost | 60.0 | +26.8% | 0.050 | 0.782 | -0.712 |
 | | **Our** | 63.7 | +34.6% | 0.341 | 0.965 | -0.641 |
 
-Đối chiếu các tuyên bố ở mục 5.1 của paper [tr.9–10]:
+Checking the claims in the paper's section 5.1 [p.9–10]:
 
-| Tuyên bố | Kết quả kiểm tra |
+| Claim | Check result |
 |---|---|
-| Accuracy cao nhất ở cả 8 thị trường | Đúng theo bảng. Nhưng chênh với phương pháp đứng nhì chỉ 0,3 điểm ở DJI (52.3 vs 52.0), 0,7 ở CL (55.0 vs 54.3), 1,4 ở VIX |
-| R_cc tốt nhất 7/8 | Đúng (thua LR ở SPX: 0.341 vs 0.377). Ở CL, "tốt nhất" vẫn là số âm (-0.008); ở QQQ hơn XGBoost 0.001 |
-| R_max cao nhất 6/8 | Đúng (thua LR ở BTC, thua XGBoost ở QQQ) |
-| R_min tốt | Tốt nhất ở 6/8; thua LR ở BTC và QQQ |
+| Highest accuracy on all 8 markets | True per the table. But the gap to the runner-up is only 0.3 points on DJI (52.3 vs 52.0), 0.7 on CL (55.0 vs 54.3), 1.4 on VIX |
+| Best R_cc on 7/8 | True (loses to LR on SPX: 0.341 vs 0.377). On CL, the "best" is still negative (-0.008); on QQQ it beats XGBoost by 0.001 |
+| Highest R_max on 6/8 | True (loses to LR on BTC, to XGBoost on QQQ) |
+| Good R_min | Best on 6/8; loses to LR on BTC and QQQ |
 
-Nhận xét:
-- Baseline ngẫu nhiên đạt 41.0–51.0% tuỳ tài sản. Một bộ sinh ngẫu nhiên lý tưởng nên quanh 50%; việc nó dao động tới 10 điểm cho thấy **nhiễu lấy mẫu của chính phép đo đã vào cỡ ±5 điểm**. Mọi chênh lệch dưới mức đó (phần lớn bảng) không thể coi là có ý nghĩa.
-- Cột Δα% so với baseline ngẫu nhiên thấp bất thường (41.0 ở CL, 43.7 ở NQ) nên con số "+34.1%", "+26.5%" bị thổi phồng.
-- LR (40 nến, một dòng code) bám rất sát: 59.7 vs 63.7 ở SPX, 56.0 vs 59.7 ở QQQ, 54.3 vs 55.0 ở CL.
-- Trên chỉ số cổ phiếu Mỹ giai đoạn 2015–2025 (xu hướng tăng dài), bất kỳ chiến lược thiên LONG nào cũng có accuracy > 50%. Paper không báo cáo tỷ lệ LONG/SHORT của hệ thống hay baseline "always LONG".
+Observations:
+- The random baseline scores 41.0–51.0% depending on the asset. An ideal random generator should sit around 50%; swinging by up to 10 points shows that **the sampling noise of the measurement itself is already around ±5 points**. Any difference below that (most of the table) cannot be considered meaningful.
+- The Δα% column is measured against an unusually low random baseline (41.0 on CL, 43.7 on NQ), so figures like "+34.1%", "+26.5%" are inflated.
+- LR (40 candles, one line of code) is very close: 59.7 vs 63.7 on SPX, 56.0 vs 59.7 on QQQ, 54.3 vs 55.0 on CL.
+- On US equity indices over 2015–2025 (a long uptrend), any long-biased strategy has accuracy > 50%. The paper does not report the system's LONG/SHORT ratio or an "always LONG" baseline.
 
-### 5.3 Khung 1h — Hình 5 [tr.10]
+### 5.3 1h timeframe — Figure 5 [p.10]
 
-Kết quả 1h chỉ có dạng **biểu đồ đường** cho 8 tài sản (BTC, CL, DAX, DJI, ES, NQ, QQQ, SPX); **không có bảng số**. Paper khẳng định QuantHarness vượt baseline "across most metrics and markets", rõ nhất ở SPX, QQQ, BTC, nhưng thừa nhận "less satisfactory R_min in some assets". Không chép được số liệu → **chưa xác minh** giá trị cụ thể.
+1h results are only given as **line charts** for 8 assets (BTC, CL, DAX, DJI, ES, NQ, QQQ, SPX); **no numeric table**. The paper claims QuantHarness beats baselines "across most metrics and markets", most clearly on SPX, QQQ, BTC, but admits "less satisfactory R_min in some assets". Numbers could not be transcribed → specific values **unverified**.
 
-### 5.4 Case study [tr.10–11]
+### 5.4 Case study [p.10–11]
 
-- SPX (2025), 10 cửa sổ chồng nhau: đúng 8/10 = "80%". Sai ở cửa sổ 2 và 7 (paper giải thích do dựa vào pattern chưa hoàn chỉnh và gọi tăng quá sớm).
-- Con số "up to 80% directional accuracy" ở phần giới thiệu [tr.2] chính là 8/10 này: **một đoạn, mười mẫu chồng lấn**, không phải kết quả thống kê.
+- SPX (2025), 10 overlapping windows: 8/10 correct = "80%". Wrong on windows 2 and 7 (the paper attributes this to relying on incomplete patterns and calling the rise too early).
+- The "up to 80% directional accuracy" figure in the introduction [p.2] is exactly this 8/10: **one segment, ten overlapping samples**, not a statistical result.
 
-### 5.5 Hạn chế paper tự nêu [tr.11]
+### 5.5 Limitations the paper states itself [p.11]
 
-- Độ chính xác giảm mạnh ở nến cực ngắn (≈ 1–15 phút) so với 30 phút–4 giờ.
-- Không thực sự real-time: mỗi chu kỳ gồm lời gọi LLM và nhiều tool, độ trễ có thể vượt cửa sổ cơ hội 1 phút.
+- Accuracy drops sharply on very short candles (≈ 1–15 minutes) compared with 30 minutes–4 hours.
+- Not truly real-time: each cycle involves LLM calls and multiple tools; latency can exceed a 1-minute opportunity window.
 
 ---
 
-## 6. Đánh giá phản biện
+## 6. Critical review
 
-### 6.1 Những điểm paper không tính / không nói
+### 6.1 What the paper does not account for / does not say
 
-| Vấn đề | Tình trạng |
+| Issue | Status |
 |---|---|
-| Phí giao dịch, slippage, spread, funding | **Không được nhắc tới ở bất kỳ đâu** trong paper; tìm trong repo (`fee`, `commission`, `slippage`) cũng không có. Với stop 0,05% và take-profit 0,06–0,09%, một lượt phí taker crypto điển hình đã cùng cỡ hoặc lớn hơn toàn bộ biên lợi nhuận mục tiêu |
-| HOLD | Cấm trong prompt [tr.6, tr.21]. Hệ thống buộc phải vào lệnh cả khi tín hiệu mâu thuẫn. Baseline XGBoost thì được HOLD và các lần HOLD bị loại khỏi trung bình [tr.6] → so sánh không cùng điều kiện |
-| Model LLM của thực nghiệm | Không nêu. Không tái lập được |
-| Ý nghĩa thống kê | Không có khoảng tin cậy, p-value, số seed, số lần chạy lặp; LLM có temperature 0.1 nên không tất định |
-| Ablation | Không có. Không biết agent nào đóng góp, hay một lời gọi LLM đơn lẻ có đạt kết quả tương đương không |
-| Chi phí và độ trễ | Không có số liệu token, tiền, giây/quyết định |
-| Định nghĩa metric Bảng 1 | Không có (mục 3.2) |
-| N, τ của Thuật toán 1 | Không có |
-| Đơn vị và công thức R_cc | Không rõ (mục 3.1) |
-| Baseline TradingAgent | Có trong Bảng 1, không mô tả cấu hình |
-| Quy mô vị thế, đòn bẩy, vốn | Không nêu |
+| Trading fees, slippage, spread, funding | **Not mentioned anywhere** in the paper; searching the repo (`fee`, `commission`, `slippage`) finds nothing either. With a 0.05% stop and 0.06–0.09% take-profit, one typical crypto taker fee is already the same order as or larger than the entire target profit margin |
+| HOLD | Banned in the prompt [p.6, p.21]. The system must enter a trade even when signals conflict. The XGBoost baseline may HOLD and HOLDs are excluded from the average [p.6] → not a like-for-like comparison |
+| Experiment LLM model | Not stated. Not reproducible |
+| Statistical significance | No confidence intervals, p-values, seed counts, repeated runs; the LLM runs at temperature 0.1 so it is not deterministic |
+| Ablation | None. Unknown which agent contributes, or whether a single LLM call would do as well |
+| Cost and latency | No figures on tokens, money, seconds/decision |
+| Table 1 metric definitions | None (section 3.2) |
+| N, τ of Algorithm 1 | None |
+| Units and formula of R_cc | Unclear (section 3.1) |
+| TradingAgent baseline | In Table 1, configuration not described |
+| Position sizing, leverage, capital | Not stated |
 
-### 6.2 Rủi ro rò rỉ dữ liệu
+### 6.2 Data leakage risks
 
-- **Giấu 3 nến cuối** là đúng về mặt quy trình [tr.6, tr.28]. Tuy nhiên file CSV benchmark trong repo có đủ **100 dòng** (đã kiểm tra), tức chứa cả 3 nến đáp án; việc cắt bỏ phải do script đánh giá làm, mà script này **không có trong repo** → không kiểm chứng được.
-- **Các đoạn chồng lấn mạnh.** 100 đoạn × 100 nến lấy từ 5.000 nến. Kiểm tra trực tiếp trên repo cho 4 thư mục (`benchmark/btc`, `benchmark/1h/btc`, `benchmark/spx`, `benchmark/vix`): sau khi sắp theo thời gian, **86/99 cặp đoạn liền kề chồng lên nhau**. Hệ quả: (a) các mẫu không độc lập, cỡ mẫu hiệu dụng nhỏ hơn 100; (b) XGBoost train trên 50 file, test trên 50 file còn lại sẽ thấy dữ liệu trùng thời gian với tập test.
-- **LLM có thể đã "thấy" lịch sử giá.** Dữ liệu 4h của DJI/QQQ/SPX kéo từ 2015; prompt chứa cả cột `Datetime` và trục thời gian trên ảnh, cộng với tên tài sản ở DecisionAgent. Một LLM huấn luyện tới 2023–2024 có thể nhớ diễn biến thị trường các ngày đó. Paper không bàn và không làm thí nghiệm che ngày/tên. Đây là rủi ro, **chưa xác minh** mức độ ảnh hưởng.
-- Không có tách train/test theo thời gian vì hệ thống zero-shot; nhưng việc thiết kế prompt (16 pattern, quy tắc quyết định) có được tinh chỉnh trên chính benchmark này hay không thì paper không nói.
+- **Hiding the last 3 candles** is procedurally correct [p.6, p.28]. However the benchmark CSV files in the repo have a full **100 rows** (checked), i.e. they include the 3 answer candles; the cut must be done by the evaluation script, which **is not in the repo** → cannot be verified.
+- **Segments overlap heavily.** 100 segments × 100 candles taken from 5,000 candles. Checking 4 folders directly in the repo (`benchmark/btc`, `benchmark/1h/btc`, `benchmark/spx`, `benchmark/vix`): after sorting by time, **86/99 adjacent segment pairs overlap**. Consequences: (a) samples are not independent, effective sample size is below 100; (b) XGBoost trained on 50 files and tested on the other 50 sees data overlapping in time with the test set.
+- **The LLM may have "seen" the price history.** 4h data for DJI/QQQ/SPX goes back to 2015; the prompt contains the `Datetime` column and a time axis on the image, plus the asset name in DecisionAgent. An LLM trained through 2023–2024 may remember market moves on those dates. The paper does not discuss this and runs no date/name-masking experiment. This is a risk, impact **unverified**.
+- There is no temporal train/test split because the system is zero-shot; but whether the prompt design (16 patterns, decision rules) was tuned on this same benchmark, the paper does not say.
 
-### 6.3 Cỡ mẫu
+### 6.3 Sample size
 
-- 100 đoạn mỗi tài sản, mỗi đoạn chấm 3 nến tương quan nhau. Sai số chuẩn của accuracy vào khoảng 3–5 điểm %. Chỉ SPX (63.7) và QQQ (59.7) cách mốc 50% đủ xa, và hai mã này lại có thiên hướng tăng dài hạn.
-- Case study "80%" dựa trên 10 mẫu.
+- 100 segments per asset, each scoring 3 correlated candles. The standard error of accuracy is about 3–5 percentage points. Only SPX (63.7) and QQQ (59.7) are far enough from 50%, and those two tickers have a long-term upward bias.
+- The "80%" case study is based on 10 samples.
 
-### 6.4 Cách dùng từ
+### 6.4 Wording
 
-- "High-Frequency Trading" trong tên paper không khớp với thực nghiệm trên nến **1h và 4h**; chính paper thừa nhận kém ở 1–15 phút và không real-time [tr.11].
-- "Consistently outperforms baseline methods" [tr.1] không đứng vững trước Bảng 1.
-- RiskAgent được trình bày như một agent nhưng không có prompt, không có code.
+- "High-Frequency Trading" in the title does not match experiments on **1h and 4h** candles; the paper itself admits it does poorly at 1–15 minutes and is not real-time [p.11].
+- "Consistently outperforms baseline methods" [p.1] does not hold up against Table 1.
+- RiskAgent is presented as an agent but has no prompt and no code.
 
-### 6.5 Điểm mạnh thật sự
+### 6.5 Genuine strengths
 
-- Số liệu indicator do tool (TA-Lib) tính, LLM chỉ diễn giải → giảm bịa số.
-- Mỗi quyết định kèm lý do bằng ngôn ngữ tự nhiên, truy vết được theo từng agent.
-- Benchmark CSV công khai (16 thư mục × 100 file) và code MIT.
-- Paper tự công bố Bảng 1 dù bất lợi, và có mục Limitations.
+- Indicator values are computed by a tool (TA-Lib); the LLM only interprets → fewer fabricated numbers.
+- Every decision comes with natural-language reasoning, traceable per agent.
+- Public benchmark CSVs (16 folders × 100 files) and MIT code.
+- The paper publishes Table 1 even though it is unfavorable, and has a Limitations section.
 
 ---
 
-## 7. Repo: cấu trúc và cách chạy
+## 7. Repo: structure and how to run
 
-### 7.1 Cấu trúc (commit `2e64c7b`)
+### 7.1 Structure (commit `2e64c7b`)
 
 ```
 QuantHarness/
-├── trading_graph.py      # TradingGraph: khởi tạo LLM theo provider, dựng graph
-├── graph_setup.py        # SetGraph: nối Indicator → Pattern → Trend → Decision
+├── trading_graph.py      # TradingGraph: init LLM per provider, build graph
+├── graph_setup.py        # SetGraph: wire Indicator → Pattern → Trend → Decision
 ├── agent_state.py        # IndicatorAgentState (TypedDict)
-├── indicator_agent.py    # node Indicator + prompt
-├── pattern_agent.py      # node Pattern + thư viện 16 pattern
-├── trend_agent.py        # node Trend + prompt
-├── decision_agent.py     # node Decision + prompt
-├── graph_util.py         # TechnicalTools (@tool): 5 indicator, 2 hàm vẽ, fit trendline
-├── static_util.py        # bản không-@tool của 2 hàm vẽ (web dùng để dựng ảnh trước)
-├── color_style.py        # style mplfinance
+├── indicator_agent.py    # Indicator node + prompt
+├── pattern_agent.py      # Pattern node + 16-pattern library
+├── trend_agent.py        # Trend node + prompt
+├── decision_agent.py     # Decision node + prompt
+├── graph_util.py         # TechnicalTools (@tool): 5 indicators, 2 plot functions, trendline fit
+├── static_util.py        # non-@tool version of the 2 plot functions (web uses it to prebuild images)
+├── color_style.py        # mplfinance style
 ├── default_config.py     # model, provider, temperature, API key
-├── web_interface.py      # Flask app, lấy dữ liệu yfinance, 1.175 dòng
+├── web_interface.py      # Flask app, fetches yfinance data, 1,175 lines
 ├── templates/            # demo.html, demo_new.html, output.html
-├── tests/                # chỉ test provider MiniMax
-├── benchmark/            # CSV: {btc,cl,dji,es,nq,qqq,spx,vix}/ (4h) và 1h/{btc,cl,dax,dji,es,nq,qqq,spx}/
-├── index.html, assets/   # trang dự án (GitHub Pages)
+├── tests/                # only tests the MiniMax provider
+├── benchmark/            # CSV: {btc,cl,dji,es,nq,qqq,spx,vix}/ (4h) and 1h/{btc,cl,dax,dji,es,nq,qqq,spx}/
+├── index.html, assets/   # project page (GitHub Pages)
 ├── requirements.txt
 ├── README.md, README_CN.md
 └── LICENSE               # MIT
 ```
 
-- Benchmark: 16 thư mục × 100 file × 100 dòng; cột `Datetime,Close,High,Low,Open,Volume`. Tên file dạng `BTC_4h_1.csv`, `BTC_1h_1.csv`.
-- **Không có**: script đánh giá, code baseline (LR / XGBoost / random / TradingAgent), code tính Sharpe/R_cc, RiskAgent, backtest, kết nối sàn/đặt lệnh, pin phiên bản thư viện.
+- Benchmark: 16 folders × 100 files × 100 rows; columns `Datetime,Close,High,Low,Open,Volume`. File names like `BTC_4h_1.csv`, `BTC_1h_1.csv`.
+- **Missing**: evaluation script, baseline code (LR / XGBoost / random / TradingAgent), Sharpe/R_cc computation code, RiskAgent, backtest, exchange connection/order placement, pinned library versions.
 
-### 7.2 Dependencies (`requirements.txt`, không pin version)
+### 7.2 Dependencies (`requirements.txt`, unpinned)
 
 `flask, yfinance, pandas, numpy, matplotlib, mplfinance, scipy, TA-Lib, langchain, langchain-openai, langchain-anthropic, langchain-qwq, langchain-core, langgraph, openai, anthropic, ipython, Pillow, requests`
 
-TA-Lib cần thư viện C; README gợi ý `conda install -c conda-forge ta-lib` nếu `pip` lỗi.
+TA-Lib needs a C library; the README suggests `conda install -c conda-forge ta-lib` if `pip` fails.
 
-### 7.3 Cách chạy (theo README; **chưa chạy thử** trong lần khảo sát này)
+### 7.3 How to run (per the README; **not test-run** in this review)
 
 ```bash
 conda create -n quantharness python=3.11
 conda activate quantharness
 pip install -r requirements.txt
 
-export OPENAI_API_KEY="..."        # hoặc ANTHROPIC_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY
+export OPENAI_API_KEY="..."        # or ANTHROPIC_API_KEY / DASHSCOPE_API_KEY / MINIMAX_API_KEY
 
 python web_interface.py            # http://127.0.0.1:5000
 ```
 
-Dùng trong code:
+Use from code:
 
 ```python
 from trading_graph import TradingGraph
 
-tg = TradingGraph()                       # hoặc TradingGraph(config={...})
+tg = TradingGraph()                       # or TradingGraph(config={...})
 state = {
-    "kline_data": df_dict,                # dict các list: Datetime, Open, High, Low, Close
+    "kline_data": df_dict,                # dict of lists: Datetime, Open, High, Low, Close
     "analysis_results": None,
     "messages": [],
     "time_frame": "4hour",
@@ -482,66 +482,66 @@ out = tg.graph.invoke(state)
 out["final_trade_decision"]; out["indicator_report"]; out["pattern_report"]; out["trend_report"]
 ```
 
-Cấu hình [code: `default_config.py`]: `agent_llm_model="gpt-4o-mini"`, `graph_llm_model="gpt-4o"`, hai temperature = 0.1. Provider hỗ trợ trong code: `openai`, `anthropic`, `qwen`, `minimax`, `minimax_cn`, `gemini` (README không nhắc `gemini`). Model mặc định khi đổi provider (theo README): Anthropic `claude-haiku-4-5-20251001`; Qwen `qwen3-max` / `qwen3-vl-plus`; MiniMax `MiniMax-M3`. **Bắt buộc model nhận ảnh.**
+Configuration [code: `default_config.py`]: `agent_llm_model="gpt-4o-mini"`, `graph_llm_model="gpt-4o"`, both temperatures = 0.1. Providers supported in code: `openai`, `anthropic`, `qwen`, `minimax`, `minimax_cn`, `gemini` (the README does not mention `gemini`). Default model when switching provider (per the README): Anthropic `claude-haiku-4-5-20251001`; Qwen `qwen3-max` / `qwen3-vl-plus`; MiniMax `MiniMax-M3`. **A vision-capable model is required.**
 
-Lưu ý khi chạy:
-- Web demo lấy dữ liệu qua yfinance (BTC → `BTC-USD`, NQ → `NQ=F`, SPX → `^GSPC`…), cắt `tail(45)`, dựng sẵn ảnh rồi mới gọi graph. Khung 1h/4h giới hạn 730 ngày; 30m giới hạn 60 ngày.
-- Tool ghi file vào thư mục hiện hành: `kline_chart.png`, `trend_graph.png`, `record.csv` (dpi 600, ảnh lớn → tốn token vision).
-- `DEFAULT_CONFIG["api_key"] = "sk-"` là chuỗi không rỗng nên code sẽ không rơi về biến môi trường nếu dùng config mặc định qua đường Python; cần gán key vào config hoặc qua web UI. (Suy ra từ đọc code `_get_api_key`, **chưa chạy thử**.)
-- Web demo có các trường tĩnh giả lập ở trang output (ví dụ `"forecast_horizon": "24-48 hours"`); Hình 12 trong paper [tr.27] cũng hiện ADX, "RSI Divergence", "Volume" — các chỉ số **không có** trong tool.
+Notes when running:
+- The web demo fetches data via yfinance (BTC → `BTC-USD`, NQ → `NQ=F`, SPX → `^GSPC`…), cuts `tail(45)`, prebuilds images, then calls the graph. 1h/4h timeframes are limited to 730 days; 30m to 60 days.
+- Tools write files to the current directory: `kline_chart.png`, `trend_graph.png`, `record.csv` (dpi 600, large images → expensive vision tokens).
+- `DEFAULT_CONFIG["api_key"] = "sk-"` is a non-empty string, so the code will not fall back to the environment variable when using the default config from Python; set the key in the config or via the web UI. (Inferred from reading `_get_api_key`, **not test-run**.)
+- The web demo has static mock fields on the output page (e.g. `"forecast_horizon": "24-48 hours"`); Figure 12 in the paper [p.27] also shows ADX, "RSI Divergence", "Volume" — indicators that **are not** among the tools.
 
 ### 7.4 License
 
-- Code: **MIT**, "Copyright (c) 2025 Y-Research @SBU" [`LICENSE`]. Được dùng, sửa, phân phối, thương mại hoá, miễn giữ thông báo bản quyền.
-- Trang dự án ghi ở chân trang "© 2025 QuantHarness, All Rights Reserved" — áp cho nội dung trang web, không đổi license của code.
-- README có disclaimer: chỉ cho mục đích giáo dục/nghiên cứu, không phải tư vấn tài chính.
-- Phần fit trendline lấy từ `neurotrader888/TechnicalAnalysisAutomation` (README ghi nhận); license của repo gốc đó **chưa xác minh**.
-- Dữ liệu benchmark lấy từ TradingView/yfinance; điều khoản tái phân phối dữ liệu **chưa xác minh**.
+- Code: **MIT**, "Copyright (c) 2025 Y-Research @SBU" [`LICENSE`]. Free to use, modify, distribute, commercialize, as long as the copyright notice is kept.
+- The project page footer says "© 2025 QuantHarness, All Rights Reserved" — this applies to the website content and does not change the code license.
+- The README has a disclaimer: educational/research purposes only, not financial advice.
+- The trendline fitting code comes from `neurotrader888/TechnicalAnalysisAutomation` (credited in the README); that original repo's license is **unverified**.
+- Benchmark data comes from TradingView/yfinance; data redistribution terms are **unverified**.
 
 ---
 
-## 8. Áp dụng cho dự án
+## 8. Applying this to the project
 
-### 8.1 Đáng tái dùng
+### 8.1 Worth reusing
 
-| Thành phần | Lý do |
+| Component | Reason |
 |---|---|
-| Tách vai trò: indicator / pattern / trend / decision, state dùng chung | Dễ thay từng phần, dễ log và debug |
-| Tool tính indicator bằng thư viện, LLM chỉ diễn giải | Tránh LLM bịa số |
-| Hàm fit trendline support/resistance (`fit_trendlines_single`, `optimize_slope`) | Thuật toán tất định, dùng được độc lập với LLM (kiểm tra license nguồn gốc trước) |
-| Schema đầu ra quyết định (direction, justification, risk_reward) | Điểm khởi đầu tốt, cần siết thành structured output |
-| Bộ CSV benchmark + giao thức "giấu k nến cuối" | Dùng làm smoke test nhanh |
-| Baseline LR 40 nến | Rẻ, mạnh; **mọi phiên bản của dự án phải thắng baseline này sau phí** mới đáng giữ |
+| Role separation: indicator / pattern / trend / decision, shared state | Easy to swap parts, easy to log and debug |
+| Indicator tools computed by a library, LLM only interprets | Prevents the LLM from fabricating numbers |
+| Support/resistance trendline fitting (`fit_trendlines_single`, `optimize_slope`) | Deterministic algorithm, usable independently of the LLM (check the source license first) |
+| Decision output schema (direction, justification, risk_reward) | Good starting point; needs tightening into structured output |
+| Benchmark CSVs + the "hide the last k candles" protocol | Use as a quick smoke test |
+| 40-candle LR baseline | Cheap and strong; **every version of the project must beat this baseline after fees** to be worth keeping |
 
-### 8.2 Cần thay đổi
+### 8.2 What to change
 
-1. **Viết harness đánh giá riêng** (repo không có): walk-forward theo thời gian, đoạn không chồng lấn, có phí + slippage + funding, có baseline always-long / buy-and-hold / random / LR / momentum đơn giản, có khoảng tin cậy (bootstrap) và nhiều seed.
-2. **Cho phép HOLD / không vào lệnh** và đo cả tỷ lệ tham gia. Cấm HOLD buộc hệ thống đánh cả khi không có lợi thế.
-3. **Risk tính bằng code, không để LLM chọn.** Thay stop cố định 0,05% bằng stop theo biến động (ATR hoặc độ lệch chuẩn theo khung thời gian và tài sản); tính position sizing, giới hạn lỗ theo ngày ở tầng tất định.
-4. **Cài thật Thuật toán 1** với độ dốc chuẩn hoá (theo % giá hoặc theo ATR) và τ được hiệu chỉnh trên tập validation; đưa kết quả phân loại dạng số cho LLM thay vì chỉ đưa ảnh.
-5. **Sửa lỗi dữ liệu indicator**: bỏ `fillna(0)`, nạp đủ nến warm-up (ít nhất ~100 nến cho MACD 12/26/9), chỉ trả phần hợp lệ.
-6. **Kiểm chứng pattern bằng thuật toán** (pivot, độ hội tụ) trước hoặc song song với vision; đo riêng độ chính xác nhận diện pattern. Giảm dpi ảnh để tiết kiệm token.
-7. **Chống rò rỉ từ trí nhớ LLM**: thử che ngày tháng và tên tài sản, chuẩn hoá giá; ưu tiên đánh giá trên dữ liệu sau ngày cutoff của model.
-8. **Ablation bắt buộc**: một lời gọi LLM đơn vs đa agent; bỏ từng agent; chỉ số liệu vs có ảnh. Giữ lại phần nào chứng minh được đóng góp.
-9. **Structured output + validation** cho mọi agent (JSON schema), parse và kiểm tra miền giá trị; pin version thư viện; log đầy đủ prompt/response/chi phí/độ trễ.
-10. **Không gọi là HFT.** Phạm vi thực tế là hỗ trợ quyết định ở khung 30 phút–4 giờ trở lên. Với cổ phiếu, cân nhắc thêm dữ liệu ngoài giá (paper cố ý loại bỏ).
-11. Thực thi lệnh thật nằm ngoài phạm vi repo này; nếu dự án cần, đó là một phần phải thiết kế riêng với kiểm soát rủi ro độc lập với LLM.
+1. **Write our own evaluation harness** (the repo has none): time-based walk-forward, non-overlapping segments, fees + slippage + funding, baselines always-long / buy-and-hold / random / LR / simple momentum, confidence intervals (bootstrap) and multiple seeds.
+2. **Allow HOLD / no trade** and measure the participation rate too. Banning HOLD forces the system to trade even without an edge.
+3. **Compute risk in code, do not let the LLM choose.** Replace the fixed 0.05% stop with a volatility-based stop (ATR or standard deviation per timeframe and asset); compute position sizing and daily loss limits in a deterministic layer.
+4. **Actually implement Algorithm 1** with normalized slope (as % of price or in ATR) and τ calibrated on a validation set; feed the classification result to the LLM as numbers instead of only an image.
+5. **Fix the indicator data bug**: drop `fillna(0)`, load enough warm-up candles (at least ~100 for MACD 12/26/9), return only the valid part.
+6. **Verify patterns algorithmically** (pivots, convergence) before or alongside vision; measure pattern-recognition accuracy separately. Lower image dpi to save tokens.
+7. **Guard against leakage from LLM memory**: try masking dates and asset names, normalizing prices; prefer evaluating on data after the model's cutoff date.
+8. **Mandatory ablation**: single LLM call vs multi-agent; drop each agent; numbers only vs with images. Keep only what proves its contribution.
+9. **Structured output + validation** for every agent (JSON schema), parse and range-check values; pin library versions; log full prompt/response/cost/latency.
+10. **Do not call it HFT.** The realistic scope is decision support at 30-minute–4-hour timeframes and above. For equities, consider adding non-price data (which the paper deliberately excludes).
+11. Real order execution is outside the scope of this repo; if the project needs it, it must be designed separately with risk controls independent of the LLM.
 
 ---
 
-## 9. Danh sách "chưa xác minh"
+## 9. "Unverified" list
 
-1. Model LLM dùng cho thực nghiệm trong paper (code mặc định gpt-4o / gpt-4o-mini, paper không nêu).
-2. Giá trị N và τ của Thuật toán 1.
-3. Công thức chính xác và đơn vị của R_cc, R_max, R_min; cách chúng tương thích với stop-loss 0,05%.
-4. Toàn bộ thiết lập của Bảng 1: khung thời gian, giai đoạn, cách tính Sharpe/Sortino/CumReturn/MaxDD, quy ước dấu MaxDD, nguồn dữ liệu AAPL/AMZN, cấu hình baseline TradingAgent, lý do VIX thiếu LR/XGBoost.
-5. Số liệu cụ thể khung 1h (chỉ có biểu đồ, Hình 5).
-6. Script đánh giá có thật sự cắt 3 nến cuối trước khi đưa vào LLM hay không (script không công bố).
-7. Mức ảnh hưởng của việc LLM đã thấy dữ liệu lịch sử trong lúc huấn luyện.
-8. Prompt/benchmark có được tinh chỉnh lặp trên cùng tập test hay không.
-9. RiskAgent có tồn tại dưới dạng code ở phiên bản nào khác không (không có ở commit `2e64c7b`).
-10. Mô tả "extract swing pivots / least-squares fit" của PatternAgent ở Phụ lục F ứng với code nào.
-11. Repo có chạy được nguyên trạng không (chưa cài đặt và chạy thử); hành vi `api_key="sk-"` chỉ suy ra từ đọc code.
-12. License của mã trendline gốc (`TechnicalAnalysisAutomation`) và điều khoản tái phân phối dữ liệu TradingView/yfinance.
-13. Số tài sản "chín" (abstract) hay "mười" (trang dự án) — các bảng không khớp với cả hai.
-14. Mức độ chồng lấn đoạn benchmark mới kiểm tra trên 4/16 thư mục.
+1. The LLM model used for the paper's experiments (code defaults to gpt-4o / gpt-4o-mini, the paper does not say).
+2. The values of N and τ in Algorithm 1.
+3. The exact formula and units of R_cc, R_max, R_min; how they are compatible with a 0.05% stop-loss.
+4. The entire Table 1 setup: timeframe, period, how Sharpe/Sortino/CumReturn/MaxDD are computed, MaxDD sign convention, AAPL/AMZN data source, TradingAgent baseline configuration, why VIX lacks LR/XGBoost.
+5. Specific 1h figures (chart only, Figure 5).
+6. Whether the evaluation script really cuts the last 3 candles before feeding the LLM (script not published).
+7. How much it matters that the LLM saw historical data during training.
+8. Whether the prompt/benchmark was iteratively tuned on the same test set.
+9. Whether RiskAgent exists as code in any other version (it is not in commit `2e64c7b`).
+10. Which code the PatternAgent "extract swing pivots / least-squares fit" description in Appendix F corresponds to.
+11. Whether the repo runs as-is (not installed and test-run); the `api_key="sk-"` behavior is inferred from reading code only.
+12. The license of the original trendline code (`TechnicalAnalysisAutomation`) and the redistribution terms for TradingView/yfinance data.
+13. Whether the asset count is "nine" (abstract) or "ten" (project page) — the tables match neither.
+14. Benchmark segment overlap was checked on only 4/16 folders.
