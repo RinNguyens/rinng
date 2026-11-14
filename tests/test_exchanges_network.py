@@ -64,12 +64,13 @@ def test_funding_last_week(api):
 
 
 @pytest.mark.parametrize("method", ["open_interest", "long_short", "taker_volume"])
-def test_five_minute_stats_last_day(api, method):
-    start, end = _window(24)
+def test_five_minute_stats_three_days(api, method):
+    # 864 điểm: nhiều hơn một trang của cả hai sàn (Binance 500, OKX 100).
+    start, end = _window(72)
     rows = _rows(getattr(api, method)(SYMBOLS[api.name], "5m", start, end))
     times = [r["time"] for r in rows]
     assert len(set(times)) == len(times)
-    assert 280 <= len(times) <= 288  # 288 điểm mỗi ngày; cho phép sàn thiếu vài điểm cuối
+    assert 850 <= len(times) <= 864  # cho phép sàn thiếu vài điểm cuối
     assert all(int(start.timestamp() * 1000) <= t < int(end.timestamp() * 1000) for t in times)
 
 

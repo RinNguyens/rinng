@@ -31,17 +31,22 @@ class DataPaths:
         """Thư mục dữ liệu thô của một ngày. `symbol` là tên gốc trên sàn."""
         return self.raw / exchange / dataset / symbol / f"date={day.isoformat()}"
 
+    def curated_dataset(self, dataset: str) -> Path:
+        return self.curated / dataset
+
     def curated_partition(
-        self, dataset: str, exchange: str, instrument_id: str, timeframe: str, year: int
+        self,
+        dataset: str,
+        exchange: str,
+        instrument_id: str,
+        year: int,
+        timeframe: str | None = None,
     ) -> Path:
-        return (
-            self.curated
-            / dataset
-            / f"exchange={exchange}"
-            / f"symbol={instrument_id}"
-            / f"timeframe={timeframe}"
-            / f"year={year}"
-        )
+        """Thư mục một năm dữ liệu. Chỉ bảng nến có tầng `timeframe`."""
+        path = self.curated_dataset(dataset) / f"exchange={exchange}" / f"symbol={instrument_id}"
+        if timeframe is not None:
+            path = path / f"timeframe={timeframe}"
+        return path / f"year={year}"
 
     def derived(self, zone: str, module: str, version: int, instrument_id: str, tf: str) -> Path:
         """Thư mục đầu ra phân tích. `zone` là 'features' hoặc 'events'."""

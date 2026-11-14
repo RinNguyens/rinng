@@ -130,17 +130,32 @@ class Binance:
     # --- nội bộ ---
 
     def _stats(self, endpoint: str, symbol: str, period: str, start: datetime, end: datetime):
+        """Phân trang lùi theo thời gian.
+
+        Khác klines và funding: khi khoảng hỏi có nhiều hơn `limit` điểm, nhóm /futures/data/*
+        trả `limit` điểm MỚI NHẤT trong khoảng (vẫn xếp tăng dần), không phải cũ nhất.
+        Đã kiểm trên sàn thật ngày 2026-11-13. Vì vậy lùi `endTime` về trước điểm cũ nhất.
+        """
         if period not in PERIODS:
             raise ValueError(f"period không hợp lệ: {period!r}; dùng một trong {PERIODS}")
-        return self._pages(
-            f"/futures/data/{endpoint}",
-            {"symbol": symbol, "period": period},
-            self._stats_limiter,
-            start,
-            end,
-            STATS_LIMIT,
-            time_key="timestamp",
-        )
+        path = f"/futures/data/{endpoint}"
+        start_ms, cursor = to_ms(start), to_ms(end)
+        while cursor > start_ms:
+            query = {
+                "symbol": symbol,
+                "period": period,
+                "startTime": start_ms,
+                "endTime": cursor - 1,
+                "limit": STATS_LIMIT,
+            }
+            raw = self._get(path, query, self._stats_limiter)
+            page = [x for x in raw if start_ms <= int(x["timestamp"]) < cursor]
+            if not page:
+                return
+            yield page
+            if len(raw) < STATS_LIMIT:
+                return
+            cursor = int(page[0]["timestamp"])
 
     def _pages(
         self,
@@ -168,7 +183,14 @@ class Binance:
     def _get(self, path: str, params: dict[str, Any], limiter: WeightLimiter | WindowLimiter):
         for attempt in range(self._max_retries + 1):
             limiter.acquire()
-            response = self._client.get(path, params=params)
+            try:
+                response = self._client.get(path, params=params)
+            except httpx.TransportError:
+                # Lỗi mạng thoáng qua (connection reset, timeout): chờ rồi thử lại.
+                if attempt == self._max_retries:
+                    raise
+                self._sleep(2.0 * (attempt + 1))
+                continue
             used = response.headers.get("x-mbx-used-weight-1m")
             if used is not None:
                 self._weight.update(int(used))

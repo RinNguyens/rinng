@@ -189,3 +189,16 @@ def test_stats_paginate_backwards_with_end_cursor():
     times = sorted(r["time"] for page in pages for r in page)
     assert times == points
     assert len(requests) == 3
+
+
+def test_transient_network_error_is_retried():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow")
+        return httpx.Response(200, json={"code": "0", "data": [candle(T0_MS)]})
+
+    rows = collect(make(handler).klines("BTC-USDT-SWAP", "1h", T0, T0 + timedelta(hours=1)))
+    assert len(rows) == 1
