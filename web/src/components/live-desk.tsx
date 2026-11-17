@@ -1,7 +1,12 @@
 // Live desk: one 5m chart carrying every overlay (structure, liquidity, profile, EMAs, projection,
 // setups) with a smoothly moving running candle, next to the rule-based agents' read.
 import { useEffect, useRef, useState } from "react"
-import { CandlestickSeries, LineSeries, createChart, createSeriesMarkers } from "lightweight-charts"
+import {
+  CandlestickSeries,
+  LineSeries,
+  createChart,
+  createSeriesMarkers,
+} from "lightweight-charts"
 import type {
   IChartApi,
   ISeriesApi,
@@ -36,18 +41,28 @@ const LAYERS: Array<{ id: string; label: string; color: string }> = [
 const STORE = "rinng.desk.layers"
 
 const num = (v: number, d = 0) =>
-  v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d })
+  v.toLocaleString("en-US", {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  })
 const price = (v: number | null | undefined) =>
   v == null ? "—" : num(v, v >= 1000 ? 1 : v >= 1 ? 2 : 5)
 const odds = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`)
 
 const reducedMotion = () =>
-  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
 function loadLayers(): Record<string, boolean> {
   const on = Object.fromEntries(LAYERS.map((l) => [l.id, true]))
   try {
-    return { ...on, ...(JSON.parse(localStorage.getItem(STORE) ?? "{}") as Record<string, boolean>) }
+    return {
+      ...on,
+      ...(JSON.parse(localStorage.getItem(STORE) ?? "{}") as Record<
+        string,
+        boolean
+      >),
+    }
   } catch {
     return on
   }
@@ -61,7 +76,13 @@ type Handles = {
   lines: Map<string, ISeriesApi<"Line">>
 }
 
-export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: string }) {
+export function LiveDesk({
+  symbol,
+  exchange,
+}: {
+  symbol: string
+  exchange: string
+}) {
   const key = `${exchange}:${symbol}`
   const [loaded, setLoaded] = useState<{ key: string; data: Desk } | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -83,7 +104,9 @@ export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: strin
     setError(null)
     api
       .desk({ symbol, exchange })
-      .then((d) => alive && setLoaded({ key: `${exchange}:${symbol}`, data: d }))
+      .then(
+        (d) => alive && setLoaded({ key: `${exchange}:${symbol}`, data: d })
+      )
       .catch((e: Error) => alive && setError(e.message))
     return () => {
       alive = false
@@ -110,7 +133,11 @@ export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: strin
             <Badge variant="outline" className="font-heading text-[10px]">
               5m
             </Badge>
-            <LivePrice symbol={symbol} exchange={exchange} fallback={data?.candles.at(-1)?.close} />
+            <LivePrice
+              symbol={symbol}
+              exchange={exchange}
+              fallback={data?.candles.at(-1)?.close}
+            />
             <CandleClock />
             <div className="ml-auto flex flex-wrap gap-1">
               {LAYERS.map((l) => (
@@ -123,19 +150,29 @@ export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: strin
                     "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] ring-1 transition-colors",
                     layers[l.id]
                       ? "bg-muted text-foreground ring-foreground/15"
-                      : "text-muted-foreground ring-foreground/10 hover:text-foreground",
+                      : "text-muted-foreground ring-foreground/10 hover:text-foreground"
                   )}
                 >
                   <i
                     className="inline-block size-1.5 rounded-full transition-opacity"
-                    style={{ background: l.color, opacity: layers[l.id] ? 1 : 0.3 }}
+                    style={{
+                      background: l.color,
+                      opacity: layers[l.id] ? 1 : 0.3,
+                    }}
                   />
                   {l.label}
                 </button>
               ))}
             </div>
           </div>
-          <DeskChart key={key} symbol={symbol} exchange={exchange} data={data} layers={layers} error={error} />
+          <DeskChart
+            key={key}
+            symbol={symbol}
+            exchange={exchange}
+            data={data}
+            layers={layers}
+            error={error}
+          />
         </div>
         <div className="min-h-0 border-t border-foreground/10 xl:h-[660px] xl:overflow-y-auto xl:border-t-0 xl:border-l">
           {data ? (
@@ -145,7 +182,9 @@ export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: strin
               {error ? (
                 <p className="text-sm text-destructive">{error}</p>
               ) : (
-                Array.from({ length: 7 }, (_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+                Array.from({ length: 7 }, (_, i) => (
+                  <Skeleton key={i} className="h-14 rounded-xl" />
+                ))
               )}
             </div>
           )}
@@ -157,21 +196,30 @@ export function LiveDesk({ symbol, exchange }: { symbol: string; exchange: strin
 
 // ----------------------------------------------------------------- header pieces
 
-function LivePrice({ symbol, exchange, fallback }: { symbol: string; exchange: string; fallback?: number }) {
+function LivePrice({
+  symbol,
+  exchange,
+  fallback,
+}: {
+  symbol: string
+  exchange: string
+  fallback?: number
+}) {
   const { tick } = useLiveQuote(symbol, exchange)
   const value = tick?.price ?? fallback
   const last = useRef<number | undefined>(undefined)
   const [dir, setDir] = useState(0)
   useEffect(() => {
     if (value == null) return
-    if (last.current != null && value !== last.current) setDir(value > last.current ? 1 : -1)
+    if (last.current != null && value !== last.current)
+      setDir(value > last.current ? 1 : -1)
     last.current = value
   }, [value])
   return (
     <span
       className={cn(
         "font-heading text-sm tabular-nums transition-colors duration-500",
-        dir > 0 ? "text-up" : dir < 0 ? "text-down" : "",
+        dir > 0 ? "text-up" : dir < 0 ? "text-down" : ""
       )}
     >
       {price(value)}
@@ -242,7 +290,12 @@ function DeskChart({
         attributionLogo: false,
       },
       grid: { vertLines: { color: line }, horzLines: { color: line } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: line, rightOffset: 8 },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderColor: line,
+        rightOffset: 8,
+      },
       rightPriceScale: { borderColor: line },
       crosshair: { mode: 0 },
     })
@@ -256,7 +309,13 @@ function DeskChart({
     const overlay = new RinngOverlay([])
     overlay.coneMedian = true
     candles.attachPrimitive(overlay)
-    handles.current = { chart, candles, overlay, markers: createSeriesMarkers(candles, []), lines: new Map() }
+    handles.current = {
+      chart,
+      candles,
+      overlay,
+      markers: createSeriesMarkers(candles, []),
+      lines: new Map(),
+    }
 
     // Any manual pan/zoom stops the view from snapping back to "now" on the next candle.
     const touch = () => {
@@ -292,7 +351,8 @@ function DeskChart({
       if (!bar) return
       const from = shown.current ?? bar.close
       const gap = bar.close - from
-      const step = calm || Math.abs(gap) < Math.abs(bar.close) * 1e-6 ? gap : gap * 0.18
+      const step =
+        calm || Math.abs(gap) < Math.abs(bar.close) * 1e-6 ? gap : gap * 0.18
       if (step === 0 && shown.current != null) return
       const at = from + step
       shown.current = at
@@ -316,7 +376,8 @@ function DeskChart({
     raf = requestAnimationFrame(frame)
 
     const offLive = live.on((e) => {
-      if (e.type === "status" || e.symbol !== symbol || e.exchange !== exchange) return
+      if (e.type === "status" || e.symbol !== symbol || e.exchange !== exchange)
+        return
       const last = closed.current
       if (!last.time) return
       if (e.type === "bar" && e.tf === TF && e.bar.time > last.time) {
@@ -328,7 +389,14 @@ function DeskChart({
           if (start <= last.time) return
           // No candle event yet for this period: open one at the previous close.
           const open = bar?.close ?? last.close
-          bar = { time: start, open, high: open, low: open, close: open, volume: 0 }
+          bar = {
+            time: start,
+            open,
+            high: open,
+            low: open,
+            close: open,
+            volume: 0,
+          }
           shown.current = open
         }
         running.current = {
@@ -360,7 +428,10 @@ function DeskChart({
       (items ?? []).filter((i) => !i.layer || layers[i.layer])
     const times = data.candles.map((c) => c.time)
     const lastTime = times[times.length - 1]
-    closed.current = { time: lastTime, close: data.candles[data.candles.length - 1].close }
+    closed.current = {
+      time: lastTime,
+      close: data.candles[data.candles.length - 1].close,
+    }
     if (running.current && running.current.time <= lastTime) {
       running.current = null
       shown.current = null
@@ -374,7 +445,9 @@ function DeskChart({
       profiles: on(data.profiles),
       forecast: layers.projection ? data.forecast : undefined,
     })
-    h.markers.setMarkers(on(data.markers).map((m) => ({ ...m, time: m.time as Time })))
+    h.markers.setMarkers(
+      on(data.markers).map((m) => ({ ...m, time: m.time as Time }))
+    )
     for (const ln of data.lines ?? []) {
       let s = h.lines.get(ln.name)
       if (!s) {
@@ -392,8 +465,11 @@ function DeskChart({
     }
     if (!touched.current) {
       const n = times.length
-      const ahead = data.forecast && layers.projection ? data.forecast.horizon + 6 : 10
-      h.chart.timeScale().setVisibleLogicalRange({ from: n - HISTORY, to: n + ahead })
+      const ahead =
+        data.forecast && layers.projection ? data.forecast.horizon + 6 : 10
+      h.chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: n - HISTORY, to: n + ahead })
     }
     // A new candle: the projection sweeps out again from the new origin.
     if (revealed.current !== lastTime && data.forecast && !reducedMotion()) {
@@ -419,7 +495,9 @@ function DeskChart({
     <div className="relative min-h-0 flex-1">
       <div ref={host} className="absolute inset-0" />
       <span ref={dot} className="desk-dot" style={{ opacity: 0 }} aria-hidden />
-      {!data && !error ? <Skeleton className="absolute inset-3 rounded-xl" /> : null}
+      {!data && !error ? (
+        <Skeleton className="absolute inset-3 rounded-xl" />
+      ) : null}
       {error && !data ? (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-destructive">
           {error}
@@ -441,11 +519,16 @@ const STANCE = {
 function Lean({ score, className }: { score: number; className?: string }) {
   const w = Math.min(1, Math.abs(score)) * 50
   return (
-    <div className={cn("relative h-1.5 overflow-hidden rounded-full bg-muted", className)}>
+    <div
+      className={cn(
+        "relative h-1.5 overflow-hidden rounded-full bg-muted",
+        className
+      )}
+    >
       <span
         className={cn(
           "absolute inset-y-0 rounded-full transition-[width,left] duration-700 ease-out",
-          score >= 0 ? "bg-up" : "bg-down",
+          score >= 0 ? "bg-up" : "bg-down"
         )}
         style={{ left: score >= 0 ? "50%" : `${50 - w}%`, width: `${w}%` }}
       />
@@ -457,27 +540,40 @@ function Lean({ score, className }: { score: number; className?: string }) {
 function AgentPanel({ data }: { data: Desk }) {
   const v = data.verdict
   const [open, setOpen] = useState<string | null>(null)
-  const title = v.lean === "long" ? "Leaning long" : v.lean === "short" ? "Leaning short" : "No clear edge"
+  const title =
+    v.lean === "long"
+      ? "Leaning long"
+      : v.lean === "short"
+        ? "Leaning short"
+        : "No clear edge"
   const at = data.candles.at(-1)?.time
   return (
     <div className="space-y-4 p-4">
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-xs text-muted-foreground">Agent consensus · 5m</span>
+          <span className="text-xs text-muted-foreground">
+            Agent consensus · 5m
+          </span>
           <span className="font-heading text-[11px] text-muted-foreground">
-            {at ? `candle ${new Date((at + BAR) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
+            {at
+              ? `candle ${new Date((at + BAR) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : ""}
           </span>
         </div>
         <div className="flex items-end justify-between gap-3">
           <span
             className={cn(
               "font-heading text-2xl font-medium tracking-tight",
-              v.lean === "long" ? "text-up" : v.lean === "short" ? "text-down" : "",
+              v.lean === "long"
+                ? "text-up"
+                : v.lean === "short"
+                  ? "text-down"
+                  : ""
             )}
           >
             {title}
           </span>
-          <span className="pb-1 font-heading text-sm tabular-nums text-muted-foreground">
+          <span className="pb-1 font-heading text-sm text-muted-foreground tabular-nums">
             {v.score >= 0 ? "+" : "−"}
             {Math.round(Math.abs(v.score) * 100)}
           </span>
@@ -503,22 +599,35 @@ function AgentPanel({ data }: { data: Desk }) {
       </section>
 
       <section className="space-y-2">
-        <div className="text-xs text-muted-foreground">Setups if price gets there</div>
+        <div className="text-xs text-muted-foreground">
+          Setups if price gets there
+        </div>
         {data.scenarios.map((s, i) => (
           <Setup key={s.side} s={s} total={v.total} index={i} />
         ))}
       </section>
 
       <p className="text-[11px] leading-snug text-muted-foreground">
-        Rule-based readings of closed 5m candles, refreshed at every candle close. Touch odds come from the
-        projection and are measured from the current price over the next {data.forecast?.horizon ?? 48} candles.
-        Not trading advice.
+        Rule-based readings of closed 5m candles, refreshed at every candle
+        close. Touch odds come from the projection and are measured from the
+        current price over the next {data.forecast?.horizon ?? 48} candles. Not
+        trading advice.
       </p>
     </div>
   )
 }
 
-function AgentRow({ a, index, open, onToggle }: { a: AgentVote; index: number; open: boolean; onToggle: () => void }) {
+function AgentRow({
+  a,
+  index,
+  open,
+  onToggle,
+}: {
+  a: AgentVote
+  index: number
+  open: boolean
+  onToggle: () => void
+}) {
   const st = STANCE[a.stance]
   return (
     <button
@@ -533,7 +642,12 @@ function AgentRow({ a, index, open, onToggle }: { a: AgentVote; index: number; o
         <span className="font-heading text-[10px] text-muted-foreground tabular-nums">
           conf {Math.round(a.confidence * 100)}%
         </span>
-        <span className={cn("rounded-md px-1.5 py-0.5 font-heading text-[10px] font-medium", st.cls)}>
+        <span
+          className={cn(
+            "rounded-md px-1.5 py-0.5 font-heading text-[10px] font-medium",
+            st.cls
+          )}
+        >
           {st.label}
         </span>
       </div>
@@ -548,39 +662,71 @@ function AgentRow({ a, index, open, onToggle }: { a: AgentVote; index: number; o
           ))}
         </ul>
       ) : (
-        <p className="mt-1.5 truncate text-xs text-muted-foreground">{a.reasons[0]}</p>
+        <p className="mt-1.5 truncate text-xs text-muted-foreground">
+          {a.reasons[0]}
+        </p>
       )}
     </button>
   )
 }
 
-function Setup({ s, total, index }: { s: Scenario; total: number; index: number }) {
+function Setup({
+  s,
+  total,
+  index,
+}: {
+  s: Scenario
+  total: number
+  index: number
+}) {
   const long = s.side === "long"
   return (
     <div
       className={cn(
         "desk-in space-y-2 rounded-xl p-2.5 ring-1",
-        long ? "bg-up/5 ring-up/20" : "bg-down/5 ring-down/20",
+        long ? "bg-up/5 ring-up/20" : "bg-down/5 ring-down/20"
       )}
       style={{ animationDelay: `${(index + 6) * 50}ms` }}
     >
       <div className="flex items-center gap-2">
-        <span className={cn("font-heading text-sm font-medium", long ? "text-up" : "text-down")}>
+        <span
+          className={cn(
+            "font-heading text-sm font-medium",
+            long ? "text-up" : "text-down"
+          )}
+        >
           {long ? "Long" : "Short"} setup
         </span>
         <span className="text-[11px] text-muted-foreground">
-          {s.aligned ? "with the lean" : "against the lean"} · {s.favor}/{total} agents
+          {s.aligned ? "with the lean" : "against the lean"} · {s.favor}/{total}{" "}
+          agents
         </span>
-        <span className="ml-auto font-heading text-xs tabular-nums">R:R {s.rr == null ? "—" : num(s.rr, 1)}</span>
+        <span className="ml-auto font-heading text-xs tabular-nums">
+          R:R {s.rr == null ? "—" : num(s.rr, 1)}
+        </span>
       </div>
       <div className="grid grid-cols-[1.6fr_1fr_1.2fr] gap-2 font-heading text-xs tabular-nums">
-        <Cell k="Entry zone" v={`${price(s.zone[0])} – ${price(s.zone[1])}`} sub={s.zone_label} />
-        <Cell k="Invalidation" v={price(s.stop)} sub={`touch ${odds(s.p_stop)}`} />
-        <Cell k="Target" v={price(s.target)} sub={`${s.target_label} · touch ${odds(s.p_target)}`} />
+        <Cell
+          k="Entry zone"
+          v={`${price(s.zone[0])} – ${price(s.zone[1])}`}
+          sub={s.zone_label}
+        />
+        <Cell
+          k="Invalidation"
+          v={price(s.stop)}
+          sub={`touch ${odds(s.p_stop)}`}
+        />
+        <Cell
+          k="Target"
+          v={price(s.target)}
+          sub={`${s.target_label} · touch ${odds(s.p_target)}`}
+        />
       </div>
       <p className="text-xs leading-snug text-muted-foreground">
         {s.trigger}
-        {s.p_entry != null ? ` (${odds(s.p_entry)} chance price gets there).` : "."}
+        {s.p_entry != null
+          ? ` (${odds(s.p_entry)} chance price gets there).`
+          : "."}
       </p>
     </div>
   )
@@ -591,7 +737,9 @@ function Cell({ k, v, sub }: { k: string; v: string; sub: string }) {
     <div className="min-w-0 space-y-0.5">
       <div className="font-sans text-[11px] text-muted-foreground">{k}</div>
       <div className="truncate">{v}</div>
-      <div className="truncate font-sans text-[11px] text-muted-foreground">{sub}</div>
+      <div className="truncate font-sans text-[11px] text-muted-foreground">
+        {sub}
+      </div>
     </div>
   )
 }

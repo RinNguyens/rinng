@@ -269,6 +269,7 @@ export const api = {
     tf: string
     days: number
     period: string
+    zigzag: string
     symbol: string
     exchange: string
   }) => get<ChartData>("/api/chart", p),

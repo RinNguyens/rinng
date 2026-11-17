@@ -38,10 +38,14 @@ function Row({ inst }: { inst: Instrument }) {
     <>
       <CoinIcon symbol={inst.icon ?? inst.base} size={20} />
       <span className="font-medium">{inst.base}</span>
-      <span className="truncate text-muted-foreground">{inst.name !== inst.base ? inst.name : "USDT perp"}</span>
+      <span className="truncate text-muted-foreground">
+        {inst.name !== inst.base ? inst.name : "USDT perp"}
+      </span>
       <span className="ml-auto flex items-center gap-1">
         {inst.configured ? (
-          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">watchlist</span>
+          <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            watchlist
+          </span>
         ) : null}
         {inst.binance ? <VenueIcon id="binance" size={14} /> : null}
         {inst.okx ? <VenueIcon id="okx" size={14} /> : null}
@@ -70,8 +74,13 @@ export function CoinSearch({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLElement && e.target.closest("input, textarea, [contenteditable]")
-      if ((e.key === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !typing)) {
+      const typing =
+        e.target instanceof HTMLElement &&
+        e.target.closest("input, textarea, [contenteditable]")
+      if (
+        (e.key === "k" && (e.metaKey || e.ctrlKey)) ||
+        (e.key === "/" && !typing)
+      ) {
         e.preventDefault()
         setOpen(true)
       }
@@ -107,7 +116,9 @@ export function CoinSearch({
     setQuery("")
   }
 
-  const recentOther = recent.filter((r) => !watchlist.some((w) => w.id === r.id))
+  const recentOther = recent.filter(
+    (r) => !watchlist.some((w) => w.id === r.id)
+  )
 
   return (
     <>
@@ -139,11 +150,17 @@ export function CoinSearch({
           <CommandList className="max-h-[420px]">
             {query.trim() ? (
               <>
-                <CommandEmpty>{loading ? "Searching…" : "No USDT perpetual matches."}</CommandEmpty>
+                <CommandEmpty>
+                  {loading ? "Searching…" : "No USDT perpetual matches."}
+                </CommandEmpty>
                 {results.length ? (
                   <CommandGroup heading="Binance & OKX perpetuals">
                     {results.map((inst) => (
-                      <CommandItem key={inst.id} value={inst.id} onSelect={() => pick(inst)}>
+                      <CommandItem
+                        key={inst.id}
+                        value={inst.id}
+                        onSelect={() => pick(inst)}
+                      >
                         <Row inst={inst} />
                       </CommandItem>
                     ))}
@@ -154,7 +171,11 @@ export function CoinSearch({
               <>
                 <CommandGroup heading="Watchlist">
                   {watchlist.map((inst) => (
-                    <CommandItem key={inst.id} value={inst.id} onSelect={() => pick(inst)}>
+                    <CommandItem
+                      key={inst.id}
+                      value={inst.id}
+                      onSelect={() => pick(inst)}
+                    >
                       <Row inst={inst} />
                     </CommandItem>
                   ))}
@@ -162,7 +183,11 @@ export function CoinSearch({
                 {recentOther.length ? (
                   <CommandGroup heading="Recent">
                     {recentOther.map((inst) => (
-                      <CommandItem key={inst.id} value={`recent-${inst.id}`} onSelect={() => pick(inst)}>
+                      <CommandItem
+                        key={inst.id}
+                        value={`recent-${inst.id}`}
+                        onSelect={() => pick(inst)}
+                      >
                         <Row inst={inst} />
                       </CommandItem>
                     ))}

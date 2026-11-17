@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/space-grotesk";
 @import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/newsreader";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -84,6 +85,7 @@
     --color-down: var(--down);
     --font-sans: 'Space Grotesk Variable', sans-serif;
     --font-heading: 'Geist Mono Variable', monospace;
+    --font-serif: 'Newsreader Variable', Georgia, serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -169,3 +171,40 @@
 @media (prefers-reduced-motion: reduce) {
   .desk-in, .desk-dot[data-live="1"]::after { animation: none; }
 }
+
+/* Hub (/): light editorial theme — warm paper, hairline rules, serif display. Terminal stays dark. */
+.hub {
+  --background: oklch(0.993 0.002 30);
+  --foreground: oklch(0.17 0.008 50);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.17 0.008 50);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.17 0.008 50);
+  --primary: oklch(0.17 0.008 50);
+  --primary-foreground: oklch(0.993 0.002 30);
+  --secondary: oklch(0.965 0.003 40);
+  --secondary-foreground: oklch(0.17 0.008 50);
+  --muted: oklch(0.965 0.003 40);
+  --muted-foreground: oklch(0.5 0.012 50);
+  --accent: oklch(0.965 0.003 40);
+  --accent-foreground: oklch(0.17 0.008 50);
+  --border: oklch(0.91 0.004 40);
+  --input: oklch(0.88 0.004 40);
+  --ring: oklch(0.6 0.01 50);
+  --up: oklch(0.55 0.12 165);
+  --down: oklch(0.56 0.19 27);
+  color-scheme: light;
+  background-color: var(--background);
+  color: var(--foreground);
+  background-image: radial-gradient(oklch(0.17 0.008 50 / 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+/* "+" crosshair at the corners of a ruled block */
+.hub .cross { position: relative; }
+.hub .cross::before, .hub .cross::after {
+  content: "+"; position: absolute; top: -0.62rem; font: 300 14px/1 var(--font-heading);
+  color: var(--muted-foreground); pointer-events: none;
+}
+.hub .cross::before { left: -0.3rem; }
+.hub .cross::after { right: -0.3rem; }
+

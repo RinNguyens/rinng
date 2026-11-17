@@ -92,6 +92,38 @@
       "env": {
         "RINNG_API": "http://127.0.0.1:8022"
       }
+    },
+    {
+      "name": "rinng-hub-ui",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "exec",
+        "vite",
+        "dev",
+        "--port",
+        "3031"
+      ],
+      "port": 3031
+    },
+    {
+      "name": "rinng-landing",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec ./node_modules/.bin/vite dev --port 3060 --strictPort"
+      ],
+      "port": 3060
+    },
+    {
+      "name": "rinng-wallet",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec ./node_modules/.bin/vite dev --port 3070 --strictPort"
+      ],
+      "port": 3070
     }
   ]
 }

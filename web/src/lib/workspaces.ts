@@ -9,6 +9,7 @@ export type PanelCfg = {
   tf: string
   days: number
   period: "week" | "day"
+  zigzag?: string // zigzag reversal % for the Wyckoff / Elliott lens; "auto" (default) by timeframe
 }
 
 export type LayoutKey = "1" | "2" | "2v" | "1+2" | "3" | "2x2" | "1+3" | "3x2"

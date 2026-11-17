@@ -26,7 +26,15 @@ type Props = {
   hideStrip?: boolean
 }
 
-export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideStrip }: Props) {
+export function ChartView({
+  cfg,
+  symbol,
+  exchange,
+  sync,
+  onStatus,
+  onData,
+  hideStrip,
+}: Props) {
   const host = useRef<HTMLDivElement>(null)
   const [data, setData] = useState<ChartData | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +53,15 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
     setError(null)
     if (reload === 0) status.current?.({ loading: true })
     api
-      .chart({ lens: cfg.lens, tf: cfg.tf, days: cfg.days, period: cfg.period, symbol, exchange })
+      .chart({
+        lens: cfg.lens,
+        tf: cfg.tf,
+        days: cfg.days,
+        period: cfg.period,
+        zigzag: cfg.zigzag ?? "auto",
+        symbol,
+        exchange,
+      })
       .then((d) => {
         if (!alive) return
         setData(d)
@@ -60,12 +76,21 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
     return () => {
       alive = false
     }
-  }, [cfg.lens, cfg.tf, cfg.days, cfg.period, symbol, exchange, reload])
+  }, [
+    cfg.lens,
+    cfg.tf,
+    cfg.days,
+    cfg.period,
+    cfg.zigzag,
+    symbol,
+    exchange,
+    reload,
+  ])
 
   // A new lens/timeframe/instrument starts from the default view.
   useEffect(() => {
     view.current = null
-  }, [cfg.lens, cfg.tf, cfg.days, cfg.period, symbol, exchange])
+  }, [cfg.lens, cfg.tf, cfg.days, cfg.period, cfg.zigzag, symbol, exchange])
 
   useEffect(() => {
     const el = host.current
@@ -83,7 +108,12 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
         panes: { separatorColor: line },
       },
       grid: { vertLines: { color: line }, horzLines: { color: line } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: line, rightOffset: 8 },
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+        borderColor: line,
+        rightOffset: 8,
+      },
       rightPriceScale: { borderColor: line },
       crosshair: { mode: 0 },
     })
@@ -102,7 +132,9 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
     if (data.markers?.length) {
       createSeriesMarkers(
         candles,
-        data.markers.map((m) => ({ ...m, time: m.time as Time })) as Array<SeriesMarker<Time>>,
+        data.markers.map((m) => ({ ...m, time: m.time as Time })) as Array<
+          SeriesMarker<Time>
+        >
       )
     }
     for (const ln of data.lines ?? []) {
@@ -116,12 +148,19 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
           lastValueVisible: ln.pane !== 0,
           title: ln.name === "median" ? "" : ln.name,
         },
-        ln.pane,
+        ln.pane
       )
       s.setData(ln.data.map((d) => ({ ...d, time: d.time as Time })))
-      for (const guide of (data.guides ?? []).filter((x) => x.pane === ln.pane)) {
+      for (const guide of (data.guides ?? []).filter(
+        (x) => x.pane === ln.pane
+      )) {
         for (const v of guide.values) {
-          s.createPriceLine({ price: v, color: text, lineStyle: 2, lineWidth: 1 })
+          s.createPriceLine({
+            price: v,
+            color: text,
+            lineStyle: 2,
+            lineWidth: 1,
+          })
         }
       }
     }
@@ -138,7 +177,7 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
       const s = chart.addSeries(
         HistogramSeries,
         { priceLineVisible: false, title: h.name, ...fmt },
-        h.pane,
+        h.pane
       )
       s.setData(h.data.map((d) => ({ ...d, time: d.time as Time })))
     }
@@ -157,19 +196,32 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
       // Projection: recent history (3× the horizon) plus the whole cone.
       const h = data.forecast.horizon
       const n = data.candles.length
-      chart.timeScale().setVisibleLogicalRange({ from: n - 3 * h, to: n + h + 4 })
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: n - 3 * h, to: n + h + 4 })
     } else {
       chart.timeScale().fitContent()
     }
     // Running candle from /ws/live, drawn translucent until it closes and the lens reloads.
     const lastClosed = times[times.length - 1] ?? 0
     const offLive = live.on((e) => {
-      if (e.type !== "bar" || e.tf !== cfg.tf || e.symbol !== symbol || e.exchange !== exchange) return
+      if (
+        e.type !== "bar" ||
+        e.tf !== cfg.tf ||
+        e.symbol !== symbol ||
+        e.exchange !== exchange
+      )
+        return
       if (e.bar.time <= lastClosed) return
       const up = e.bar.close >= e.bar.open
       const color = up ? "rgba(38,166,154,0.55)" : "rgba(239,83,80,0.55)"
       try {
-        candles.update({ ...e.bar, time: e.bar.time as Time, color, wickColor: color })
+        candles.update({
+          ...e.bar,
+          time: e.bar.time as Time,
+          color,
+          wickColor: color,
+        })
       } catch {
         /* older than the series' last point */
       }
@@ -199,7 +251,10 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
           {data.legend.map(([color, label]) => (
             <span key={label} className="inline-flex items-center gap-1.5">
               {color ? (
-                <i className="inline-block size-2 rounded-full" style={{ background: color }} />
+                <i
+                  className="inline-block size-2 rounded-full"
+                  style={{ background: color }}
+                />
               ) : null}
               {label}
             </span>
@@ -208,7 +263,9 @@ export function ChartView({ cfg, symbol, exchange, sync, onStatus, onData, hideS
       ) : null}
       <div className="relative min-h-0 flex-1">
         <div ref={host} className="absolute inset-0" />
-        {!data && !error ? <Skeleton className="absolute inset-3 rounded-xl" /> : null}
+        {!data && !error ? (
+          <Skeleton className="absolute inset-3 rounded-xl" />
+        ) : null}
         {error ? (
           <div className="absolute inset-0 grid place-items-center p-6 text-center text-sm text-destructive">
             {error}
@@ -228,19 +285,24 @@ function ProjectionStrip({ data }: { data: ChartData }) {
   const skill = s.skill * 100
   return (
     <div className="mx-3 mt-1.5 grid gap-x-4 gap-y-0.5 rounded-lg bg-muted/50 px-2.5 py-1.5 font-heading text-[11px] text-muted-foreground sm:grid-cols-[auto_1fr]">
-      <span className="text-foreground">Backtest · {s.origins} past projections</span>
+      <span className="text-foreground">
+        Backtest · {s.origins} past projections
+      </span>
       <span>
-        80% band held {pct(s.coverage["80"])} · 50% band {pct(s.coverage["50"])} · median direction right{" "}
-        {s.direction_hit == null ? "—" : pct(s.direction_hit)} · skill vs. no-context baseline{" "}
-        {skill >= 0 ? "+" : "−"}
+        80% band held {pct(s.coverage["80"])} · 50% band {pct(s.coverage["50"])}{" "}
+        · median direction right{" "}
+        {s.direction_hit == null ? "—" : pct(s.direction_hit)} · skill vs.
+        no-context baseline {skill >= 0 ? "+" : "−"}
         {Math.abs(skill).toFixed(1)}%
       </span>
       {f ? (
         <>
           <span className="text-foreground">Next {f.horizon} candles</span>
           <span>
-            80% range {Math.round(f.end.q10).toLocaleString("en-US")} – {Math.round(f.end.q90).toLocaleString("en-US")} ·
-            median {Math.round(f.end.q50).toLocaleString("en-US")} · from {f.analogs} closest of {f.pool} past setups
+            80% range {Math.round(f.end.q10).toLocaleString("en-US")} –{" "}
+            {Math.round(f.end.q90).toLocaleString("en-US")} · median{" "}
+            {Math.round(f.end.q50).toLocaleString("en-US")} · from {f.analogs}{" "}
+            closest of {f.pool} past setups
           </span>
         </>
       ) : null}

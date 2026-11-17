@@ -18,10 +18,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import type { Meta } from "@/lib/api"
 import type { SyncGroup } from "@/lib/chart-sync"
-import { DAYS, LAYOUTS, PRESETS, fromPreset, setSlot, swapSlots } from "@/lib/workspaces"
+import {
+  DAYS,
+  LAYOUTS,
+  PRESETS,
+  fromPreset,
+  setSlot,
+  swapSlots,
+} from "@/lib/workspaces"
 import type { PanelCfg, Workspace } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +60,14 @@ type Props = {
   onChange: (fn: (w: Workspace) => Workspace) => void
 }
 
-export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Props) {
+export function WorkspaceGrid({
+  ws,
+  meta,
+  symbol,
+  exchange,
+  sync,
+  onChange,
+}: Props) {
   const layout = LAYOUTS[ws.layout]
   const [over, setOver] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -132,12 +150,13 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
               if (over !== slot) setOver(slot)
             }}
             onDragLeave={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null)
+              if (!e.currentTarget.contains(e.relatedTarget as Node))
+                setOver(null)
             }}
             onDrop={(e) => drop(e, slot)}
             className={cn(
               "relative flex min-h-[260px] min-w-0 flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10 transition-shadow",
-              over === slot && "ring-2 ring-primary",
+              over === slot && "ring-2 ring-primary"
             )}
           >
             {cfg ? (
@@ -164,11 +183,13 @@ export function WorkspaceGrid({ ws, meta, symbol, exchange, sync, onChange }: Pr
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0 grid place-items-center bg-background/40 text-sm font-medium backdrop-blur-[1px] transition-opacity",
-                  over === slot || comboDrag ? "opacity-100" : "opacity-60",
+                  over === slot || comboDrag ? "opacity-100" : "opacity-60"
                 )}
               >
                 <span className="rounded-full bg-card px-3 py-1 ring-1 ring-foreground/10">
-                  {comboDrag ? "Drop to load this combo into the tab" : `Drop into slot ${slot + 1}`}
+                  {comboDrag
+                    ? "Drop to load this combo into the tab"
+                    : `Drop into slot ${slot + 1}`}
                 </span>
               </div>
             ) : null}
@@ -183,7 +204,10 @@ function EmptySlot({ slot }: { slot: number }) {
   return (
     <div className="m-3 grid flex-1 place-items-center rounded-xl border border-dashed border-foreground/15 text-center text-sm text-muted-foreground">
       <div className="space-y-1">
-        <HugeiconsIcon icon={DragDropIcon} className="mx-auto size-6 opacity-60" />
+        <HugeiconsIcon
+          icon={DragDropIcon}
+          className="mx-auto size-6 opacity-60"
+        />
         <p>Slot {slot + 1} is empty</p>
         <p className="text-xs">Drag a chart from the library on the left</p>
       </div>
@@ -191,7 +215,13 @@ function EmptySlot({ slot }: { slot: number }) {
   )
 }
 
-const TF_LABEL: Record<string, string> = { "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W" }
+const TF_LABEL: Record<string, string> = {
+  "15m": "15m",
+  "1h": "1H",
+  "4h": "4H",
+  "1d": "1D",
+  "1w": "1W",
+}
 
 function Panel({
   cfg,
@@ -216,25 +246,38 @@ function Panel({
   onDragStart: () => void
   onChange: (cfg: PanelCfg | null) => void
 }) {
-  const [status, setStatus] = useState<{ source?: string; error?: string; loading: boolean }>({
+  const [status, setStatus] = useState<{
+    source?: string
+    error?: string
+    loading: boolean
+  }>({
     loading: true,
   })
-  const lensItems = Object.entries(meta.lenses).map(([value, label]) => ({ value, label }))
-  const tfItems = meta.timeframes.map((t) => ({ value: t, label: TF_LABEL[t] ?? t }))
+  const lensItems = Object.entries(meta.lenses).map(([value, label]) => ({
+    value,
+    label,
+  }))
+  const tfItems = meta.timeframes.map((t) => ({
+    value: t,
+    label: TF_LABEL[t] ?? t,
+  }))
   const dayItems = DAYS.map((d) => ({ value: String(d), label: `${d} days` }))
   const periodItems = [
     { value: "week", label: "Weekly profile" },
     { value: "day", label: "Daily profile" },
   ]
+  const zigzagItems = [
+    { value: "auto", label: "Zigzag auto" },
+    ...["3", "5", "8", "12", "15", "20"].map((v) => ({
+      value: v,
+      label: `Zigzag ${v}%`,
+    })),
+  ]
 
   return (
     <>
       <header className="flex flex-wrap items-center gap-1.5 border-b border-foreground/10 px-2 py-1.5">
-        <CoinIcon
-          symbol={symbol.split("-")[0]}
-          size={16}
-          className="ml-1"
-        />
+        <CoinIcon symbol={symbol.split("-")[0]} size={16} className="ml-1" />
         <Tooltip>
           <TooltipTrigger
             render={
@@ -277,14 +320,24 @@ function Panel({
           <Pick
             items={periodItems}
             value={cfg.period}
-            onChange={(v) => onChange({ ...cfg, period: v as PanelCfg["period"] })}
+            onChange={(v) =>
+              onChange({ ...cfg, period: v as PanelCfg["period"] })
+            }
             label="Profile period"
+          />
+        ) : null}
+        {cfg.lens === "wyckoff" ? (
+          <Pick
+            items={zigzagItems}
+            value={cfg.zigzag ?? "auto"}
+            onChange={(v) => onChange({ ...cfg, zigzag: v })}
+            label="Zigzag threshold"
           />
         ) : null}
         <span
           className={cn(
             "ml-auto truncate pl-2 font-heading text-[11px]",
-            status.error ? "text-destructive" : "text-muted-foreground",
+            status.error ? "text-destructive" : "text-muted-foreground"
           )}
         >
           {status.loading
@@ -308,7 +361,9 @@ function Panel({
           >
             <HugeiconsIcon icon={maximized ? Minimize01Icon : Maximize01Icon} />
           </TooltipTrigger>
-          <TooltipContent>{maximized ? "Restore" : "Maximize this slot"}</TooltipContent>
+          <TooltipContent>
+            {maximized ? "Restore" : "Maximize this slot"}
+          </TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger
@@ -326,7 +381,13 @@ function Panel({
           <TooltipContent>Remove chart from slot</TooltipContent>
         </Tooltip>
       </header>
-      <ChartView cfg={cfg} symbol={symbol} exchange={exchange} sync={sync} onStatus={setStatus} />
+      <ChartView
+        cfg={cfg}
+        symbol={symbol}
+        exchange={exchange}
+        sync={sync}
+        onStatus={setStatus}
+      />
     </>
   )
 }
@@ -346,8 +407,16 @@ export function Pick({
 }) {
   const current = items.find((i) => i.value === value)
   return (
-    <Select items={items} value={value} onValueChange={(v) => v != null && onChange(String(v))}>
-      <SelectTrigger size="sm" aria-label={label} className={cn("h-7 gap-1.5 px-2.5 text-xs", className)}>
+    <Select
+      items={items}
+      value={value}
+      onValueChange={(v) => v != null && onChange(String(v))}
+    >
+      <SelectTrigger
+        size="sm"
+        aria-label={label}
+        className={cn("h-7 gap-1.5 px-2.5 text-xs", className)}
+      >
         {current?.icon}
         <SelectValue />
       </SelectTrigger>

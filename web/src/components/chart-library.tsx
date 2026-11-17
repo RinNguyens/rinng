@@ -9,7 +9,13 @@ import { LAYOUTS, PRESETS } from "@/lib/workspaces"
 import type { LayoutKey } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
 
-const TF: Record<string, string> = { "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D", "1w": "1W" }
+const TF: Record<string, string> = {
+  "15m": "15m",
+  "1h": "1H",
+  "4h": "4H",
+  "1d": "1D",
+  "1w": "1W",
+}
 const SHORT: Record<string, string> = {
   structure: "SMC",
   liquidity: "Liquidity",
@@ -21,7 +27,15 @@ const SHORT: Record<string, string> = {
 }
 
 // Small picture of a layout, drawn with the layout's own grid-template-areas.
-export function LayoutIcon({ layout, active = true, className }: { layout: LayoutKey; active?: boolean; className?: string }) {
+export function LayoutIcon({
+  layout,
+  active = true,
+  className,
+}: {
+  layout: LayoutKey
+  active?: boolean
+  className?: string
+}) {
   const l = LAYOUTS[layout]
   return (
     <span
@@ -37,14 +51,23 @@ export function LayoutIcon({ layout, active = true, className }: { layout: Layou
         <span
           key={i}
           style={{ gridArea: `s${i}` }}
-          className={cn("rounded-[2px]", active ? "bg-foreground/80" : "bg-muted-foreground/60")}
+          className={cn(
+            "rounded-[2px]",
+            active ? "bg-foreground/80" : "bg-muted-foreground/60"
+          )}
         />
       ))}
     </span>
   )
 }
 
-function ComboCard({ combo, onOpen }: { combo: Combo; onOpen: (c: Combo) => void }) {
+function ComboCard({
+  combo,
+  onOpen,
+}: {
+  combo: Combo
+  onOpen: (c: Combo) => void
+}) {
   return (
     <div
       draggable
@@ -55,14 +78,19 @@ function ComboCard({ combo, onOpen }: { combo: Combo; onOpen: (c: Combo) => void
         <LayoutIcon layout={combo.layout} className="opacity-70" />
         <span className="text-sm font-medium">{combo.title}</span>
       </div>
-      <p className="text-xs leading-snug text-muted-foreground">{combo.question}</p>
+      <p className="text-xs leading-snug text-muted-foreground">
+        {combo.question}
+      </p>
       <div className="flex flex-wrap gap-1">
         {combo.charts.map((c, i) => (
           <span
             key={i}
             className="rounded-md bg-muted px-1.5 py-0.5 font-heading text-[10px] text-muted-foreground"
           >
-            {c.lens === "profile" && c.period === "day" ? "Daily profile" : SHORT[c.lens]} {TF[c.tf]}
+            {c.lens === "profile" && c.period === "day"
+              ? "Daily profile"
+              : SHORT[c.lens]}{" "}
+            {TF[c.tf]}
           </span>
         ))}
       </div>
@@ -102,13 +130,19 @@ function PresetCard({ index }: { index: number }) {
           className="size-3.5 text-muted-foreground opacity-0 transition group-hover:opacity-100"
         />
       </div>
-      <p className="mt-1 text-xs leading-snug text-muted-foreground">{p.hint}</p>
+      <p className="mt-1 text-xs leading-snug text-muted-foreground">
+        {p.hint}
+      </p>
     </div>
   )
 }
 
 // Chart library: combos (charts that answer one question together) and single charts.
-export function ChartLibrary({ onOpenCombo }: { onOpenCombo: (c: Combo) => void }) {
+export function ChartLibrary({
+  onOpenCombo,
+}: {
+  onOpenCombo: (c: Combo) => void
+}) {
   return (
     <aside className="flex w-64 shrink-0 flex-col gap-2 overflow-hidden">
       <Tabs defaultValue="combos" className="min-h-0 flex-1">
@@ -116,17 +150,25 @@ export function ChartLibrary({ onOpenCombo }: { onOpenCombo: (c: Combo) => void 
           <TabsTrigger value="combos">Combos</TabsTrigger>
           <TabsTrigger value="charts">Charts</TabsTrigger>
         </TabsList>
-        <TabsContent value="combos" className="min-h-0 space-y-2 overflow-y-auto pr-1">
+        <TabsContent
+          value="combos"
+          className="min-h-0 space-y-2 overflow-y-auto pr-1"
+        >
           <p className="px-1 text-xs text-muted-foreground">
-            Charts that answer one question together. Same-timeframe charts share crosshair and time.
+            Charts that answer one question together. Same-timeframe charts
+            share crosshair and time.
           </p>
           {COMBOS.map((c) => (
             <ComboCard key={c.id} combo={c} onOpen={onOpenCombo} />
           ))}
         </TabsContent>
-        <TabsContent value="charts" className="min-h-0 space-y-2 overflow-y-auto pr-1">
+        <TabsContent
+          value="charts"
+          className="min-h-0 space-y-2 overflow-y-auto pr-1"
+        >
           <p className="px-1 text-xs text-muted-foreground">
-            Drag a card into a slot. Drag the handle on a chart header to swap slots.
+            Drag a card into a slot. Drag the handle on a chart header to swap
+            slots.
           </p>
           {PRESETS.map((p, i) => (
             <PresetCard key={p.title} index={i} />
