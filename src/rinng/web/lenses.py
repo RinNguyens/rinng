@@ -40,6 +40,7 @@ BULL, BEAR, POC, GREY, PURPLE, BLUE = (
     "#ab47bc",
     "#42a5f5",
 )
+ORANGE = "#ffb74d"  # Elliott A-B-C corrections
 
 
 def ts(value: datetime | None) -> int | None:
@@ -62,6 +63,23 @@ def candles_json(ohlcv: pl.DataFrame) -> list[dict]:
         }
         for r in o
     ]
+
+
+# Auto zigzag reversal threshold per timeframe: higher timeframes need bigger swings.
+ZIGZAG_AUTO = {"1m": 0.01, "5m": 0.015, "15m": 0.02, "1h": 0.03, "4h": 0.05, "1d": 0.08, "1w": 0.12}
+
+
+WYCKOFF_CLUSTER_BARS = 10  # same-kind Wyckoff events closer than this merge into one label
+
+
+def zigzag_threshold(value: str | float | None, tf: str | None) -> float:
+    """ "auto"/None -> ZIGZAG_AUTO[tf] (default 5%); otherwise a percent like "8" -> 0.08."""
+    if value in (None, "", "auto"):
+        return ZIGZAG_AUTO.get(tf or "", 0.05)
+    pct = float(value) / 100
+    if not 0 < pct < 1:
+        raise ValueError("zigzag percent must be in (0, 100)")
+    return pct
 
 
 def _attrs(value: str | None) -> dict:
@@ -279,17 +297,51 @@ def lens_profile(o: pl.DataFrame, ctx: dict) -> dict:
     }
 
 
+def _merge_clusters(events: list[dict], gap: int) -> list[dict]:
+    """Collapse runs of same-text Wyckoff markers less than `gap` bars apart into one marker.
+
+    Each event carries "_i" (bar index); the kept marker is the run's extreme bar (lowest for
+    belowBar, i.e. the deepest spring/SC; highest for aboveBar) with text "spring ×3".
+    """
+    out: list[dict] = []
+    for text in sorted({e["text"] for e in events}):
+        run: list[dict] = []
+        for e in sorted((e for e in events if e["text"] == text), key=lambda e: e["_i"]):
+            if run and e["_i"] - run[-1]["_i"] >= gap:
+                out.append(_collapse(run))
+                run = []
+            run.append(e)
+        if run:
+            out.append(_collapse(run))
+    return out
+
+
+def _collapse(run: list[dict]) -> dict:
+    below = run[0]["position"] == "belowBar"
+    pick = min(run, key=lambda e: e["_px"]) if below else max(run, key=lambda e: e["_px"])
+    m = {k: v for k, v in pick.items() if not k.startswith("_")}
+    if len(run) > 1:
+        m["text"] = f"{pick['text']} ×{len(run)}"
+    return m
+
+
 def lens_wyckoff(o: pl.DataFrame, ctx: dict) -> dict:
-    markers = []
+    times = o["open_time"].to_list()
+    index = {t: i for i, t in enumerate(times)}
+    high, low = o["high"].to_list(), o["low"].to_list()
+    wy = []
     for e in wyckoff.climaxes(o).to_dicts():
         sc = e["kind"] == "selling_climax"
-        markers.append(
+        i = index[e["event_time"]]
+        wy.append(
             {
                 "time": ts(e["event_time"]),
                 "position": "belowBar" if sc else "aboveBar",
                 "shape": "arrowUp" if sc else "arrowDown",
                 "color": BULL if sc else BEAR,
                 "text": "SC" if sc else "BC",
+                "_i": i,
+                "_px": low[i] if sc else high[i],
             }
         )
     zones = []
@@ -298,31 +350,60 @@ def lens_wyckoff(o: pl.DataFrame, ctx: dict) -> dict:
             zones.append(_zone(e, BLUE, "range", "light"))
         else:
             up = e["kind"] == "spring"
-            markers.append(
+            i = index[e["event_time"]]
+            wy.append(
                 {
                     "time": ts(e["event_time"]),
                     "position": "belowBar" if up else "aboveBar",
                     "shape": "circle",
                     "color": BULL if up else BEAR,
                     "text": "spring" if up else "UT",
+                    "_i": i,
+                    "_px": low[i] if up else high[i],
                 }
             )
-    zz = elliott.zigzag_table(elliott.zigzag(o, threshold=ctx.get("zigzag", 0.05)))
-    line = [
-        {"time": ts(r["event_time"]), "value": r["price"]} for r in zz.sort("event_time").to_dicts()
-    ]
-    for c in elliott.impulse_candidates(o, threshold=ctx.get("zigzag", 0.05)).to_dicts():
-        a = _attrs(c["attrs"])
-        idx = a.get("indices", [])
-        times = o["open_time"].to_list()
+    markers = _merge_clusters(wy, gap=WYCKOFF_CLUSTER_BARS)
+    zz_threshold = zigzag_threshold(ctx.get("zigzag"), ctx.get("tf"))
+    piv = elliott.pivots(o, threshold=zz_threshold, running=True)
+    line = [{"time": ts(times[p[0]]), "value": p[2]} for p in piv]
+    cands = elliott.impulse_candidates(o, threshold=zz_threshold, nested=True)
+    for c in elliott.best_impulses(cands):
+        a = c["attrs"]
+        up = a["direction"] == "up"
+        idx = a["indices"]
+        pct = round(c["fib"]["score"] * 100)
         for n, i in enumerate(idx[1:], start=1):
+            # Waves 1, 3, 5 end on a high in an up impulse and on a low in a down impulse.
+            on_high = (n % 2 == 1) == up
             markers.append(
                 {
                     "time": ts(times[i]),
-                    "position": "aboveBar" if (n % 2) else "belowBar",
+                    "position": "aboveBar" if on_high else "belowBar",
                     "shape": "square",
                     "color": PURPLE,
-                    "text": str(n),
+                    "text": f"5 ({pct}%)" if n == 5 else str(n),
+                }
+            )
+        abc = elliott.correction_after(idx, piv)
+        if abc is None:
+            continue
+        names = {"zigzag": "zigzag", "flat": "flat", "expanded_flat": "exp. flat"}
+        last = len(abc["indices"]) - 1
+        for n, (label, i) in enumerate(zip("ABC", abc["indices"], strict=False)):
+            # A and C move against the impulse: lows after an up impulse, highs after a down one.
+            on_high = (n == 1) == up
+            text = label
+            if n == last and abc["tentative"]:
+                text += "?"
+            if label == "C":
+                text += f" {names[abc['shape']]} ({round(abc['score'] * 100)}%)"
+            markers.append(
+                {
+                    "time": ts(times[i]),
+                    "position": "aboveBar" if on_high else "belowBar",
+                    "shape": "square",
+                    "color": ORANGE,
+                    "text": text,
                 }
             )
     markers.sort(key=lambda m: m["time"])
@@ -334,7 +415,11 @@ def lens_wyckoff(o: pl.DataFrame, ctx: dict) -> dict:
             [BULL, "SC: selling climax; spring"],
             [BEAR, "BC: buying climax; UT: upthrust"],
             [BLUE, "trading range (Wyckoff)"],
-            [PURPLE, "zigzag; 1–5 = Elliott impulse candidates (several counts possible)"],
+            [
+                PURPLE,
+                f"zigzag {zz_threshold:.0%}; 1–5 = best Elliott impulse by Fibonacci fit",
+            ],
+            [ORANGE, "A-B-C correction after the impulse; C? = not finished yet"],
         ],
     }
 

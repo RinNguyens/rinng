@@ -6,10 +6,29 @@ from pathlib import Path
 
 import typer
 
-from rinng.config import DEFAULT_CONFIG, load_settings
+from rinng.config import CONFIG_ENV, load_settings
 from rinng.exchanges.check import run_checks
 
 app = typer.Typer(no_args_is_help=True, help="rinng: quant analysis for crypto")
+
+CONFIG = typer.Option(
+    None,
+    "--config",
+    "--path",
+    help="Config file. Default: $RINNG_CONFIG, ./configs/instruments.yaml, else the bundled one",
+)
+DASHBOARD_HINT = (
+    "this command needs the dashboard extra: `uv sync --extra dashboard` in the repo, "
+    "or `pip install 'rinng[dashboard]'`"
+)
+
+
+def _need_dashboard() -> None:
+    try:
+        import plotly  # noqa: F401
+    except ImportError:
+        typer.echo(DASHBOARD_HINT, err=True)
+        raise typer.Exit(code=1) from None
 
 
 @app.command()
@@ -27,9 +46,13 @@ def check() -> None:
 
 
 @app.command()
-def config(path: Path = DEFAULT_CONFIG) -> None:
+def config(path: Path | None = CONFIG) -> None:
     """Read the config file and print the validated contents."""
+    from rinng.config import find_config
+
+    file, bundled = find_config(path)
     settings = load_settings(path)
+    typer.echo(f"config: {file}{' (bundled default)' if bundled else ''}")
     typer.echo(f"data_dir: {settings.data_dir}")
     typer.echo(
         f"base timeframe: {settings.base_timeframe}; analysis timeframes: {settings.timeframes}"
@@ -43,7 +66,7 @@ def collect(
     duration: float = typer.Option(
         None, help="Stop after this many seconds; leave empty to run forever"
     ),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Run the realtime collector (WebSocket + 5-minute poller), writing to data/raw."""
     from rinng.ingest.collector.service import collect as run
@@ -71,7 +94,7 @@ def backfill(
     symbol: list[str] = typer.Option(
         [], help="Only these instruments (id, e.g. SOL-USDT-PERP); empty = all"
     ),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Download history into data/raw, then run curate."""
     from rinng.ingest.backfill import backfill as run
@@ -94,7 +117,7 @@ def backfill(
 
 
 @app.command()
-def curate(path: Path = DEFAULT_CONFIG) -> None:
+def curate(path: Path | None = CONFIG) -> None:
     """Move every new file in data/raw into data/curated."""
     from rinng.pipeline.curate import curate as do_curate
     from rinng.store.paths import DataPaths
@@ -104,7 +127,7 @@ def curate(path: Path = DEFAULT_CONFIG) -> None:
 
 
 @app.command()
-def resample(path: Path = DEFAULT_CONFIG) -> None:
+def resample(path: Path | None = CONFIG) -> None:
     """Resample curated 1m candles to the configured timeframes."""
     from rinng.store.paths import DataPaths
     from rinng.store.reader import read_curated
@@ -130,7 +153,7 @@ def validate(
     sample_days: int = typer.Option(
         3, help="Recent days to compare 1h candles against the exchange (0 = skip)"
     ),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Report missing/duplicate/bad candles; compare resampled vs exchange and across exchanges."""
     from datetime import UTC, datetime, timedelta
@@ -185,7 +208,7 @@ def analyze(
     exchange: str = typer.Option("binance"),
     module: list[str] = typer.Option([], help="Empty = all modules"),
     start: str = typer.Option(None, help="YYYY-MM-DD"),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Run the analysis modules, writing to data/features and data/events."""
     from rinng.pipeline.run import analyze as run
@@ -221,7 +244,7 @@ def backtest(
     exchange: str = typer.Option("binance"),
     start: str = typer.Option(None, help="YYYY-MM-DD"),
     split: str = typer.Option(None, help="In/out-of-sample split date, YYYY-MM-DD"),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Run backtests with fees, slippage, funding; compare strategies; save to data/results."""
     import uuid
@@ -312,7 +335,7 @@ def backtest(
 
 
 @app.command()
-def dashboard(path: Path = DEFAULT_CONFIG, port: int = 8501) -> None:
+def dashboard(path: Path | None = CONFIG, port: int = 8501) -> None:
     """Open the Streamlit dashboard (charts with overlays, backtest results)."""
     import os
     import subprocess
@@ -320,8 +343,16 @@ def dashboard(path: Path = DEFAULT_CONFIG, port: int = 8501) -> None:
 
     import rinng.viz
 
+    _need_dashboard()
+    try:
+        import streamlit  # noqa: F401
+    except ImportError:
+        typer.echo(DASHBOARD_HINT, err=True)
+        raise typer.Exit(code=1) from None
     script = Path(rinng.viz.__file__).parent / "dashboard" / "app.py"
-    env = {**os.environ, "RINNG_CONFIG": str(path.resolve())}
+    env = dict(os.environ)
+    if path is not None:
+        env[CONFIG_ENV] = str(path.resolve())
     cmd = [sys.executable, "-m", "streamlit", "run", str(script), "--server.port", str(port)]
     raise typer.Exit(subprocess.call(cmd, env=env))
 
@@ -334,11 +365,12 @@ def vpchart(
     display: str = typer.Option("4h", help="Timeframe to plot"),
     out: Path = typer.Option(None, help="HTML file; default data/charts/vp_<symbol>.html"),
     open_browser: bool = typer.Option(True, "--open/--no-open"),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Plot weekly volume profiles with D / P / b / DD labels from the latest Binance data."""
     import webbrowser
 
+    _need_dashboard()
     from rinng.viz.vp_chart import fetch_live, figure, weekly_profiles
 
     base_df, display_df = fetch_live(symbol, base, display, weeks)
@@ -365,7 +397,7 @@ def live(
     host: str = typer.Option(
         "127.0.0.1", help="Local machine only; use 0.0.0.0 to allow other machines"
     ),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Run the web app with realtime data: collector + per-minute curated updates + WebSocket."""
     import asyncio
@@ -385,7 +417,7 @@ def web(
     host: str = typer.Option(
         "127.0.0.1", help="Local machine only; use 0.0.0.0 to allow other machines"
     ),
-    path: Path = DEFAULT_CONFIG,
+    path: Path | None = CONFIG,
 ) -> None:
     """Open the rinng web app: multiple tabs, each with several charts and their own lenses."""
     import uvicorn
@@ -394,3 +426,173 @@ def web(
 
     typer.echo(f"rinng web: http://{host}:{port}")
     uvicorn.run(create_app(load_settings(path)), host=host, port=port, log_level="warning")
+
+
+# --------------------------------------------------------------------------- analysis commands
+# Read-only answers for one coin, from stored data or the exchange REST API. `--json` prints the
+# compact view (rinng.views); without it, a few readable lines. Exit codes: 0 ok, 2 bad input or
+# unknown coin, 3 not enough data (or offline without data), 4 exchange/network error.
+
+EXCHANGE = typer.Option("binance", "--exchange", "-e", help="binance or okx")
+AS_JSON = typer.Option(False, "--json", help="Print the compact JSON view")
+OFFLINE = typer.Option(False, "--offline", help="Stored data only, never call the exchanges")
+SYMBOL = typer.Argument("BTC", help="Coin: BTC, btcusdt, BTC/USDT or BTC-USDT-PERP")
+LENS_NAMES = [
+    "structure",
+    "liquidity",
+    "profile",
+    "wyckoff",
+    "derivatives",
+    "indicators",
+    "forecast",
+]
+
+
+def _service(path: Path | None, offline: bool):
+    from rinng.service import Rinng
+
+    return Rinng(load_settings(path), offline=offline)
+
+
+def _answer(build, render, as_json: bool) -> None:
+    """Run `build()` → compact view, print it, map service errors to exit codes."""
+    import json
+
+    from rinng.service import NETWORK_ERRORS, BadRequest, NotFound, UnknownSymbol
+    from rinng.views import DISCLAIMER
+
+    try:
+        view = build()
+    except (BadRequest, UnknownSymbol) as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=2) from None
+    except NotFound as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(code=3) from None
+    except NETWORK_ERRORS as e:
+        typer.echo(f"error: exchange unreachable ({type(e).__name__}: {e})", err=True)
+        raise typer.Exit(code=4) from None
+    if as_json:
+        typer.echo(json.dumps(view, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(render(view))
+        typer.secho(DISCLAIMER, dim=True)
+
+
+@app.command()
+def search(
+    query: str = typer.Argument("", help="Coin name or ticker; empty = the configured watchlist"),
+    limit: int = typer.Option(10, min=1, max=100),
+    as_json: bool = AS_JSON,
+    offline: bool = OFFLINE,
+    path: Path | None = CONFIG,
+) -> None:
+    """Find coins (USDT perps on Binance and OKX)."""
+    from rinng import views
+
+    svc = _service(path, offline)
+    if offline:
+        svc.catalog.fetchers = {}  # configured coins only
+    _answer(lambda: views.search_view(svc.search(query, limit)), views.text_search, as_json)
+
+
+@app.command()
+def summary(
+    symbol: str = SYMBOL,
+    exchange: str = EXCHANGE,
+    as_json: bool = AS_JSON,
+    offline: bool = OFFLINE,
+    path: Path | None = CONFIG,
+) -> None:
+    """Price, derivatives, 4h structure, weekly profile, liquidity, Wyckoff and momentum."""
+    from rinng import views
+
+    svc = _service(path, offline)
+    _answer(lambda: views.summary_view(svc.summary(symbol, exchange)), views.text_summary, as_json)
+
+
+@app.command()
+def signal(
+    symbol: str = SYMBOL,
+    exchange: str = EXCHANGE,
+    as_json: bool = AS_JSON,
+    offline: bool = OFFLINE,
+    path: Path | None = CONFIG,
+) -> None:
+    """5m desk: agent votes, verdict, long/short scenarios, projection and its track record."""
+    from rinng import views
+
+    svc = _service(path, offline)
+    _answer(lambda: views.desk_view(svc.desk(symbol, exchange)), views.text_desk, as_json)
+
+
+@app.command()
+def lens(
+    symbol: str = SYMBOL,
+    name: str = typer.Option("structure", "--lens", "-l", help=", ".join(LENS_NAMES)),
+    timeframe: str = typer.Option("4h", "--tf", "-t", help="5m, 15m, 1h, 4h, 1d, 1w"),
+    days: int = typer.Option(180, help="History window in days (2–3000)"),
+    candles: int = typer.Option(0, help="Also include the last N candles (JSON only)"),
+    exchange: str = EXCHANGE,
+    as_json: bool = AS_JSON,
+    offline: bool = OFFLINE,
+    path: Path | None = CONFIG,
+) -> None:
+    """One analysis lens: recent events, levels, zones, profiles or series values."""
+    from rinng import views
+
+    svc = _service(path, offline)
+
+    def build():
+        sym = svc.instrument(symbol).id
+        payload = svc.chart(name, sym, exchange, timeframe, days)
+        return views.lens_view(payload, name, sym, exchange, timeframe, candles)
+
+    _answer(build, views.text_lens, as_json)
+
+
+@app.command()
+def news(
+    coin: str = typer.Option("", "--coin", "-c", help="One coin's outlook, e.g. BTC"),
+    limit: int = typer.Option(15, min=1, max=100),
+    as_json: bool = AS_JSON,
+    path: Path | None = CONFIG,
+) -> None:
+    """Latest crypto headlines with a rule-based sentiment score and 24h outlook."""
+    import asyncio
+
+    from rinng import views
+
+    svc = _service(path, False)
+    _answer(
+        lambda: views.news_view(asyncio.run(svc.news(coin, 300)), limit), views.text_news, as_json
+    )
+
+
+@app.command()
+def status(as_json: bool = AS_JSON, path: Path | None = CONFIG) -> None:
+    """What is stored locally and how fresh it is."""
+    from rinng import views
+
+    svc = _service(path, True)
+    _answer(lambda: views.status_view(svc.status()), views.text_status, as_json)
+
+
+@app.command()
+def mcp(
+    http: bool = typer.Option(False, "--http", help="Streamable HTTP instead of stdio"),
+    host: str = typer.Option("127.0.0.1", help="HTTP only; keep it local unless you add auth"),
+    port: int = typer.Option(8765, help="HTTP only"),
+    offline: bool = OFFLINE,
+    path: Path | None = CONFIG,
+) -> None:
+    """Run the MCP server (read-only analysis tools for Claude, Cursor and other AI clients)."""
+    import sys
+
+    from rinng.mcp_server import serve
+
+    # stdout carries the protocol over stdio: every log line must go to stderr.
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr, format="%(name)s %(message)s")
+    if http:
+        typer.echo(f"rinng MCP: http://{host}:{port}/mcp", err=True)
+    serve(_service(path, offline), http=http, host=host, port=port)

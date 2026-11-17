@@ -37,6 +37,7 @@ sensitive to the zigzag threshold and price scale; the three hard rules filter v
 almost any series has candidates. Sub-structure (5-3-5-3-5) and corrective patterns are not checked.
 """
 
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -192,6 +193,44 @@ def impulse_ratios(prices: Sequence[float], *, log: bool = False) -> dict[str, f
     }
 
 
+def _wave_ends(piv: Sequence[tuple], i: int, max_legs: int) -> list[int]:
+    """Pivot positions j > i that can end one wave starting at pivot i.
+
+    A wave from a low (high) ends at a high (low) that is the extreme of every pivot in i..j, while
+    no pivot between them goes beyond the start; at most `max_legs` zigzag legs per wave.
+    """
+    s = 1.0 if piv[i][1] == "L" else -1.0
+    out, best = [], -np.inf
+    for j in range(i + 1, min(len(piv), i + 1 + max_legs)):
+        v = s * piv[j][2]
+        if s * (piv[j][2] - piv[i][2]) <= 0:
+            break  # went beyond the start: no longer one wave
+        if piv[j][1] != piv[i][1] and v > best:
+            out.append(j)
+        best = max(best, v) if piv[j][1] != piv[i][1] else best
+    return out
+
+
+def nested_windows(piv: Sequence[tuple], *, max_legs: int = 5) -> list[list[tuple]]:
+    """All P0..P5 pivot sequences where each wave is one clean move (see `_wave_ends`).
+
+    Includes every consecutive 6-pivot window (one leg per wave); a wave may span up to `max_legs`
+    zigzag legs, so wave 3 can contain its own 1-2-3-4-5 sub-swings.
+    """
+    out: list[list[tuple]] = []
+
+    def walk(path: list[int]) -> None:
+        if len(path) == 6:
+            out.append([piv[k] for k in path])
+            return
+        for j in _wave_ends(piv, path[-1], max_legs):
+            walk([*path, j])
+
+    for i in range(len(piv)):
+        walk([i])
+    return out
+
+
 def impulse_candidates(
     ohlcv: pl.DataFrame,
     *,
@@ -199,8 +238,12 @@ def impulse_candidates(
     mode: str = "percent",
     atr_length: int = 14,
     log: bool = True,
+    nested: bool = False,
 ) -> pl.DataFrame:
     """Events kind = impulse_candidate; price_low/high = min/max of the 6 pivots.
+
+    nested=False: windows of 6 consecutive zigzag pivots. nested=True: also lets each wave span
+    smaller sub-swings (see `nested_windows`), e.g. a wave 3 made of 3 zigzag legs.
 
     attrs: {"direction": "up"|"down", "indices", "prices", "ratios"} with ratios computed on the
     same scale as the rules (`log`).
@@ -211,8 +254,8 @@ def impulse_candidates(
     duration = bar_duration(timeframe)
     times = ohlcv["open_time"].to_list()
     rows = []
-    for k in range(len(piv) - 5):
-        window = piv[k : k + 6]
+    windows = nested_windows(piv) if nested else [piv[k : k + 6] for k in range(len(piv) - 5)]
+    for window in windows:
         prices = [p[2] for p in window]
         if not all(impulse_rules(prices, log=log).values()):
             continue
@@ -230,7 +273,181 @@ def impulse_candidates(
                     "prices": prices,
                     "ratios": impulse_ratios(prices, log=log),
                 },
-                "id": window[0][0],
+                "id": "-".join(str(p[0]) for p in window) if nested else window[0][0],
             }
         )
     return events_frame(rows, symbol=symbol, timeframe=timeframe, phash=params_hash(MODULE, params))
+
+
+# Fibonacci guideline targets per wave ratio (linear price, absolute wave lengths). A ratio scores
+# by its log distance to the nearest target: exp(-(ln(r/t) / FIB_TOLERANCE)^2), so a ratio exactly
+# on a target scores 1 and one ~25% away scores ~0.37. The impulse score is the mean of the four.
+FIB_TARGETS: dict[str, tuple[float, ...]] = {
+    "wave2_wave1": (0.5, 0.618, 0.786),
+    "wave3_wave1": (1.618, 2.618),
+    "wave4_wave3": (0.236, 0.382, 0.5),
+    "wave5_wave1": (0.618, 1.0, 1.618),
+}
+FIB_TOLERANCE = 0.25
+
+
+def _closeness(r: float, targets: Sequence[float]) -> float:
+    """exp(-(ln(r/t) / FIB_TOLERANCE)^2) for the nearest target t; 0 when r <= 0."""
+    if r <= 0:
+        return 0.0
+    d = min(abs(np.log(r / t)) for t in targets)
+    return float(np.exp(-((d / FIB_TOLERANCE) ** 2)))
+
+
+def fib_score(prices: Sequence[float]) -> dict[str, float]:
+    """Per-ratio closeness to the Fibonacci guidelines (0..1) plus their mean under "score".
+
+    Guidelines, not rules: a low score does not invalidate a count, it only ranks candidates.
+    """
+    ratios = impulse_ratios(prices, log=False)
+    out = {name: _closeness(ratios[name], targets) for name, targets in FIB_TARGETS.items()}
+    out["score"] = float(np.mean([out[k] for k in FIB_TARGETS]))
+    return out
+
+
+def best_impulses(candidates: pl.DataFrame, *, min_score: float = 0.35) -> list[dict[str, Any]]:
+    """Pick non-overlapping impulse candidates, highest Fibonacci score first.
+
+    Each kept candidate is the dict of its row with decoded attrs plus "fib" (from `fib_score`).
+    Two candidates overlap when their P0..P5 index spans intersect (sharing one end pivot is
+    allowed). Result is in time order. Uses only each candidate's own pivots, so it adds no
+    lookahead beyond the candidates themselves; but which candidate wins a span can change when a
+    later, better-scoring one appears.
+    """
+    scored = []
+    for row in candidates.filter(pl.col("kind") == "impulse_candidate").to_dicts():
+        attrs = json.loads(row["attrs"]) if isinstance(row["attrs"], str) else row["attrs"]
+        fib = fib_score(attrs["prices"])
+        if fib["score"] >= min_score:
+            scored.append({**row, "attrs": attrs, "fib": fib})
+    scored.sort(key=lambda c: -c["fib"]["score"])
+    kept: list[dict[str, Any]] = []
+    for c in scored:
+        a, b = c["attrs"]["indices"][0], c["attrs"]["indices"][-1]
+        if all(b <= k["attrs"]["indices"][0] or a >= k["attrs"]["indices"][-1] for k in kept):
+            kept.append(c)
+    return sorted(kept, key=lambda c: c["attrs"]["indices"][0])
+
+
+def pivots(
+    ohlcv: pl.DataFrame,
+    *,
+    threshold: float = 0.05,
+    mode: str = "percent",
+    atr_length: int = 14,
+    running: bool = False,
+) -> list[tuple[int, str, float, int | None]]:
+    """Zigzag pivots (index, "H"|"L", price, confirm index).
+
+    running=True appends the still-unconfirmed extreme after the last pivot with confirm index
+    None (it can still move: display only, never use it as a known event).
+    """
+    _zigzag_params(threshold, mode, atr_length)
+    out: list[tuple[int, str, float, int | None]] = list(
+        _pivots(ohlcv, threshold, mode, atr_length)
+    )
+    if running and out:
+        last_i, last_kind = out[-1][0], out[-1][1]
+        high = ohlcv["high"].to_numpy()
+        low = ohlcv["low"].to_numpy()
+        if last_i + 1 < len(high):
+            if last_kind == "H":
+                j = last_i + 1 + int(np.argmin(low[last_i + 1 :]))
+                out.append((j, "L", float(low[j]), None))
+            else:
+                j = last_i + 1 + int(np.argmax(high[last_i + 1 :]))
+                out.append((j, "H", float(high[j]), None))
+    return out
+
+
+# Corrective A-B-C after an impulse (linear price). b = B retrace of A, c = C length vs A.
+ABC_TARGETS: dict[str, dict[str, tuple[float, ...]]] = {
+    "zigzag": {"b_a": (0.5, 0.618, 0.786), "c_a": (1.0, 1.618)},
+    "flat": {"b_a": (0.9, 1.0), "c_a": (1.0, 1.236)},
+    "expanded_flat": {"b_a": (1.236, 1.382), "c_a": (1.618, 2.618)},
+}
+
+
+def correction_after(
+    impulse_indices: Sequence[int], pivot_list: Sequence[tuple[int, str, float, int | None]]
+) -> dict[str, Any] | None:
+    """The A-B-C following an impulse's P5, or None.
+
+    Works across sub-swings of the zigzag (s = +1 after an up impulse, -1 after a down one):
+    - A = first pivot after P5; it must not retrace past the impulse origin P0.
+    - B = most extreme counter-pivot (s * price largest) after A, scanned until a pivot passes A's
+      end (that is where wave C has broken out).
+    - C = most extreme pivot in the move direction after B, scanned until a pivot passes B (the
+      correction is then over). Needs at least one pivot after B.
+    With fewer than 2 pivots after A the correction is still forming: shape and score are None,
+    indices/prices hold A (and B if present), tentative is True.
+    Shape by B's retrace of A (b_a): < 0.9 zigzag, 0.9..1.05 flat, 1.05..1.618 expanded flat;
+    beyond that it is not a correction of this impulse. C is "tentative" when it is the running
+    pivot or has not yet passed A's end. Score = mean Fibonacci closeness of b_a and c_a.
+    """
+    pos = {p[0]: k for k, p in enumerate(pivot_list)}
+    k5 = pos.get(impulse_indices[-1])
+    k0 = pos.get(impulse_indices[0])
+    if k5 is None or k0 is None or k5 + 1 >= len(pivot_list):
+        return None
+    p0, p5 = pivot_list[k0][2], pivot_list[k5][2]
+    s = 1.0 if p5 > p0 else -1.0
+    a_ = pivot_list[k5 + 1]
+    a_len = s * (p5 - a_[2])
+    if a_len <= 0 or s * (a_[2] - p0) <= 0:
+        return None
+    rest = pivot_list[k5 + 2 :]
+    if len(rest) < 2:
+        # Correction still forming: only A (and maybe a B) so far, no shape yet.
+        legs = [a_, *rest]
+        return {
+            "shape": None,
+            "direction": "down" if s > 0 else "up",
+            "indices": [p[0] for p in legs],
+            "prices": [p[2] for p in legs],
+            "ratios": {},
+            "score": None,
+            "tentative": True,
+        }
+    kb = 0
+    for k, p in enumerate(rest):
+        if s * (p[2] - a_[2]) < 0:  # passed A's end: wave C under way
+            break
+        if s * p[2] > s * rest[kb][2]:
+            kb = k
+    b_ = rest[kb]
+    after_b = rest[kb + 1 :]
+    if not after_b:
+        return None
+    c_ = after_b[0]
+    for p in after_b:
+        if s * p[2] > s * b_[2]:  # passed B: correction over
+            break
+        if s * p[2] < s * c_[2]:
+            c_ = p
+    b_a = s * (b_[2] - a_[2]) / a_len
+    c_a = s * (b_[2] - c_[2]) / a_len
+    if b_a < 0.9:
+        shape = "zigzag"
+    elif b_a <= 1.05:
+        shape = "flat"
+    elif b_a <= 1.618:
+        shape = "expanded_flat"
+    else:
+        return None
+    t = ABC_TARGETS[shape]
+    score = float(np.mean([_closeness(b_a, t["b_a"]), _closeness(c_a, t["c_a"])]))
+    return {
+        "shape": shape,
+        "direction": "down" if s > 0 else "up",
+        "indices": [a_[0], b_[0], c_[0]],
+        "prices": [a_[2], b_[2], c_[2]],
+        "ratios": {"b_a": float(b_a), "c_a": float(c_a)},
+        "score": score,
+        "tentative": c_[3] is None or s * (c_[2] - a_[2]) > 0,
+    }

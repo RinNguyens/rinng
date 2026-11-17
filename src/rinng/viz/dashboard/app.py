@@ -5,14 +5,12 @@ backtest results in data/results. Config file comes from the RINNG_CONFIG env va
 """
 
 import json
-import os
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import polars as pl
 import streamlit as st
 
-from rinng.config import DEFAULT_CONFIG, load_settings
+from rinng.config import load_settings
 from rinng.pipeline.run import analyze, load_ohlcv, read_derived
 from rinng.store.paths import DataPaths
 from rinng.viz.chart import candles, equity
@@ -20,7 +18,7 @@ from rinng.viz.chart import candles, equity
 EVENT_MODULES = ["structure", "smc", "liquidity", "volume_profile", "wyckoff", "elliott"]
 
 st.set_page_config(page_title="rinng", layout="wide")
-settings = load_settings(Path(os.environ.get("RINNG_CONFIG", DEFAULT_CONFIG)))
+settings = load_settings()  # honours RINNG_CONFIG
 paths = DataPaths(settings.data_dir)
 
 page = st.sidebar.radio("Trang", ["Chart", "Backtest"])

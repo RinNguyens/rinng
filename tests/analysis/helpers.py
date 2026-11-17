@@ -73,3 +73,32 @@ def random_walk(
         taker_buy=(volumes * rng.uniform(0.2, 0.8, n)).tolist(),
         timeframe=timeframe,
     )
+
+
+_UNIT = {
+    "1m": timedelta(minutes=1),
+    "5m": timedelta(minutes=5),
+    "1h": timedelta(hours=1),
+    "4h": timedelta(hours=4),
+    "1d": timedelta(days=1),
+}
+
+
+def recent_ohlcv(tf: str, n: int, exchange: str = "binance", seed: int = 1) -> pl.DataFrame:
+    """`n` closed candles ending at the last full `tf` bar before now."""
+    unit = _UNIT[tf]
+    now = datetime.now(UTC)
+    last = (
+        datetime.fromtimestamp(
+            (now.timestamp() // unit.total_seconds()) * unit.total_seconds(), UTC
+        )
+        - unit
+    )
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    closes = list(100 * np.exp(np.cumsum(rng.normal(0, 0.01, n))))
+    highs = [c * 1.005 for c in closes]
+    lows = [c * 0.995 for c in closes]
+    o = make_ohlcv(closes, highs=highs, lows=lows, timeframe=tf, start=last - (n - 1) * unit)
+    return o.with_columns(pl.lit(exchange).alias("exchange"))

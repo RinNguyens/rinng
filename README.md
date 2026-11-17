@@ -28,6 +28,9 @@ ships matching Pine Script indicators for TradingView.
   with walk-forward validation.
 - **Web app**: a React dashboard with multi-pane chart tabs, drag-and-drop chart library, prebuilt
   chart combos, a live desk and a news feed, streamed over WebSocket.
+- **CLI and MCP server**: ask for a coin's summary, trade desk, any analysis lens, candles or news
+  from the terminal (`rinng summary BTC`) or from Claude, Cursor and other AI clients over MCP.
+  Works with no stored data (it reads the exchange REST APIs).
 - **Pine Script v6** overlay and oscillator indicators.
 - **No API keys**: only public Binance and OKX market data is used.
 
@@ -53,8 +56,9 @@ uv run rinng live                          # open http://127.0.0.1:8000
 
 ### Troubleshooting
 
-- **`ta-lib` fails to install**: install the C library first (`brew install ta-lib` on macOS,
-  `apt install libta-lib-dev` on Debian/Ubuntu), then rerun `uv sync`.
+- **`ta-lib` fails to install**: `ta-lib` 0.8.3 ships prebuilt wheels for macOS, Linux and Windows
+  on Python 3.12, so this should not happen. On another platform, install the C library first
+  (`brew install ta-lib` on macOS, `apt install libta-lib-dev` on Debian/Ubuntu), then rerun `uv sync`.
 - **OKX connection hangs**: some networks have broken IPv6. Check your IPv6 setup or force IPv4.
 - **The machine was off for more than 3 days**: run `uv run rinng backfill --start <date>` before
   `rinng live` to fill the gap.
@@ -75,13 +79,77 @@ uv run rinng live                          # open http://127.0.0.1:8000
 | `rinng curate` | Move collector data into the curated store |
 | `rinng live` | Collector + web app with realtime updates |
 | `rinng web` | Web app over stored data only |
-| `rinng dashboard` | Legacy Streamlit dashboard at http://localhost:8501 |
+| `rinng dashboard` | Legacy Streamlit dashboard at http://localhost:8501 (needs `uv sync --extra dashboard`) |
+| `rinng config` | Show which config file and data directory are in use |
 
 Run any command with `uv run`, e.g. `uv run rinng check`, and add `--help` for options.
+
+**Config and data location.** Every command takes `--config <file>`. Without it rinng uses
+`$RINNG_CONFIG`, then `./configs/instruments.yaml` (inside the repo), then the copy bundled with the
+package. Data goes to the config's `data_dir` (`./data` in the repo, `~/.rinng/data` with the bundled
+config); set `RINNG_DATA` to put it elsewhere. So an installed `rinng` works from any folder.
 
 Liquidations, open interest and long/short ratios cannot be fetched after the fact, so run the
 collector 24/7 if you want that history. Example launchd and systemd service files are in
 [deploy/](deploy/).
+
+## Use from the terminal
+
+These commands read stored data when it covers the window and otherwise call the exchange REST APIs,
+so they work right after install, for any of the ~790 USDT perps. Coins can be written `BTC`,
+`btcusdt`, `BTC/USDT` or `BTC-USDT-PERP`.
+
+```bash
+uv run rinng summary BTC                    # price, derivatives, structure, profile, liquidity
+uv run rinng signal ETH -e okx              # 5m desk: agent votes, verdict, long/short scenarios
+uv run rinng lens SOL --lens forecast --tf 4h
+uv run rinng news --coin BTC
+```
+
+| Command | What it does |
+|---|---|
+| `rinng search <text>` | Find coins and their ids |
+| `rinng summary <coin>` | Overview: price, funding, OI, long/short, 4h structure, weekly profile, liquidity, Wyckoff, momentum |
+| `rinng signal <coin>` | Trade desk: six agents' votes, verdict, scenarios, projection and its walk-forward record |
+| `rinng lens <coin> --lens <name> --tf <tf>` | One method: structure, liquidity, profile, wyckoff, derivatives, indicators, forecast |
+| `rinng news [--coin BTC]` | Headlines with sentiment and a 24h outlook |
+| `rinng status` | What is stored locally and how fresh it is |
+
+Shared options: `--exchange/-e binance|okx`, `--json` (compact machine-readable view), `--offline`
+(stored data only), `--config`. Exit codes: 0 ok, 2 bad input, 3 not enough data, 4 exchange
+unreachable. When stored data is older than a few bars the output carries a warning.
+
+## Use with AI clients (MCP)
+
+`rinng mcp` runs an MCP server with read-only tools: `search_instruments`, `market_summary`,
+`trade_desk`, `analyze_lens`, `get_candles`, `crypto_news`, `data_status`. It also has resources
+explaining each method and its weaknesses (`rinng://methods/{name}`) and an `analyze_coin` prompt.
+No tool places orders or needs API keys.
+
+Claude Code:
+
+```bash
+claude mcp add rinng -- uvx --from git+https://github.com/RinNguyens/rinng rinng mcp
+```
+
+Claude Desktop, Cursor and other clients (`mcpServers` in their config file):
+
+```json
+{
+  "mcpServers": {
+    "rinng": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/RinNguyens/rinng", "rinng", "mcp"]
+    }
+  }
+}
+```
+
+Installed this way, rinng uses the bundled config and reads everything from the exchanges. To use
+the data stored in a clone instead, point the client at it:
+`uv --directory /path/to/rinng run rinng mcp`. For clients that speak HTTP, run
+`rinng mcp --http` (serves `http://127.0.0.1:8765/mcp`, local only). To try the tools by hand:
+`npx @modelcontextprotocol/inspector uv run rinng mcp`.
 
 ## Web app
 
@@ -103,7 +171,6 @@ See [docs/10-realtime-plan.md](docs/10-realtime-plan.md).
   a suggested reading order.
 - **Projection lens**: forecast cone and level-touch probabilities with walk-forward results on the
   chart. See [docs/11-forecasting.md](docs/11-forecasting.md).
-- The old plain-HTML UI is still available at `/classic`.
 
 To work on the UI, run `uv run rinng web` and then `pnpm --dir web dev` (port 3000, `/api` is proxied
 to port 8000).
@@ -118,6 +185,8 @@ to port 8000).
 | `src/rinng/analysis` | Indicators, structure, SMC, liquidity, volume profile, order flow, derivatives, Wyckoff, Elliott, forecasting |
 | `src/rinng/pipeline` | Curate, validate, run analysis modules |
 | `src/rinng/strategy`, `src/rinng/backtest` | Strategies, backtest engine, metrics, reports |
+| `src/rinng/service.py`, `src/rinng/views.py` | Analysis service shared by the web app, CLI and MCP; compact views |
+| `src/rinng/mcp_server.py` | MCP server (`rinng mcp`) |
 | `src/rinng/live`, `src/rinng/web` | Live hub and FastAPI web API |
 | `src/rinng/viz` | Plotly charts, Streamlit dashboard |
 | `web/` | React frontend (TanStack Start + shadcn/ui) |
