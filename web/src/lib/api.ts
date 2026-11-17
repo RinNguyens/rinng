@@ -277,4 +277,5 @@ export const api = {
   desk: (p: { symbol: string; exchange: string }) => get<Desk>("/api/desk", p),
   news: (base: string) => get<News>("/api/news", { base, limit: 80 }),
   instruments: (q: string) => get<Array<Instrument>>("/api/instruments", { q, limit: 30 }),
+  instrument: (symbol: string) => get<Instrument>("/api/instrument", { symbol }),
 }

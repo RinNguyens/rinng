@@ -11,6 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TerminalRouteImport } from './routes/terminal'
+import { Route as TerminalIndexRouteImport } from './routes/terminal/index'
+import { Route as TerminalCoinRouteImport } from './routes/terminal/coin'
+import { Route as TerminalMarketRouteImport } from './routes/terminal/market'
+import { Route as TerminalWalletRouteImport } from './routes/terminal/wallet'
+import { Route as TerminalChartsIndexRouteImport } from './routes/terminal/charts/index'
+import { Route as TerminalChartsTabIdRouteImport } from './routes/terminal/charts/$tabId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,31 +28,102 @@ const TerminalRoute = TerminalRouteImport.update({
   path: '/terminal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TerminalIndexRoute = TerminalIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TerminalRoute,
+} as any)
+const TerminalCoinRoute = TerminalCoinRouteImport.update({
+  id: '/coin',
+  path: '/coin',
+  getParentRoute: () => TerminalRoute,
+} as any)
+const TerminalMarketRoute = TerminalMarketRouteImport.update({
+  id: '/market',
+  path: '/market',
+  getParentRoute: () => TerminalRoute,
+} as any)
+const TerminalWalletRoute = TerminalWalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => TerminalRoute,
+} as any)
+const TerminalChartsIndexRoute = TerminalChartsIndexRouteImport.update({
+  id: '/charts/',
+  path: '/charts/',
+  getParentRoute: () => TerminalRoute,
+} as any)
+const TerminalChartsTabIdRoute = TerminalChartsTabIdRouteImport.update({
+  id: '/charts/$tabId',
+  path: '/charts/$tabId',
+  getParentRoute: () => TerminalRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/terminal': typeof TerminalRouteWithChildren
+  '/terminal/coin': typeof TerminalCoinRoute
+  '/terminal/market': typeof TerminalMarketRoute
+  '/terminal/wallet': typeof TerminalWalletRoute
+  '/terminal/': typeof TerminalIndexRoute
+  '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/charts/': typeof TerminalChartsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/terminal/coin': typeof TerminalCoinRoute
+  '/terminal/market': typeof TerminalMarketRoute
+  '/terminal/wallet': typeof TerminalWalletRoute
+  '/terminal': typeof TerminalIndexRoute
+  '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/charts': typeof TerminalChartsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/terminal': typeof TerminalRouteWithChildren
+  '/terminal/coin': typeof TerminalCoinRoute
+  '/terminal/market': typeof TerminalMarketRoute
+  '/terminal/wallet': typeof TerminalWalletRoute
+  '/terminal/': typeof TerminalIndexRoute
+  '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/charts/': typeof TerminalChartsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/terminal'
+  fullPaths:
+    | '/'
+    | '/terminal'
+    | '/terminal/coin'
+    | '/terminal/market'
+    | '/terminal/wallet'
+    | '/terminal/'
+    | '/terminal/charts/$tabId'
+    | '/terminal/charts/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/terminal'
-  id: '__root__' | '/' | '/terminal'
+  to:
+    | '/'
+    | '/terminal/coin'
+    | '/terminal/market'
+    | '/terminal/wallet'
+    | '/terminal'
+    | '/terminal/charts/$tabId'
+    | '/terminal/charts'
+  id:
+    | '__root__'
+    | '/'
+    | '/terminal'
+    | '/terminal/coin'
+    | '/terminal/market'
+    | '/terminal/wallet'
+    | '/terminal/'
+    | '/terminal/charts/$tabId'
+    | '/terminal/charts/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  TerminalRoute: typeof TerminalRoute
+  TerminalRoute: typeof TerminalRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +142,76 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TerminalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terminal/': {
+      id: '/terminal/'
+      path: '/'
+      fullPath: '/terminal/'
+      preLoaderRoute: typeof TerminalIndexRouteImport
+      parentRoute: typeof TerminalRoute
+    }
+    '/terminal/coin': {
+      id: '/terminal/coin'
+      path: '/coin'
+      fullPath: '/terminal/coin'
+      preLoaderRoute: typeof TerminalCoinRouteImport
+      parentRoute: typeof TerminalRoute
+    }
+    '/terminal/market': {
+      id: '/terminal/market'
+      path: '/market'
+      fullPath: '/terminal/market'
+      preLoaderRoute: typeof TerminalMarketRouteImport
+      parentRoute: typeof TerminalRoute
+    }
+    '/terminal/wallet': {
+      id: '/terminal/wallet'
+      path: '/wallet'
+      fullPath: '/terminal/wallet'
+      preLoaderRoute: typeof TerminalWalletRouteImport
+      parentRoute: typeof TerminalRoute
+    }
+    '/terminal/charts/': {
+      id: '/terminal/charts/'
+      path: '/charts'
+      fullPath: '/terminal/charts/'
+      preLoaderRoute: typeof TerminalChartsIndexRouteImport
+      parentRoute: typeof TerminalRoute
+    }
+    '/terminal/charts/$tabId': {
+      id: '/terminal/charts/$tabId'
+      path: '/charts/$tabId'
+      fullPath: '/terminal/charts/$tabId'
+      preLoaderRoute: typeof TerminalChartsTabIdRouteImport
+      parentRoute: typeof TerminalRoute
+    }
   }
 }
 
+interface TerminalRouteChildren {
+  TerminalCoinRoute: typeof TerminalCoinRoute
+  TerminalMarketRoute: typeof TerminalMarketRoute
+  TerminalWalletRoute: typeof TerminalWalletRoute
+  TerminalIndexRoute: typeof TerminalIndexRoute
+  TerminalChartsTabIdRoute: typeof TerminalChartsTabIdRoute
+  TerminalChartsIndexRoute: typeof TerminalChartsIndexRoute
+}
+
+const TerminalRouteChildren: TerminalRouteChildren = {
+  TerminalCoinRoute: TerminalCoinRoute,
+  TerminalMarketRoute: TerminalMarketRoute,
+  TerminalWalletRoute: TerminalWalletRoute,
+  TerminalIndexRoute: TerminalIndexRoute,
+  TerminalChartsTabIdRoute: TerminalChartsTabIdRoute,
+  TerminalChartsIndexRoute: TerminalChartsIndexRoute,
+}
+
+const TerminalRouteWithChildren = TerminalRoute._addFileChildren(
+  TerminalRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  TerminalRoute: TerminalRoute,
+  TerminalRoute: TerminalRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
