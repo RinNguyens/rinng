@@ -2,13 +2,6 @@
   "detector": {
     "ignoreRules": [],
     "ignoreFiles": [],
-    "ignoreValues": [
-      {
-        "rule": "overused-font",
-        "value": "mona sans",
-        "createdAt": "2026-11-17T13:17:36.723Z",
-        "reason": "dealt by design-taste-frontend start.mjs (pairing mona) for the /terminal page; the user asked to run that skill as written"
-      }
-    ]
+    "ignoreValues": []
   }
 }
