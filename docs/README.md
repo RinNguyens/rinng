@@ -27,6 +27,7 @@ The project covers crypto only. The stock-related parts of file 05 (stock data s
 | [08-architecture.md](08-architecture.md) | Architecture: layers, processes, modules, data model, interfaces | Before building the skeleton |
 | [09-phase-roadmap.md](09-phase-roadmap.md) | 12-phase roadmap: tasks, dependencies, done criteria, risks | When starting each phase |
 | [12-cli-mcp-plan.md](12-cli-mcp-plan.md) | Plan to use rinng from the terminal and over MCP: service layer, commands, tools, packaging | Building the CLI/MCP front ends |
+| [13-terminal-wallet-handoff.md](13-terminal-wallet-handoff.md) | Handoff spec: terminal sections (Market, Coin, Charts, Wallet) and the read-only Security Wallet (scan, revoke plan, watchlist, send check, lock) | Building the terminal UI |
 
 ## Cross-cutting conclusions
 
