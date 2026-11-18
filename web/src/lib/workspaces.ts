@@ -174,6 +174,49 @@ function fit(ws: Workspace): Workspace {
   return { ...ws, slots }
 }
 
+const NAME_MAX = 32
+
+// Trimmed and capped new tab name; a blank name keeps the old one.
+export function tabName(next: string, old: string): string {
+  const name = next.trim().slice(0, NAME_MAX)
+  return name || old
+}
+
+// Copy of a tab inserted right after it, with fresh ids; null when the id is unknown.
+export function duplicateAfter(
+  all: Array<Workspace>,
+  id: string,
+): { next: Array<Workspace>; id: string } | null {
+  const i = all.findIndex((w) => w.id === id)
+  if (i < 0) return null
+  const src = all[i]
+  const copy: Workspace = {
+    ...src,
+    id: newId(),
+    name: `${src.name} copy`.slice(0, NAME_MAX),
+    slots: src.slots.map((s) => (s ? { ...s, id: newId() } : null)),
+  }
+  return { next: [...all.slice(0, i + 1), copy, ...all.slice(i + 1)], id: copy.id }
+}
+
+// Tab to open after closing `closing`: a neighbour when it is the active tab, else null.
+export function closeTarget(ids: Array<string>, closing: string, active: string): string | null {
+  const i = ids.indexOf(closing)
+  if (i < 0 || closing !== active || ids.length < 2) return null
+  return ids[i + 1] ?? ids[i - 1]
+}
+
+// Tab a navigation key lands on (wraps around), or null for other keys.
+export function tabKey(ids: Array<string>, current: string, key: string): string | null {
+  if (!ids.length) return null
+  const i = ids.indexOf(current)
+  if (key === "Home") return ids[0]
+  if (key === "End") return ids[ids.length - 1]
+  if (key === "ArrowRight") return ids[(i + 1) % ids.length]
+  if (key === "ArrowLeft") return ids[(i - 1 + ids.length) % ids.length]
+  return null
+}
+
 export function useWorkspaces() {
   const [workspaces, setAll] = useState<Array<Workspace>>([])
 
@@ -220,6 +263,14 @@ export function useWorkspaces() {
       }
       set([...workspaces, w])
       return w.id
+    },
+    rename: (id: string, name: string) =>
+      update(id, (w) => ({ ...w, name: tabName(name, w.name) })),
+    duplicate: (id: string) => {
+      const out = duplicateAfter(workspaces, id)
+      if (!out) return null
+      set(out.next)
+      return out.id
     },
     remove: (id: string) => set(workspaces.filter((w) => w.id !== id)),
     reset: () => {

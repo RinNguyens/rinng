@@ -2,15 +2,14 @@ import { useEffect, useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  Add01Icon,
   Cancel01Icon,
   LibraryIcon,
   Link04Icon,
-  RefreshIcon,
 } from "@hugeicons/core-free-icons"
 import { ChartLibrary, LayoutIcon } from "@/components/chart-library"
 import { comboById, comboWorkspace } from "@/lib/combos"
-import { Pick, WorkspaceGrid } from "@/components/workspace-grid"
+import { WorkspaceGrid } from "@/components/workspace-grid"
+import { WorkspaceTabs } from "@/components/workspace-tabs"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -21,7 +20,7 @@ import {
 import { useTerminal } from "@/components/terminal/context"
 import { SyncGroup } from "@/lib/chart-sync"
 import { tabRedirect } from "@/lib/terminal-nav"
-import { LAYOUTS } from "@/lib/workspaces"
+import { LAYOUTS, closeTarget, tabKey } from "@/lib/workspaces"
 import type { LayoutKey } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
 
@@ -30,7 +29,8 @@ export const Route = createFileRoute("/terminal/charts/$tabId")({ component: Cha
 function Charts() {
   const { tabId } = Route.useParams()
   const { meta, symbol, exchange, tabs } = useTerminal()
-  const { workspaces, update, add, insert, remove, reset } = tabs
+  const { workspaces, update, add, insert, remove, reset, rename, duplicate } =
+    tabs
   const navigate = useNavigate()
   const [library, setLibrary] = useState(true)
   const [syncOn, setSyncOn] = useState(true)
@@ -47,45 +47,51 @@ function Charts() {
     if (forward) navigate({ to: "/terminal/charts/$tabId", params: { tabId: forward }, replace: true })
   }, [forward, navigate])
 
+  // Alt+Left/Right switches tab from anywhere except while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || !e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest("input, textarea, select, [contenteditable]")) return
+      const to = tabKey(
+        workspaces.map((w) => w.id),
+        tabId,
+        e.key
+      )
+      if (!to || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return
+      e.preventDefault()
+      go(to)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
   if (!ws) return null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1">
-          <Pick
-            label="Workspace"
-            className="max-w-56"
-            value={ws.id}
-            onChange={go}
-            items={workspaces.map((w, i) => ({ value: w.id, label: `${i + 1}. ${w.name}` }))}
-          />
-          {workspaces.length > 1 ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label={`Close tab ${ws.name}`}
-              onClick={() => remove(ws.id)}
-            >
-              <HugeiconsIcon icon={Cancel01Icon} />
-            </Button>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label="Add chart tab"
-                  onClick={() => go(add())}
-                />
-              }
-            >
-              <HugeiconsIcon icon={Add01Icon} />
-            </TooltipTrigger>
-            <TooltipContent>Add chart tab</TooltipContent>
-          </Tooltip>
-        </div>
+        <WorkspaceTabs
+          workspaces={workspaces}
+          activeId={ws.id}
+          onSelect={go}
+          onAdd={() => go(add())}
+          onClose={(id) => {
+            const target = closeTarget(
+              workspaces.map((w) => w.id),
+              id,
+              tabId
+            )
+            remove(id)
+            if (target) go(target, true)
+          }}
+          onRename={rename}
+          onDuplicate={(id) => {
+            const copy = duplicate(id)
+            if (copy) go(copy)
+          }}
+          onReset={() => go(reset())}
+        />
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <LayoutPicker
@@ -119,28 +125,6 @@ function Charts() {
             <TooltipContent>
               {library ? "Hide" : "Show"} chart library
             </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Restore default tabs"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        "Restore the default tabs? Your current layout will be lost."
-                      )
-                    )
-                      go(reset())
-                  }}
-                />
-              }
-            >
-              <HugeiconsIcon icon={RefreshIcon} />
-            </TooltipTrigger>
-            <TooltipContent>Restore default tabs</TooltipContent>
           </Tooltip>
         </div>
       </div>
