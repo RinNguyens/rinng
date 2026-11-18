@@ -160,6 +160,10 @@ See [docs/10-realtime-plan.md](docs/10-realtime-plan.md).
 
 - **Dashboard**: price, funding, open interest, long/short, 24h delta, 4H structure, weekly volume
   profile, liquidity, momentum and Wyckoff context, with a "View chart" shortcut.
+- **Terminal** (`/terminal`): four sections. **Market** ranks all perps on one exchange (funding, 24h move,
+  crowding; `GET /api/market?exchange=binance|okx`, cached 30 s). **Coin** is the dashboard above. **Charts**
+  holds the chart tabs. **Wallet** is a read-only Security Wallet: scan an address for risky approvals, a
+  watchlist with change since the last scan, a send check, and a lock panel showing nothing can be signed.
 - **Chart tabs**: layouts from 1 to 6 panes. Drag cards from the library into a pane, drag a chart's
   handle to reorder, maximize a pane. Layouts are saved in the browser.
 - **Watchlist and search**: 5 default coins (BTC, SOL, ETH, BNB, LINK) with stored history. Search

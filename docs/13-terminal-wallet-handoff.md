@@ -85,6 +85,24 @@ back button works.
 - The resolved coin is written back to the URL with `replace`, and saved to `rinng.instrument.v1` even when
   it came from a link. Pure logic is in `lib/terminal-nav.ts`, shared state in `components/terminal/context.tsx`.
 
+**Slices 2–9 (built 2026-11-17), where they differ from this spec:**
+- Workspace tabs: hand-rolled `tablist` with manual activation (arrows move focus, Enter/Space activates). Close opens the
+  right neighbour; duplicate goes right after its source; the `↻` button is replaced by the `⋯` menu.
+- Pure logic lives in `web/src/lib` (`wallet-steps`, `wallet-scan`, `wallet-store`, `send-check`, `market`, `starred`,
+  `format`), not in `components/wallet`. Components only render.
+- Scan: Cancel ignores stale results; the scan libs take no `AbortSignal`, so requests run to completion.
+- A partial scan (a network failed or history is incomplete, EVM or not) never shows Verified, never writes a
+  watchlist snapshot and makes the score provisional. A failed token-price lookup is also provisional and shows
+  "—", not "$0".
+- Send check: `from` in a link is used only if it is one of your saved or connected wallets, otherwise None.
+  Skipped checks and contract recipients force "Review before sending". Non-EVM recipients get a format check only.
+- Watchlist snapshots store score, grade, USD total and the high-severity fingerprints. "New since last" opens
+  Scan with `hl=new` and shows the saved diff without rescanning.
+- Market (`GET /api/market?exchange=binance|okx`): OKX funding comes from one `instId=ANY` call; coins missing from
+  `instruments.yaml` use the base as their name; Crowding lists a coin only on the side its ratio leans to; results
+  are cached 30 s; exchange errors return 502 `exchange error: <Class> [status]`.
+- Not built (non-goals): mobile bottom nav, skip link, `Alt+1…4`, `?` help, ENS, EIP-6963, the §11 listing-age asterisk.
+
 ---
 
 ## 2. Shell
@@ -585,6 +603,8 @@ Each slice ships on its own; run each through horsemoon (plan → RED → GREEN 
 7. **Wallet · Watchlist** + diff + nav badge.
 8. **`/api/market`** in the service layer (+ tests), then **Market** page.
 9. **Coin** trim: combo shortcuts, ★.
+
+Slice 1 and slices 2–9 are built (2026-11-17); deviations are in the notes at the end of §1.3.
 
 Tests that matter most: fingerprint stability and diff (pure functions), revoke-plan ordering, URL ⇄ state
 round-trip, `/api/market` tier-B nulls, and that no new code path calls a non-allowlisted wallet method
