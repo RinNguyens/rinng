@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { createPublicClient, formatUnits, getAddress, http } from "viem"
+import { createPublicClient, getAddress, http } from "viem"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { ArrowLeft01Icon, ArrowRight01Icon, ArrowUpRight01Icon, Loading03Icon, Search01Icon, Wallet01Icon } from "@hugeicons/core-free-icons"
 import { tokenPrices, usd } from "@/lib/defi"
@@ -10,12 +10,13 @@ import { securityScore } from "@/lib/score"
 import type { Score } from "@/lib/score"
 import { useWallet } from "@/lib/wallet"
 import { NETWORKS, detectAddress, networkFor, networkOf } from "@/lib/chains"
-import type { Family } from "@/lib/chains"
 import { PLANS, chainScore, scanChain } from "@/lib/multichain"
 import type { ChainFinding, ChainReport } from "@/lib/multichain"
-import { NetworkPicker } from "./network-picker"
-import { WalletRoute } from "./wallet-route"
-import type { RouteStatus } from "./wallet-route"
+import { SOURCE, STATUS_WORD, amountOf, chainVerdicts, planFor, stepOf, verdicts } from "@/lib/wallet-steps"
+import { NetworkPicker } from "@/components/wallet/network-picker"
+import { SevPill } from "@/components/wallet/sev-pill"
+import { WalletRoute } from "@/components/wallet/wallet-route"
+import type { RouteStatus } from "@/components/wallet/wallet-route"
 
 /* A read-only check of any wallet address a multichain wallet hands out. EVM addresses: token
    approvals, NFT operators, Permit2 allowances and EIP-7702 delegation, read from a public dRPC
@@ -24,82 +25,13 @@ import type { RouteStatus } from "./wallet-route"
    to connect and nothing to sign; "use my wallet" only reads the connected address through the
    page's signature lock (lib/wallet.ts). */
 
-/** Who serves each chain's reads, as said to the user. */
-const SOURCE: Record<Family, (name: string) => string> = {
-  evm: (name) => `dRPC\u2019s public ${name} node`,
-  tron: () => "TronGrid\u2019s public API",
-  solana: () => "rinng\u2019s own read-only relay to Solana\u2019s public RPC",
-  bitcoin: () => "mempool.space",
-  stellar: () => "the Stellar Development Foundation\u2019s Horizon API",
-}
-
-// The seven steps of the EVM check. scanWallet reports progress as free text; each step owns the
-// labels it covers (the same map as components/wallet-check.tsx), and gets a verdict at the end.
-const STEPS = [
-  { title: "Read-only", body: "This page holds no key and asks for no signature.", match: [] as Array<string> },
-  { title: "Account & 7702", body: "EOA, Safe or smart account, and any EIP-7702 delegate.", match: ["Reading the account", "Account type and EIP-7702 delegation"] },
-  { title: "Approvals", body: "ERC-20 allowances and NFT operators the wallet granted.", match: ["ERC-20 approvals", "NFT approvals"] },
-  { title: "Permit2", body: "Off-chain Permit2 signatures still live.", match: ["Permit2 approvals", "Permit2 signatures"] },
-  { title: "Poisoning", body: "Look-alike addresses planted in the transfer history.", match: ["Transfers in", "Transfers out"] },
-  { title: "Live allowances", body: "Re-read on-chain today, spenders profiled.", match: ["Re-reading live allowances", "Profiling spenders"] },
-  { title: "Exposure & score", body: "Dollars reachable now, and a grade.", match: ["Measuring what is at risk", "Pricing what is at risk"] },
-]
-
-const SEV_STATUS: Record<Severity, RouteStatus> = { high: "danger", medium: "warn", low: "ok" }
-
-// Other chains: read-only first, the chain's own checks, then the score.
-const planFor = (family: Family) =>
-  family === "evm"
-    ? STEPS
-    : [
-        STEPS[0],
-        ...PLANS[family].map((p) => ({ ...p, match: [] as Array<string> })),
-        { title: "Exposure & score", body: "A grade, with every point it lost explained.", match: [] as Array<string> },
-      ]
-
-const gradeStatus = (score: Score | null): RouteStatus =>
-  !score ? "done" : score.grade === "A" || score.grade === "B" ? "ok" : score.grade === "C" ? "warn" : "danger"
-
-function chainVerdicts(r: ChainReport, score: Score | null): Array<RouteStatus> {
-  const worstOf = (f: Array<ChainFinding>): RouteStatus =>
-    f.some((x) => x.severity === "high") ? "danger" : f.some((x) => x.severity === "medium") ? "warn" : "ok"
-  return ["ok", ...r.sections.map((s) => (s.findings.length ? worstOf(s.findings) : s.complete ? "ok" : "warn")), gradeStatus(score)]
-}
-
-function worst(r: ScanResult, kinds: Array<string>): RouteStatus {
-  const sev = r.findings.filter((f) => kinds.includes(f.kind)).map((f) => f.severity)
-  return sev.includes("high") ? "danger" : sev.includes("medium") ? "warn" : "ok"
-}
-
-function verdicts(r: ScanResult, score: Score | null): Array<RouteStatus> {
-  const delegation = r.findings.find((f) => f.kind === "delegation")
-  return [
-    "ok",
-    delegation ? SEV_STATUS[delegation.severity] : r.account.type === "unknown" ? "warn" : "ok",
-    worst(r, ["erc20", "nft"]),
-    worst(r, ["permit2"]),
-    r.poisoning.suspects.length ? "danger" : "ok",
-    r.complete ? "ok" : "warn",
-    gradeStatus(score),
-  ]
-}
-
-const STATUS_WORD: Record<RouteStatus, string> = {
-  idle: "waiting",
-  active: "checking",
-  done: "read",
-  ok: "pass",
-  warn: "review",
-  danger: "risk",
-}
-
 const STATUS_TEXT: Record<RouteStatus, string> = {
   idle: "text-[#8a8a8a]",
-  active: "text-[#5b7cff]",
-  done: "text-[#4ade80]",
-  ok: "text-[#4ade80]",
-  warn: "text-[#f2c94c]",
-  danger: "text-[#ff5c4d]",
+  active: "text-progress",
+  done: "text-pass",
+  ok: "text-pass",
+  warn: "text-sev-medium",
+  danger: "text-sev-high",
 }
 
 const ACCOUNT: Record<ScanResult["account"]["type"], string> = {
@@ -110,24 +42,7 @@ const ACCOUNT: Record<ScanResult["account"]["type"], string> = {
   unknown: "The account type could not be read.",
 }
 
-const SEV_STYLE: Record<Finding["severity"], string> = {
-  high: "bg-[#ff5c4d] text-[#0d0d0d]",
-  medium: "bg-[#f2c94c] text-[#0d0d0d]",
-  low: "bg-[#2a2a2a] text-[#cfcfcf]",
-}
-
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
-
-function amountOf(f: Finding) {
-  if (f.kind === "delegation") return "delegated"
-  if (f.kind === "nft") return "all items"
-  if (f.unlimited) return "unlimited"
-  if (f.amount != null && f.decimals != null) {
-    const n = Number(formatUnits(f.amount, f.decimals))
-    return `${n.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${f.symbol ?? ""}`.trim()
-  }
-  return "limited"
-}
 
 export function WalletSection({
   label,
@@ -168,7 +83,7 @@ export function WalletSection({
   // the step the scan is on, from its progress label; the route follows it
   useEffect(() => {
     if (!step) return
-    const i = STEPS.findIndex((st) => st.match.includes(step))
+    const i = stepOf(step)
     if (net.family !== "evm") return
     if (i > 0) setReached((r) => Math.max(r, i))
   }, [step])
@@ -418,7 +333,7 @@ export function WalletSection({
             ) : (
               <p className="text-[#b0b0b0]">
                 {plan[sel].body}{" "}
-                {statuses[sel] === "active" && step ? <span className="inline-flex items-center gap-1.5 align-middle font-mono text-[11px] text-[#5b7cff]">
+                {statuses[sel] === "active" && step ? <span className="inline-flex items-center gap-1.5 align-middle font-mono text-[11px] text-progress">
                     <HugeiconsIcon icon={Loading03Icon} size={12} strokeWidth={2} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     {step}
                   </span> : null}
@@ -438,7 +353,7 @@ function FindingList({ items, empty }: { items: Array<Finding>; empty: string })
     <ul className="divide-y divide-[#1f1f1f]">
       {items.slice(0, 10).map((f, i) => (
         <li key={`${f.kind}-${f.spender}-${f.token ?? ""}-${i}`} className="grid grid-cols-[auto_1fr_auto] items-start gap-x-3 gap-y-1 py-2.5">
-          <span className={`mt-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase ${SEV_STYLE[f.severity]}`}>{f.severity}</span>
+          <span className="mt-0.5"><SevPill severity={f.severity} /></span>
           <div className="min-w-0">
             <p className="truncate text-[14px] font-medium text-white">
               {f.kind === "delegation" ? "Delegation" : (f.symbol ?? (f.token ? short(f.token) : f.kind))}
@@ -508,7 +423,7 @@ function StepDetail({
             {Object.entries(result.coverage).map(([k, v]) => (
               <li key={k} className="flex justify-between gap-3">
                 <span className="text-[#9a9a9a]">{k}</span>
-                <span className={v >= 1 ? "text-[#4ade80]" : "text-[#f2c94c]"}>{Math.round(v * 100)}%</span>
+                <span className={v >= 1 ? "text-pass" : "text-sev-medium"}>{Math.round(v * 100)}%</span>
               </li>
             ))}
           </ul>
@@ -570,7 +485,7 @@ function ChainFindings({ items }: { items: Array<ChainFinding> }) {
     <ul className="divide-y divide-[#1f1f1f]">
       {items.slice(0, 10).map((f, i) => (
         <li key={`${f.title}-${i}`} className="grid grid-cols-[auto_1fr_auto] items-start gap-x-3 gap-y-1 py-2.5">
-          <span className={`mt-0.5 rounded px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase ${SEV_STYLE[f.severity]}`}>{f.severity}</span>
+          <span className="mt-0.5"><SevPill severity={f.severity} /></span>
           <div className="min-w-0">
             <p className="truncate text-[14px] font-medium text-white">{f.title}</p>
             <p className="mt-0.5 text-[12px] leading-[1.5] text-[#9a9a9a]">{f.note}</p>
@@ -600,7 +515,7 @@ function ChainStepDetail({
   return (
     <div className="space-y-2">
       {section.summary && <p>{section.summary}</p>}
-      {!section.complete && <p className="text-[#f2c94c]">Part of this could not be read from the public source, so the score is provisional.</p>}
+      {!section.complete && <p className="text-sev-medium">Part of this could not be read from the public source, so the score is provisional.</p>}
       {section.findings.length > 0 && <ChainFindings items={section.findings} />}
     </div>
   )

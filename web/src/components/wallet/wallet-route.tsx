@@ -371,7 +371,7 @@ export function WalletRoute({
       cancelAnimationFrame(frame)
       io.disconnect()
     }
-  }, [size])
+  }, [size, steps.length])
 
   useEffect(() => {
     kick.current()

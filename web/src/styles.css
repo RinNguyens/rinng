@@ -8,6 +8,12 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+    --sev-high: #c4301f;
+    --sev-medium: #8a6a00;
+    --sev-low: #e5e5e5;
+    --sev-low-foreground: #404040;
+    --pass: #15803d;
+    --progress: #3b57d6;
     --background: oklch(1 0 0);
     --foreground: oklch(0.147 0.004 49.3);
     --card: oklch(1 0 0);
@@ -45,6 +51,12 @@
 }
 
 .dark {
+    --sev-high: #ff5c4d;
+    --sev-medium: #f2c94c;
+    --sev-low: #2a2a2a;
+    --sev-low-foreground: #cfcfcf;
+    --pass: #4ade80;
+    --progress: #5b7cff;
     --up: oklch(0.7 0.13 175);
     --down: oklch(0.68 0.19 25);
     --background: oklch(0.147 0.004 49.3);
@@ -81,6 +93,12 @@
 }
 
 @theme inline {
+    --color-sev-high: var(--sev-high);
+    --color-sev-medium: var(--sev-medium);
+    --color-sev-low: var(--sev-low);
+    --color-sev-low-foreground: var(--sev-low-foreground);
+    --color-pass: var(--pass);
+    --color-progress: var(--progress);
     --color-up: var(--up);
     --color-down: var(--down);
     --font-sans: 'Space Grotesk Variable', sans-serif;
