@@ -247,6 +247,22 @@ export type News = {
   coin_items: Array<NewsItem>
 }
 
+export type MarketRow = {
+  symbol: string
+  base: string
+  name: string
+  price: number
+  chg_24h: number
+  volume_24h: number
+  funding_rate_pct: number
+  next_funding: number
+  oi_value: number | null
+  oi_chg_24h: number | null
+  ls_ratio: number | null
+  collected: boolean
+}
+export type MarketSnapshot = { time: number; exchange: string; rows: Array<MarketRow> }
+
 async function get<T>(path: string, params: Record<string, string | number>): Promise<T> {
   const q = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]))
   const r = await fetch(`${path}?${q}`)
@@ -275,6 +291,7 @@ export const api = {
   }) => get<ChartData>("/api/chart", p),
   summary: (p: { symbol: string; exchange: string }) => get<Summary>("/api/summary", p),
   desk: (p: { symbol: string; exchange: string }) => get<Desk>("/api/desk", p),
+  market: (p: { exchange: string }) => get<MarketSnapshot>("/api/market", p),
   news: (base: string) => get<News>("/api/news", { base, limit: 80 }),
   instruments: (q: string) => get<Array<Instrument>>("/api/instruments", { q, limit: 30 }),
   instrument: (symbol: string) => get<Instrument>("/api/instrument", { symbol }),
