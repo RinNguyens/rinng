@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import {
   Link,
   Outlet,
@@ -19,6 +19,8 @@ import type { Instrument, Meta } from "@/lib/api"
 import { CoinSearch } from "@/components/coin-search"
 import { NewsTicker } from "@/components/news"
 import { TerminalContext } from "@/components/terminal/context"
+import { NETWORKS } from "@/lib/chains"
+import { blockedRequests, onBlocked, pageLock } from "@/lib/guard"
 import { live, useLiveState } from "@/lib/live"
 import type { LiveState } from "@/lib/live"
 import {
@@ -30,10 +32,12 @@ import {
   parseSearch,
   readSavedInstrument,
   resolveInstrument,
+  sectionExchange,
   sectionFromPath,
   writeSection,
 } from "@/lib/terminal-nav"
 import type { Current } from "@/lib/terminal-nav"
+import { short, useWallet } from "@/lib/wallet"
 import { useWorkspaces } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
 
@@ -63,7 +67,10 @@ function Shell() {
   const [meta, setMeta] = useState<Meta | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [cur, setCur] = useState<Current | null>(null)
+  const [failed, setFailed] = useState<{ key: string; message: string } | null>(null)
   const tabs = useWorkspaces()
+  const lock = pageLock()
+  const blocked = useSyncExternalStore(onBlocked, blockedRequests, blockedRequests).length
 
   useEffect(() => {
     api
@@ -89,10 +96,16 @@ function Shell() {
     // A failed lookup still shows a coin (saved or first) but says so, and keeps the URL as asked.
     let alive = true
     api.instrument(key).then(
-      (inst) => alive && setCur({ key, inst }),
+      (inst) => {
+        if (!alive) return
+        setFailed(null)
+        setCur({ key, inst })
+      },
       (e: Error) => {
+        if (!alive) return
         const inst = resolveInstrument(undefined, meta.instruments, saved)
-        if (alive && inst) setCur({ key, inst, error: e.message })
+        if (inst) setCur({ key, inst, error: e.message })
+        else setFailed({ key, message: e.message })
       }
     )
     return () => {
@@ -102,7 +115,7 @@ function Shell() {
   }, [meta, search.symbol])
 
   const symbol = cur?.inst.id
-  const exchange = cur ? exchangeFor(cur.inst, search.ex ?? "binance") : undefined
+  const exchange = cur ? sectionExchange(section, cur.inst, search.ex) : undefined
 
   // Canonicalise the URL (alias, missing or unlisted exchange) without a history entry.
   useEffect(() => {
@@ -147,6 +160,15 @@ function Shell() {
       </div>
     )
   }
+  if (failed && !cur) {
+    return (
+      <div className="grid h-svh place-items-center p-6 text-center text-sm">
+        <p role="alert" className="text-destructive">
+          Could not open {failed.key}: {failed.message}.
+        </p>
+      </div>
+    )
+  }
   if (!meta || !cur || !symbol || !exchange) return <div className="h-svh" />
 
   // User picks push a history entry so Back restores the previous coin.
@@ -165,10 +187,10 @@ function Shell() {
     <div className="flex h-svh flex-col">
       <NewsTicker />
       <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
-        <nav className="flex flex-wrap items-center gap-2">
+        <header className="flex flex-wrap items-center gap-2">
           <Link
             to="/"
-            aria-label="Go to home"
+            aria-label="rinng home"
             className="mr-1 flex cursor-pointer items-center gap-2 rounded-lg pl-1 hover:opacity-80"
           >
             <img src="/logo.svg" alt="" className="size-7 rounded-lg" />
@@ -177,7 +199,10 @@ function Shell() {
             </span>
           </Link>
 
-          <div className="flex items-center gap-0.5 rounded-4xl bg-muted p-[3px]">
+          <nav
+            aria-label="Terminal sections"
+            className="flex items-center gap-0.5 rounded-4xl bg-muted p-[3px]"
+          >
             {NAV.map((n) => (
               <Link
                 key={n.to}
@@ -189,10 +214,19 @@ function Shell() {
                 inactiveProps={{ className: "hover:bg-background/50" }}
               >
                 {n.label}
+                {n.label === "Wallet" && blocked > 0 ? (
+                  <span className="ml-1.5 rounded-full bg-sev-high px-1.5 text-[10px] leading-4 text-background">
+                    <span aria-hidden="true">{blocked}</span>
+                    <span className="sr-only">
+                      {blocked} blocked {blocked === 1 ? "request" : "requests"}
+                    </span>
+                  </span>
+                ) : null}
               </Link>
             ))}
-          </div>
+          </nav>
 
+          {section === "wallet" ? <WalletStatus lock={lock.status} /> : null}
           {section && section !== "wallet" ? (
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {section !== "market" ? (
@@ -207,7 +241,10 @@ function Shell() {
               ) : null}
               <Pick
                 items={meta.exchanges
-                  .filter((v) => cur.inst[v as "binance" | "okx"] !== false)
+                  .filter(
+                    (v) =>
+                      section === "market" || cur.inst[v as "binance" | "okx"] !== false
+                  )
                   .map((v) => ({
                     value: v,
                     label: v === "okx" ? "OKX" : v[0].toUpperCase() + v.slice(1),
@@ -219,7 +256,7 @@ function Shell() {
               />
             </div>
           ) : null}
-        </nav>
+        </header>
 
         <TerminalContext.Provider
           value={{ meta, inst: cur.inst, symbol, exchange, choose, setExchange, tabs }}
@@ -297,5 +334,48 @@ function LiveBadge() {
       </TooltipTrigger>
       <TooltipContent>{l.hint}</TooltipContent>
     </Tooltip>
+  )
+}
+
+const LOCK_LABEL = {
+  locked: { dot: "text-pass", hint: "Signing is blocked: window.ethereum is locked by rinng." },
+  wrapped: {
+    dot: "text-sev-medium",
+    hint: "rinng guards its own wallet calls; the wallet pinned window.ethereum.",
+  },
+  absent: { dot: "text-muted-foreground", hint: "No browser wallet found." },
+}
+
+// The wallet side of the bar: who is connected on which network, and the signature lock.
+function WalletStatus({ lock }: { lock: keyof typeof LOCK_LABEL }) {
+  const w = useWallet()
+  const l = LOCK_LABEL[lock]
+  const net = NETWORKS.find((n) => n.chainId === w.chainId)
+  return (
+    <div className="ml-auto flex items-center gap-2 text-xs">
+      {w.address ? (
+        <span className="inline-flex h-7 items-center rounded-4xl bg-muted px-2.5 font-medium">
+          {short(w.address)} ·{" "}
+          {net ? net.name : `Chain ${w.chainId} · not supported`}
+        </span>
+      ) : w.installed ? (
+        <button
+          type="button"
+          onClick={w.connect}
+          disabled={w.connecting}
+          className="inline-flex h-7 cursor-pointer items-center rounded-4xl bg-muted px-2.5 font-medium hover:bg-muted/70"
+        >
+          Use my wallet
+        </button>
+      ) : null}
+      <Tooltip>
+        <TooltipTrigger
+          render={<span role="img" aria-label={l.hint} className={cn("inline-flex", l.dot)} />}
+        >
+          <span aria-hidden="true">●</span>
+        </TooltipTrigger>
+        <TooltipContent>{l.hint}</TooltipContent>
+      </Tooltip>
+    </div>
   )
 }

@@ -68,6 +68,16 @@ export function exchangeFor(inst: Instrument, current: Exchange): Exchange {
   return current
 }
 
+// The exchange on screen: Market keeps what the URL says (it lists every exchange), the other
+// sections flip to one that lists the coin.
+export function sectionExchange(
+  section: Section | null,
+  inst: Instrument,
+  ex: Exchange | undefined
+): Exchange {
+  return section === "market" ? (ex ?? "binance") : exchangeFor(inst, ex ?? "binance")
+}
+
 export function readSavedInstrument(store?: Pick<Storage, "getItem">): Instrument | null {
   try {
     const raw = store?.getItem(INSTRUMENT_KEY)
@@ -95,7 +105,10 @@ export type Current = { key: string | undefined; inst: Instrument; error?: strin
 
 // True when the current coin already answers the URL symbol (requested alias or canonical id).
 export function isResolved(symbol: string | undefined, cur: Current | null): boolean {
-  return !!cur && (symbol === undefined || symbol === cur.key || symbol === cur.inst.id)
+  return (
+    !!cur &&
+    (symbol === undefined || symbol === cur.key || (!cur.error && symbol === cur.inst.id))
+  )
 }
 
 // Rewrite the URL to the canonical id and exchange, unless the coin shown is a fallback for a failed

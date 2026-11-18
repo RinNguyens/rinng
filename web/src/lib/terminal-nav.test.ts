@@ -8,6 +8,7 @@ import {
   readSavedInstrument,
   readSection,
   resolveInstrument,
+  sectionExchange,
   sectionFromPath,
   tabRedirect,
   writeSection,
@@ -242,6 +243,47 @@ describe("isResolved", () => {
       false
     )
     expect(isResolved("eth", { key: "BTC-USDT-PERP", inst: BTC })).toBe(false)
+  })
+
+  it("a fallback's own id does not resolve while the lookup error stands", () => {
+    const cur = { key: "PEPE-USDT-PERP", inst: BTC, error: "offline" }
+    expect(isResolved("BTC-USDT-PERP", cur)).toBe(false)
+    expect(isResolved("PEPE-USDT-PERP", cur)).toBe(true)
+    expect(isResolved(undefined, cur)).toBe(true)
+  })
+
+  it("the canonical id still resolves when there is no error", () => {
+    expect(isResolved("BTC-USDT-PERP", { key: "btc", inst: BTC })).toBe(true)
+  })
+})
+
+describe("sectionExchange", () => {
+  const onlyOkx = inst("A", { binance: false, okx: true })
+  const onlyBinance = inst("B", { binance: true, okx: false })
+
+  it("keeps the URL exchange on Market even when the coin is unlisted there", () => {
+    expect(sectionExchange("market", onlyOkx, "binance")).toBe("binance")
+    expect(sectionExchange("market", onlyBinance, "okx")).toBe("okx")
+    expect(sectionExchange("market", onlyOkx, "okx")).toBe("okx")
+  })
+
+  it("defaults to binance on Market without an exchange", () => {
+    expect(sectionExchange("market", onlyOkx, undefined)).toBe("binance")
+    expect(sectionExchange("market", BTC, undefined)).toBe("binance")
+  })
+
+  it("flips an unlisted exchange on the other sections", () => {
+    for (const s of ["coin", "charts", "wallet", null] as const) {
+      expect(sectionExchange(s, onlyOkx, "binance")).toBe("okx")
+      expect(sectionExchange(s, onlyBinance, "okx")).toBe("binance")
+    }
+  })
+
+  it("keeps a listed exchange and defaults to binance elsewhere", () => {
+    expect(sectionExchange("coin", inst("A", { binance: true, okx: true }), "okx")).toBe("okx")
+    expect(sectionExchange("coin", BTC, "okx")).toBe("okx")
+    expect(sectionExchange("charts", BTC, undefined)).toBe("binance")
+    expect(sectionExchange("coin", onlyOkx, undefined)).toBe("okx")
   })
 })
 
