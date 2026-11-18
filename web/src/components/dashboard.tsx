@@ -4,44 +4,27 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowDownRight01Icon,
   ArrowUpRight01Icon,
+  StarIcon,
 } from "@hugeicons/core-free-icons"
 import { ChartView } from "@/components/chart-view"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
+import type { Combo } from "@/lib/combos"
 import type { ChartData, Instrument, Summary } from "@/lib/api"
 import { CoinIcon, VenueIcon } from "@/components/coin-icon"
+import { ComboShortcuts } from "@/components/combo-shortcuts"
 import { LiveDesk } from "@/components/live-desk"
 import { NewsCard } from "@/components/news"
-import { SyncGroup } from "@/lib/chart-sync"
 import { useBarClose, useLiveQuote } from "@/lib/live"
+import { ago, num, pct, price, tone } from "@/lib/format"
 import { fmtVol } from "@/lib/overlay"
+import { readStarred, toggleStarred } from "@/lib/starred"
+import { browserStore } from "@/lib/terminal-nav"
 import { PRESETS, fromPreset } from "@/lib/workspaces"
 import type { PanelCfg } from "@/lib/workspaces"
 import { cn } from "@/lib/utils"
-
-// ----------------------------------------------------------------- formatting
-
-const num = (v: number, d = 0) =>
-  v.toLocaleString("en-US", {
-    minimumFractionDigits: d,
-    maximumFractionDigits: d,
-  })
-const price = (v: number | null | undefined) =>
-  v == null ? "—" : num(v, v >= 1000 ? 1 : v >= 1 ? 2 : 5)
-const pct = (v: number | null | undefined, d = 2) =>
-  v == null ? "—" : `${v >= 0 ? "+" : "−"}${num(Math.abs(v), d)}%`
-
-function ago(t: number) {
-  const s = Date.now() / 1000 - t
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`
-  return `${Math.round(s / 86400)}d ago`
-}
-
-const tone = (v: number | null | undefined) =>
-  v == null ? "text-muted-foreground" : v >= 0 ? "text-up" : "text-down"
 
 // ----------------------------------------------------------------- shared blocks
 
@@ -151,15 +134,17 @@ export function Dashboard({
   symbol,
   exchange,
   instrument,
+  onOpenCombo,
 }: {
   symbol: string
   exchange: string
   instrument?: Instrument
+  onOpenCombo: (combo: Combo) => void
 }) {
   const base = instrument?.base ?? symbol.split("-")[0]
   const [s, setS] = useState<Summary | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [sync] = useState(() => new SyncGroup())
+  const [starred, setStarred] = useState(() => readStarred(browserStore()))
   // Live quote between candle closes; the closed-candle summary reloads when 1H closes.
   const { tick, mark } = useLiveQuote(symbol, exchange)
   const [rev, setRev] = useState(0)
@@ -205,6 +190,7 @@ export function Dashboard({
   }
 
   const { price: p, derivatives: d } = s
+  const watched = starred.includes(symbol)
   const close = tick?.price ?? p.close
   // Change vs. the reference candles of the summary, re-based on the live price.
   const rebase = (chg: number | null) =>
@@ -226,6 +212,26 @@ export function Dashboard({
               <span className="text-sm font-medium text-foreground">
                 {instrument?.name ?? base}
               </span>
+              <button
+                type="button"
+                aria-pressed={watched}
+                aria-label={
+                  watched ? "Remove from watchlist" : "Add to watchlist"
+                }
+                onClick={() => setStarred(toggleStarred(browserStore(), symbol))}
+                className={cn(
+                  "grid size-6 place-items-center rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                  watched
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <HugeiconsIcon
+                  icon={StarIcon}
+                  className="size-4"
+                  fill={watched ? "currentColor" : "none"}
+                />
+              </button>
               <span className="font-heading">{symbol}</span>
               <Badge variant="secondary" className="gap-1 text-[10px]">
                 <VenueIcon id={exchange} size={11} />
@@ -347,53 +353,17 @@ export function Dashboard({
 
       <NewsCard base={base} />
 
-      {/* ------------------------------------------------ quick charts */}
+      {/* ------------------------------------------------ projection + combo shortcuts */}
       <ProjectionPanel symbol={symbol} exchange={exchange} />
 
-      <div className="grid min-h-[420px] grid-cols-1 gap-3 xl:grid-cols-2">
-        <QuickChart
-          title="SMC structure · 4H"
-          cfg={fromPreset(PRESETS[0])}
-          symbol={symbol}
-          exchange={exchange}
-          sync={sync}
-        />
-        <QuickChart
-          title="Weekly volume profile · 4H"
-          cfg={fromPreset(PRESETS[2])}
-          symbol={symbol}
-          exchange={exchange}
-          sync={sync}
-        />
-      </div>
+      <ComboShortcuts
+        ids={["top-down", "value-liquidity", "positioning"]}
+        onOpen={onOpenCombo}
+      />
 
       <p className="px-1 text-[11px] text-muted-foreground">
         Figures describe market state from closed candles; not trading advice.
       </p>
-    </div>
-  )
-}
-
-function QuickChart({
-  title,
-  cfg,
-  symbol,
-  exchange,
-  sync,
-}: {
-  title: string
-  cfg: PanelCfg
-  symbol: string
-  exchange: string
-  sync: SyncGroup
-}) {
-  const [c] = useState(cfg)
-  return (
-    <div className="flex min-h-[420px] flex-col overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10">
-      <div className="border-b border-foreground/10 px-3 py-2 text-sm font-medium">
-        {title}
-      </div>
-      <ChartView cfg={c} symbol={symbol} exchange={exchange} sync={sync} />
     </div>
   )
 }
