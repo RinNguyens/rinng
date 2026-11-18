@@ -17,6 +17,11 @@ import { Route as TerminalMarketRouteImport } from './routes/terminal/market'
 import { Route as TerminalWalletRouteImport } from './routes/terminal/wallet'
 import { Route as TerminalChartsIndexRouteImport } from './routes/terminal/charts/index'
 import { Route as TerminalChartsTabIdRouteImport } from './routes/terminal/charts/$tabId'
+import { Route as TerminalWalletIndexRouteImport } from './routes/terminal/wallet/index'
+import { Route as TerminalWalletCheckRouteImport } from './routes/terminal/wallet/check'
+import { Route as TerminalWalletLockRouteImport } from './routes/terminal/wallet/lock'
+import { Route as TerminalWalletScanRouteImport } from './routes/terminal/wallet/scan'
+import { Route as TerminalWalletWatchRouteImport } from './routes/terminal/wallet/watch'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -58,25 +63,59 @@ const TerminalChartsTabIdRoute = TerminalChartsTabIdRouteImport.update({
   path: '/charts/$tabId',
   getParentRoute: () => TerminalRoute,
 } as any)
+const TerminalWalletIndexRoute = TerminalWalletIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TerminalWalletRoute,
+} as any)
+const TerminalWalletCheckRoute = TerminalWalletCheckRouteImport.update({
+  id: '/check',
+  path: '/check',
+  getParentRoute: () => TerminalWalletRoute,
+} as any)
+const TerminalWalletLockRoute = TerminalWalletLockRouteImport.update({
+  id: '/lock',
+  path: '/lock',
+  getParentRoute: () => TerminalWalletRoute,
+} as any)
+const TerminalWalletScanRoute = TerminalWalletScanRouteImport.update({
+  id: '/scan',
+  path: '/scan',
+  getParentRoute: () => TerminalWalletRoute,
+} as any)
+const TerminalWalletWatchRoute = TerminalWalletWatchRouteImport.update({
+  id: '/watch',
+  path: '/watch',
+  getParentRoute: () => TerminalWalletRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/terminal': typeof TerminalRouteWithChildren
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
-  '/terminal/wallet': typeof TerminalWalletRoute
+  '/terminal/wallet': typeof TerminalWalletRouteWithChildren
   '/terminal/': typeof TerminalIndexRoute
   '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/wallet/check': typeof TerminalWalletCheckRoute
+  '/terminal/wallet/lock': typeof TerminalWalletLockRoute
+  '/terminal/wallet/scan': typeof TerminalWalletScanRoute
+  '/terminal/wallet/watch': typeof TerminalWalletWatchRoute
   '/terminal/charts/': typeof TerminalChartsIndexRoute
+  '/terminal/wallet/': typeof TerminalWalletIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
-  '/terminal/wallet': typeof TerminalWalletRoute
   '/terminal': typeof TerminalIndexRoute
   '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/wallet/check': typeof TerminalWalletCheckRoute
+  '/terminal/wallet/lock': typeof TerminalWalletLockRoute
+  '/terminal/wallet/scan': typeof TerminalWalletScanRoute
+  '/terminal/wallet/watch': typeof TerminalWalletWatchRoute
   '/terminal/charts': typeof TerminalChartsIndexRoute
+  '/terminal/wallet': typeof TerminalWalletIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -84,10 +123,15 @@ export interface FileRoutesById {
   '/terminal': typeof TerminalRouteWithChildren
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
-  '/terminal/wallet': typeof TerminalWalletRoute
+  '/terminal/wallet': typeof TerminalWalletRouteWithChildren
   '/terminal/': typeof TerminalIndexRoute
   '/terminal/charts/$tabId': typeof TerminalChartsTabIdRoute
+  '/terminal/wallet/check': typeof TerminalWalletCheckRoute
+  '/terminal/wallet/lock': typeof TerminalWalletLockRoute
+  '/terminal/wallet/scan': typeof TerminalWalletScanRoute
+  '/terminal/wallet/watch': typeof TerminalWalletWatchRoute
   '/terminal/charts/': typeof TerminalChartsIndexRoute
+  '/terminal/wallet/': typeof TerminalWalletIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -99,16 +143,25 @@ export interface FileRouteTypes {
     | '/terminal/wallet'
     | '/terminal/'
     | '/terminal/charts/$tabId'
+    | '/terminal/wallet/check'
+    | '/terminal/wallet/lock'
+    | '/terminal/wallet/scan'
+    | '/terminal/wallet/watch'
     | '/terminal/charts/'
+    | '/terminal/wallet/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/terminal/coin'
     | '/terminal/market'
-    | '/terminal/wallet'
     | '/terminal'
     | '/terminal/charts/$tabId'
+    | '/terminal/wallet/check'
+    | '/terminal/wallet/lock'
+    | '/terminal/wallet/scan'
+    | '/terminal/wallet/watch'
     | '/terminal/charts'
+    | '/terminal/wallet'
   id:
     | '__root__'
     | '/'
@@ -118,7 +171,12 @@ export interface FileRouteTypes {
     | '/terminal/wallet'
     | '/terminal/'
     | '/terminal/charts/$tabId'
+    | '/terminal/wallet/check'
+    | '/terminal/wallet/lock'
+    | '/terminal/wallet/scan'
+    | '/terminal/wallet/watch'
     | '/terminal/charts/'
+    | '/terminal/wallet/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,13 +242,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TerminalChartsTabIdRouteImport
       parentRoute: typeof TerminalRoute
     }
+    '/terminal/wallet/': {
+      id: '/terminal/wallet/'
+      path: '/'
+      fullPath: '/terminal/wallet/'
+      preLoaderRoute: typeof TerminalWalletIndexRouteImport
+      parentRoute: typeof TerminalWalletRoute
+    }
+    '/terminal/wallet/check': {
+      id: '/terminal/wallet/check'
+      path: '/check'
+      fullPath: '/terminal/wallet/check'
+      preLoaderRoute: typeof TerminalWalletCheckRouteImport
+      parentRoute: typeof TerminalWalletRoute
+    }
+    '/terminal/wallet/lock': {
+      id: '/terminal/wallet/lock'
+      path: '/lock'
+      fullPath: '/terminal/wallet/lock'
+      preLoaderRoute: typeof TerminalWalletLockRouteImport
+      parentRoute: typeof TerminalWalletRoute
+    }
+    '/terminal/wallet/scan': {
+      id: '/terminal/wallet/scan'
+      path: '/scan'
+      fullPath: '/terminal/wallet/scan'
+      preLoaderRoute: typeof TerminalWalletScanRouteImport
+      parentRoute: typeof TerminalWalletRoute
+    }
+    '/terminal/wallet/watch': {
+      id: '/terminal/wallet/watch'
+      path: '/watch'
+      fullPath: '/terminal/wallet/watch'
+      preLoaderRoute: typeof TerminalWalletWatchRouteImport
+      parentRoute: typeof TerminalWalletRoute
+    }
   }
 }
+
+interface TerminalWalletRouteChildren {
+  TerminalWalletCheckRoute: typeof TerminalWalletCheckRoute
+  TerminalWalletLockRoute: typeof TerminalWalletLockRoute
+  TerminalWalletScanRoute: typeof TerminalWalletScanRoute
+  TerminalWalletWatchRoute: typeof TerminalWalletWatchRoute
+  TerminalWalletIndexRoute: typeof TerminalWalletIndexRoute
+}
+
+const TerminalWalletRouteChildren: TerminalWalletRouteChildren = {
+  TerminalWalletCheckRoute: TerminalWalletCheckRoute,
+  TerminalWalletLockRoute: TerminalWalletLockRoute,
+  TerminalWalletScanRoute: TerminalWalletScanRoute,
+  TerminalWalletWatchRoute: TerminalWalletWatchRoute,
+  TerminalWalletIndexRoute: TerminalWalletIndexRoute,
+}
+
+const TerminalWalletRouteWithChildren = TerminalWalletRoute._addFileChildren(
+  TerminalWalletRouteChildren,
+)
 
 interface TerminalRouteChildren {
   TerminalCoinRoute: typeof TerminalCoinRoute
   TerminalMarketRoute: typeof TerminalMarketRoute
-  TerminalWalletRoute: typeof TerminalWalletRoute
+  TerminalWalletRoute: typeof TerminalWalletRouteWithChildren
   TerminalIndexRoute: typeof TerminalIndexRoute
   TerminalChartsTabIdRoute: typeof TerminalChartsTabIdRoute
   TerminalChartsIndexRoute: typeof TerminalChartsIndexRoute
@@ -199,7 +312,7 @@ interface TerminalRouteChildren {
 const TerminalRouteChildren: TerminalRouteChildren = {
   TerminalCoinRoute: TerminalCoinRoute,
   TerminalMarketRoute: TerminalMarketRoute,
-  TerminalWalletRoute: TerminalWalletRoute,
+  TerminalWalletRoute: TerminalWalletRouteWithChildren,
   TerminalIndexRoute: TerminalIndexRoute,
   TerminalChartsTabIdRoute: TerminalChartsTabIdRoute,
   TerminalChartsIndexRoute: TerminalChartsIndexRoute,

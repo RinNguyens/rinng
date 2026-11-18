@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs"
+import { join, relative } from "node:path"
+import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 import {
   ALLOWED_METHODS,
@@ -120,5 +123,42 @@ describe("lockInjectedProvider", () => {
     const res = lockInjectedProvider(g)
     expect(res.status).toBe("wrapped")
     expect(isGuarded(res.provider!)).toBe(true)
+  })
+})
+
+// Source sweep: no code under web/src may ask a wallet for a method outside the allowlist.
+const methodsIn = (source: string): Array<string> =>
+  [...source.matchAll(/\bmethod\s*:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1])
+
+const SRC = fileURLToPath(new URL("..", import.meta.url))
+
+const sourceFiles = (dir: string): Array<string> =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = join(dir, e.name)
+    if (e.isDirectory()) return e.name === "node_modules" ? [] : sourceFiles(p)
+    return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : []
+  })
+
+describe("allowlist sweep", () => {
+  it("the sweep catches a method outside the allowlist in a sample source", () => {
+    const sample = `await p.request({ method: "eth_chainId" })\nawait p.request({ method: "eth_sendTransaction", params: [tx] })`
+    const found = methodsIn(sample)
+    expect(found).toEqual(["eth_chainId", "eth_sendTransaction"])
+    expect(found.filter((m) => !ALLOWED_METHODS.has(m))).toEqual(["eth_sendTransaction"])
+  })
+
+  it("no source file asks the wallet for a method outside the allowlist", () => {
+    const files = sourceFiles(SRC).filter((f) => relative(SRC, f) !== join("lib", "guard.ts"))
+    expect(files.length).toBeGreaterThan(10)
+    const offenders: Array<string> = []
+    let seen = 0
+    for (const f of files) {
+      for (const m of methodsIn(readFileSync(f, "utf8"))) {
+        seen++
+        if (!ALLOWED_METHODS.has(m)) offenders.push(`${relative(SRC, f)}: ${m}`)
+      }
+    }
+    expect(seen).toBeGreaterThan(0)
+    expect(offenders).toEqual([])
   })
 })
