@@ -276,3 +276,86 @@ def test_persistent_network_error_raises():
 
     with pytest.raises(httpx.ConnectError):
         collect(make(handler, max_retries=1).klines("BTCUSDT", "1h", T0, T0 + timedelta(hours=1)))
+
+
+# --------------------------------------------------------------------------- bulk market data
+
+
+def test_tickers_24h_parses_all_symbols():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "symbol": "SPXUSDT",
+                    "priceChange": "0.0132000",
+                    "priceChangePercent": "4.450",
+                    "lastPrice": "0.3145000",
+                    "volume": "12365700",
+                    "quoteVolume": "3888972.0801000",
+                },
+                {
+                    "symbol": "BTCUSDT",
+                    "priceChangePercent": "-1.20",
+                    "lastPrice": "91204.10",
+                    "quoteVolume": "12400000000.5",
+                },
+            ],
+            headers={"x-mbx-used-weight-1m": "40"},
+        )
+
+    rows = make(handler).tickers_24h()
+    assert len(seen) == 1
+    assert seen[0].url.path == "/fapi/v1/ticker/24hr"
+    assert "symbol" not in seen[0].url.params  # all symbols in one call
+    assert rows == [
+        {"symbol": "SPXUSDT", "price": 0.3145, "chg_24h": 4.45, "volume_24h": 3888972.0801},
+        {"symbol": "BTCUSDT", "price": 91204.10, "chg_24h": -1.2, "volume_24h": 12400000000.5},
+    ]
+
+
+def test_premium_index_parses_rate_and_next_funding():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "symbol": "BTCUSDT",
+                    "markPrice": "91200.1",
+                    "lastFundingRate": "0.00010000",
+                    "nextFundingTime": 1763391600000,
+                    "time": 1763380800000,
+                },
+                {
+                    "symbol": "SPXUSDT",
+                    "lastFundingRate": "-0.00005250",
+                    "nextFundingTime": "1763385600000",
+                },
+            ],
+        )
+
+    rows = make(handler).premium_index()
+    assert len(seen) == 1
+    assert seen[0].url.path == "/fapi/v1/premiumIndex"
+    assert "symbol" not in seen[0].url.params
+    assert rows == [
+        {"symbol": "BTCUSDT", "funding_rate": 0.0001, "next_funding": 1763391600},
+        {"symbol": "SPXUSDT", "funding_rate": -0.0000525, "next_funding": 1763385600},
+    ]
+
+
+def test_bulk_endpoints_raise_on_rate_limit():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, headers={"retry-after": "1"})
+
+    api = make(handler, max_retries=0)
+    with pytest.raises(RateLimited):
+        api.tickers_24h()
+    with pytest.raises(RateLimited):
+        api.premium_index()

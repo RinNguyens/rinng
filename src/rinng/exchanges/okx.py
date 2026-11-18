@@ -48,6 +48,8 @@ OPEN_INTEREST = "/api/v5/rubik/stat/contracts/open-interest-history"
 LONG_SHORT = "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract"
 TAKER_VOLUME = "/api/v5/rubik/stat/taker-volume-contract"
 INSTRUMENTS = "/api/v5/public/instruments"
+TICKERS = "/api/v5/market/tickers"
+FUNDING_RATE = "/api/v5/public/funding-rate"
 
 # Requests per 2 seconds per the exchange docs.
 _LIMITS = {
@@ -58,6 +60,8 @@ _LIMITS = {
     LONG_SHORT: 5,
     TAKER_VOLUME: 5,
     INSTRUMENTS: 20,
+    TICKERS: 20,
+    FUNDING_RATE: 10,
 }
 
 
@@ -175,6 +179,29 @@ class Okx:
                 {"time": int(x[0]), "buy_volume": float(x[2]), "sell_volume": float(x[1])}
                 for x in page
             ]
+
+    def swap_tickers(self) -> list[Row]:
+        """Last price, 24 h open and base-currency volume of every SWAP, in one call."""
+        return [
+            {
+                "inst_id": x["instId"],
+                "price": float(x["last"]),
+                "open_24h": float(x["open24h"]),
+                "volume_24h_base": float(x["volCcy24h"]),
+            }
+            for x in self._get(TICKERS, {"instType": "SWAP"})
+        ]
+
+    def funding_rates(self) -> list[Row]:
+        """Current funding rate and next funding time (seconds) of every SWAP."""
+        return [
+            {
+                "inst_id": x["instId"],
+                "funding_rate": float(x["fundingRate"]),
+                "next_funding": int(x["nextFundingTime"]) // 1000,
+            }
+            for x in self._get(FUNDING_RATE, {"instId": "ANY"})
+        ]
 
     # --- internals ---
 

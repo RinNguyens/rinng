@@ -202,3 +202,109 @@ def test_transient_network_error_is_retried():
 
     rows = collect(make(handler).klines("BTC-USDT-SWAP", "1h", T0, T0 + timedelta(hours=1)))
     assert len(rows) == 1
+
+
+# --------------------------------------------------------------------------- bulk market data
+
+
+def test_swap_tickers_parses_last_open_volume():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "code": "0",
+                "data": [
+                    {
+                        "instType": "SWAP",
+                        "instId": "BTC-USDT-SWAP",
+                        "last": "91204.1",
+                        "open24h": "90100.5",
+                        "vol24h": "5200000",
+                        "volCcy24h": "52000.25",
+                        "ts": "1763380800000",
+                    },
+                    {
+                        "instType": "SWAP",
+                        "instId": "CHIP-USDT-SWAP",
+                        "last": "0.0821",
+                        "open24h": "0.08",
+                        "volCcy24h": "1500000",
+                    },
+                ],
+            },
+        )
+
+    rows = make(handler).swap_tickers()
+    assert len(seen) == 1
+    assert seen[0].url.path == "/api/v5/market/tickers"
+    assert dict(seen[0].url.params) == {"instType": "SWAP"}
+    assert rows == [
+        {
+            "inst_id": "BTC-USDT-SWAP",
+            "price": 91204.1,
+            "open_24h": 90100.5,
+            "volume_24h_base": 52000.25,
+        },
+        {
+            "inst_id": "CHIP-USDT-SWAP",
+            "price": 0.0821,
+            "open_24h": 0.08,
+            "volume_24h_base": 1500000.0,
+        },
+    ]
+
+
+def test_funding_rates_reads_every_swap_in_one_call():
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "code": "0",
+                "data": [
+                    {
+                        "instType": "SWAP",
+                        "instId": "CHIP-USDT-SWAP",
+                        "fundingRate": "0.0000241865880285",
+                        "nextFundingRate": "",
+                        "fundingTime": "1794916800000",
+                        "nextFundingTime": "1794945600000",
+                    },
+                    {
+                        "instType": "SWAP",
+                        "instId": "BTC-USDT-SWAP",
+                        "fundingRate": "-0.0001",
+                        "nextFundingTime": "1794931200000",
+                    },
+                ],
+            },
+        )
+
+    rows = make(handler).funding_rates()
+    assert len(seen) == 1
+    assert seen[0].url.path == "/api/v5/public/funding-rate"
+    assert dict(seen[0].url.params) == {"instId": "ANY"}
+    assert rows == [
+        {
+            "inst_id": "CHIP-USDT-SWAP",
+            "funding_rate": 0.0000241865880285,
+            "next_funding": 1794945600,
+        },
+        {"inst_id": "BTC-USDT-SWAP", "funding_rate": -0.0001, "next_funding": 1794931200},
+    ]
+
+
+def test_bulk_endpoints_raise_on_exchange_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": "50011", "msg": "Too many requests"})
+
+    api = make(handler, max_retries=0)
+    with pytest.raises(RateLimited):
+        api.swap_tickers()
+    with pytest.raises(RateLimited):
+        api.funding_rates()

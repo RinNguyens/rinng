@@ -127,6 +127,31 @@ class Binance:
                 for x in page
             ]
 
+    def tickers_24h(self) -> list[Row]:
+        """24 h price, change % and quote volume of every perpetual, in one call."""
+        raw = self._get("/fapi/v1/ticker/24hr", {}, self._weight)
+        return [
+            {
+                "symbol": x["symbol"],
+                "price": float(x["lastPrice"]),
+                "chg_24h": float(x["priceChangePercent"]),
+                "volume_24h": float(x["quoteVolume"]),
+            }
+            for x in raw
+        ]
+
+    def premium_index(self) -> list[Row]:
+        """Current funding rate and next funding time (seconds) of every perpetual."""
+        raw = self._get("/fapi/v1/premiumIndex", {}, self._weight)
+        return [
+            {
+                "symbol": x["symbol"],
+                "funding_rate": float(x["lastFundingRate"]),
+                "next_funding": int(x["nextFundingTime"]) // 1000,
+            }
+            for x in raw
+        ]
+
     # --- internals ---
 
     def _stats(self, endpoint: str, symbol: str, period: str, start: datetime, end: datetime):

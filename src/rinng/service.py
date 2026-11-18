@@ -47,6 +47,8 @@ DESK_DAYS = 70  # 5m history behind the desk projection (~20k candles)
 MAX_BARS = 3000
 MIN_DAYS, MAX_DAYS = 2, 3000
 CACHE_SIZE = 256
+MARKET_TTL = 30.0
+NOT_STORED = {"collected": False, "oi_value": None, "oi_chg_24h": None, "ls_ratio": None}
 
 
 class NotFound(LookupError):
@@ -125,9 +127,10 @@ class Rinng:
     def stamp(self, exchange: str, symbol: str, tf: str) -> int | None:
         return None if self.hub is None else self.hub.last_closed.get((exchange, symbol, tf))
 
-    def cached(self, key: tuple, fn: Callable[[], Any]) -> Any:
+    def cached(self, key: tuple, fn: Callable[[], Any], ttl: float | None = None) -> Any:
         # Last key is the closed-bar time; without one (off-config coin, no feed) 60 s.
-        life = self.ttl if key[-1] is not None else 60.0
+        # An explicit `ttl` overrides both.
+        life = ttl or (self.ttl if key[-1] is not None else 60.0)
         with self._lock:
             hit = self._cache.get(key)
         if hit and time.time() - hit[0] < life:
@@ -285,6 +288,75 @@ class Rinng:
             instrument_json(i, self.catalog.is_configured(i.id))
             for i in self.catalog.search(query, limit)
         ]
+
+    def market(self, exchange: str) -> dict:
+        """One row per listed USDT perp: price, 24 h change, volume and funding from two bulk REST
+        calls (cached 30 s); open interest and long/short only for coins with stored data."""
+        self._check_exchange(exchange)
+        if self.offline:
+            raise Offline("the market table needs the network (offline)")
+        return self.cached(("market", exchange), lambda: self._market(exchange), ttl=MARKET_TTL)
+
+    def _market(self, exchange: str) -> dict:
+        from rinng.exchanges.binance import Binance
+        from rinng.exchanges.okx import Okx
+
+        if exchange == "binance":
+            api = Binance()
+            funding = {f["symbol"]: f for f in api.premium_index()}
+            quotes = {t["symbol"]: t for t in api.tickers_24h()}
+        else:
+            api = Okx()
+            funding = {f["inst_id"]: f for f in api.funding_rates()}
+            quotes = {
+                t["inst_id"]: {
+                    **t,
+                    "chg_24h": (t["price"] / t["open_24h"] - 1) * 100 if t["open_24h"] else 0.0,
+                    "volume_24h": t["volume_24h_base"] * t["price"],
+                }
+                for t in api.swap_tickers()
+            }
+        named = {i.id: i.name for i in self.settings.instruments}
+        rows = []
+        for inst in self.catalog._listed().values():
+            venue = getattr(inst, exchange, None)
+            if venue not in quotes or venue not in funding:
+                continue
+            q, f = quotes[venue], funding[venue]
+            rows.append(
+                {
+                    "symbol": inst.id,
+                    "base": inst.base,
+                    "name": named.get(inst.id) or inst.base,
+                    "price": q["price"],
+                    "chg_24h": q["chg_24h"],
+                    "volume_24h": q["volume_24h"],
+                    "funding_rate_pct": f["funding_rate"] * 100,
+                    "next_funding": f["next_funding"],
+                    **(self._stored_derivs(exchange, inst.id) if inst.id in named else NOT_STORED),
+                }
+            )
+        return {"time": time.time(), "exchange": exchange, "rows": rows}
+
+    def _stored_derivs(self, exchange: str, symbol: str) -> dict:
+        """Open interest (value, 24 h change %) and long/short ratio from curated data only."""
+        oi = read_curated(self.paths, OPEN_INTEREST, exchange=exchange, symbol=symbol)
+        if oi.is_empty():
+            return NOT_STORED
+        oi = oi.sort("time")
+        now = oi.row(-1, named=True)
+        before = oi.filter(pl.col("time") <= now["time"] - timedelta(hours=24))
+        chg = None
+        if not before.is_empty() and before["oi_base"][-1]:
+            chg = (now["oi_base"] / before["oi_base"][-1] - 1) * 100
+        ls = read_curated(self.paths, LONG_SHORT, exchange=exchange, symbol=symbol)
+        ls = ls.filter(pl.col("kind") == "global_account").sort("time")
+        return {
+            "collected": True,
+            "oi_value": now["oi_value"],
+            "oi_chg_24h": chg,
+            "ls_ratio": None if ls.is_empty() else ls["ratio"][-1],
+        }
 
     def instrument_info(self, symbol: str) -> dict:
         inst = self.instrument(symbol)
