@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from rinng.makemoney_signals import analyse
+
 if TYPE_CHECKING:
     from rinng.service import Rinng
 
@@ -56,6 +58,7 @@ class Config:
     interval_sec: int = 300
     taker_fee_pct: float = 0.05  # Binance regular tier taker
     slippage_bps: float = 2.0  # beyond best bid/ask on market and stop fills
+    auto_signal: bool = True  # open a simulated order as soon as a 5m signal fires
     notes: str = ""
 
     def public(self) -> dict:
@@ -173,6 +176,12 @@ class Binance:
             "next_funding": int(prem["nextFundingTime"]),
         }
 
+    async def klines_5m(self, sym: str, limit: int = 1500) -> list[list[float]]:
+        raw = await self.get(
+            "/fapi/v1/klines", symbol=venue_symbol(sym), interval="5m", limit=limit
+        )
+        return [[float(x) for x in b[:6]] for b in raw]
+
     async def bars(self, sym: str, start_ms: int, mark: bool = False) -> list[list]:
         """1m bars from start_ms (up to 1500, ~25h) as [open_ms, o, h, l, c]."""
         path = "/fapi/v1/markPriceKlines" if mark else "/fapi/v1/klines"
@@ -198,6 +207,7 @@ class MakeMoney:
         self.last_error: str | None = None
         self.last_tick: float | None = None
         self.last_guard: float | None = None
+        self._analysis: dict[str, tuple[float, dict]] = {}
 
     # ---------- persistence ----------
     def _load_config(self) -> Config:
@@ -289,6 +299,8 @@ class MakeMoney:
                 if self.state["positions"]:
                     async with self.lock:
                         await self.guard()
+                if self.cfg.auto_signal:
+                    await self.scan_signals()
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -351,7 +363,65 @@ class MakeMoney:
         )
 
     # ---------- orders ----------
-    async def _open(self, sym: str, side: str, lev: int, stop: float, take: float, why: str):
+    async def analysis(self, sym: str) -> dict:
+        """5m analysis (see makemoney_signals), cached for 15s per symbol."""
+        hit = self._analysis.get(sym)
+        if hit and time.time() - hit[0] < 15:
+            return hit[1]
+        bars = await self.bn.klines_5m(sym)
+        a = await asyncio.to_thread(analyse, bars)
+        self._analysis[sym] = (time.time(), a)
+        return a
+
+    async def scan_signals(self) -> None:
+        """Open a simulated order for a signal on the most recently closed 5m bar."""
+        for sym in self.cfg.symbols:
+            a = await self.analysis(sym)
+            if len(a["candles"]) < 2 or not a["signals"]:
+                continue
+            sig = a["signals"][-1]
+            if sig["time"] != a["candles"][-2]["time"]:  # not the bar that just closed
+                continue
+            key = f"{sym}:{sig['time']}:{sig['side']}"
+            taken = self.state.setdefault("taken_signals", [])
+            if key in taken:
+                continue
+            async with self.lock:
+                taken.append(key)
+                del taken[:-500]
+                held = any(p["symbol"] == sym for p in self.state["positions"])
+                why = f"SIGNAL {sig['side']}: " + "; ".join(sig["reasons"])
+                if held:
+                    self._note(f"SIGNAL {sig['side']} {sym} skipped: position already open")
+                elif len(self.state["positions"]) >= self.cfg.max_positions:
+                    self._note(f"SIGNAL {sig['side']} {sym} skipped: max positions reached")
+                else:
+                    err = None
+                    for lev in range(self.cfg.max_leverage, 0, -1):
+                        try:
+                            await self._open(
+                                sym, sig["side"], lev, sig["stop"], sig["take"], why, "signal"
+                            )
+                            err = None
+                            break
+                        except ValueError as e:
+                            err = e
+                            if "liquidation" not in str(e):
+                                break
+                    if err:
+                        self._note(f"SIGNAL {sig['side']} {sym} rejected: {err}")
+                self._save_state()
+
+    async def _open(
+        self,
+        sym: str,
+        side: str,
+        lev: int,
+        stop: float,
+        take: float,
+        why: str,
+        source: str = "haiku",
+    ):
         f = await self.bn.symbol_filters(sym)
         if f["status"] != "TRADING":
             raise ValueError(f"{sym} is {f['status']}")
@@ -393,6 +463,7 @@ class MakeMoney:
             "take": take,
             "opened": time.time(),
             "reason": why,
+            "source": source,
             "open_fee": open_fee,
             "funding": 0.0,
             "mark": q["mark"],
@@ -476,6 +547,9 @@ class MakeMoney:
 It behaves like the real exchange: market fills at bid/ask plus slippage, {c.taker_fee_pct}%
 taker fee each side, funding every 8h, liquidation at the mark price forfeits the margin.
 Goal: grow equity while protecting it. Doing nothing is a valid choice.
+Each symbol has `analysis_5m` from a rule-based 5m engine (trend, structure, support and
+resistance, last signal and its recent hit rate). When auto-signal is on, that engine opens
+orders itself; positions show `source` ("signal" or "haiku"). Manage all of them.
 
 Rules:
 - Max leverage {c.max_leverage}x, max {c.max_positions} open positions, one per symbol.
@@ -542,6 +616,11 @@ Use an empty actions list to hold."""
                         k: v for k, v in (s.get("price") or {}).items() if k != "spark"
                     }
                     market[sym]["live"] = q | {"time_utc": time.strftime("%H:%M:%S", time.gmtime())}
+                    a5 = await self.analysis(sym)
+                    market[sym]["analysis_5m"] = a5["summary"] | {
+                        "resistance": a5["resistance"],
+                        "support": a5["support"],
+                    }
                 ctx = {
                     "equity": round(self.equity_now(), 2),
                     "available_balance": round(self.state["balance"], 2),
@@ -557,7 +636,9 @@ Use an empty actions list to hold."""
                                 "stop",
                                 "take",
                                 "mark",
+                                "source",
                             )
+                            if k in p
                         }
                         | {"upnl": round(self._pnl(p, p["mark"]), 2), "liq": round(liq_price(p), 6)}
                         for p in self.state["positions"]

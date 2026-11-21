@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -35,6 +36,7 @@ type Config = {
   interval_sec: number
   taker_fee_pct: number
   slippage_bps: number
+  auto_signal: boolean
   notes: string
   api_key_set: boolean
   api_key_hint: string
@@ -207,6 +209,7 @@ function MakeMoneyPage() {
                 symbols={snap?.config.symbols ?? []}
                 positions={snap?.positions ?? []}
                 trades={snap?.trades ?? []}
+                autoSignal={snap?.config.auto_signal ?? false}
               />
             </CardContent>
           </Card>
@@ -311,6 +314,7 @@ function Settings({
             interval_sec: String(cfg.interval_sec),
             taker_fee_pct: String(cfg.taker_fee_pct),
             slippage_bps: String(cfg.slippage_bps),
+            auto_signal: cfg.auto_signal ? "1" : "",
             notes: cfg.notes,
           }
     )
@@ -334,6 +338,7 @@ function Settings({
         interval_sec: Number(form.interval_sec),
         taker_fee_pct: Number(form.taker_fee_pct),
         slippage_bps: Number(form.slippage_bps),
+        auto_signal: form.auto_signal === "1",
         notes: form.notes,
       })
       setKey("")
@@ -501,6 +506,22 @@ function Settings({
             "Past best bid/ask",
             "number"
           )}
+        </div>
+        <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+          <div className="grid gap-0.5">
+            <Label htmlFor="mm-auto">Auto-trade 5m signals</Label>
+            <p className="text-xs text-muted-foreground">
+              Open a simulated order the moment a long/short signal closes.
+              Haiku still manages every position while the bot runs.
+            </p>
+          </div>
+          <Switch
+            id="mm-auto"
+            checked={form.auto_signal === "1"}
+            onCheckedChange={(v) =>
+              setForm((f) => ({ ...f, auto_signal: v ? "1" : "" }))
+            }
+          />
         </div>
         <div className="grid gap-1">
           <Label htmlFor="mm-notes">Extra instructions</Label>

@@ -74,6 +74,11 @@ def create_app(
     async def mm_symbols():
         return await mm.bn.top_symbols()
 
+    @app.get("/api/makemoney/analysis")
+    async def mm_analysis(symbol: str = Query("BTC-USDT-PERP")):
+        """5m candles, EMAs, VWAP, RSI, swings, BOS/CHoCH, levels and long/short signals."""
+        return await mm.analysis(symbol)
+
     @app.get("/api/makemoney/candles")
     async def mm_candles(
         symbol: str = Query("BTC-USDT-PERP"), limit: int = Query(288, ge=10, le=1500)
