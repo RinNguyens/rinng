@@ -74,29 +74,6 @@ export function LiveStatus({
   autoSignal: boolean
   tf: string
 }) {
-  const [proj, setProj] = useState<
-    Partial<Record<string, TradeProjection | null>>
-  >({})
-  const openIds = positions.map((p) => p.id).join(",")
-  useEffect(() => {
-    if (!openIds) return
-    let alive = true
-    const load = () =>
-      fetch("/api/makemoney/projection", { cache: "no-store" })
-        .then((r) => r.json())
-        .then(
-          (d: { orders: Partial<Record<string, TradeProjection | null>> }) => {
-            if (alive) setProj(d.orders)
-          }
-        )
-        .catch(() => {})
-    load()
-    const id = setInterval(load, 30_000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
-  }, [openIds])
   const total = Math.max(equity, 1)
   const freePct = (balance / total) * 100
   const marginPct = (marginUsed / total) * 100
@@ -161,103 +138,13 @@ export function LiveStatus({
             />
           </div>
         </div>
-        {positions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No open trade. The bot is waiting for a signal; the watch below
-            shows how close each coin is.
-          </p>
-        ) : (
-          <div className="grid gap-3">
-            {positions.map((p) => (
-              <PositionCard
-                key={p.symbol}
-                p={p}
-                proj={proj[String(p.id)] ?? null}
-              />
-            ))}
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {positions.length === 0
+            ? "No open order: the trade desk below shows how close the next signal is."
+            : `${positions.length} open order${positions.length > 1 ? "s" : ""}: follow ${positions.length > 1 ? "them" : "it"} live on the trade desk below.`}
+        </p>
       </CardContent>
     </Card>
-  )
-}
-
-function PositionCard({
-  p,
-  proj,
-}: {
-  p: LivePosition
-  proj: TradeProjection | null
-}) {
-  const long = p.side === "long"
-  const mark = p.mark ?? p.entry
-  // a straight line from the stop (0%) to the take-profit (100%)
-  const pos = (x: number) =>
-    Math.min(100, Math.max(0, ((x - p.stop) / (p.take - p.stop)) * 100))
-  const risk = Math.abs(p.entry - p.stop) * p.qty
-  const reward = Math.abs(p.take - p.entry) * p.qty
-  const left = p.deadline ? p.deadline - Date.now() / 1000 : null
-  return (
-    <div className="rounded-lg border p-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-mono text-muted-foreground">#{p.id ?? "–"}</span>
-        <b>{coin(p.symbol)}</b>
-        <span
-          className={cn(
-            "rounded px-1.5 text-xs font-semibold",
-            long
-              ? "bg-emerald-500/15 text-emerald-500"
-              : "bg-red-500/15 text-red-500"
-          )}
-        >
-          {long ? "LONG" : "SHORT"} x{p.leverage}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {p.source === "signal" ? "auto signal" : "Haiku"} · opened{" "}
-          {ago(p.opened)}
-          {p.be && " · stop at break-even"}
-        </span>
-        <span
-          className={cn(
-            "ml-auto font-mono text-base font-semibold",
-            tone(p.upnl)
-          )}
-        >
-          {p.upnl >= 0 ? "+" : ""}
-          {usd(p.upnl)}
-        </span>
-      </div>
-      <div className="relative mt-3 h-2 rounded-full bg-gradient-to-r from-red-500/60 via-muted to-emerald-500/60">
-        <Tick at={pos(p.entry)} label="entry" color="bg-sky-400" />
-        {p.tp1 != null && !p.be && (
-          <Tick at={pos(p.tp1)} label="TP1" color="bg-emerald-300" />
-        )}
-        <div
-          className="absolute -top-1 size-4 -translate-x-1/2 rounded-full border-2 border-background bg-foreground"
-          style={{ left: `${pos(mark)}%` }}
-          title={`mark ${mark}`}
-        />
-      </div>
-      <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs tabular-nums sm:grid-cols-4">
-        <span>
-          <span className="text-red-500">SL</span> {price(p.stop)} (
-          {p.be ? "BE" : `-${usd(risk)}`})
-        </span>
-        <span>
-          entry {price(p.entry)} → mark {price(mark)}
-        </span>
-        <span>
-          <span className="text-emerald-500">TP</span> {price(p.take)} (+
-          {usd(reward)})
-        </span>
-        <span>
-          <span className="text-amber-500">liq</span> {price(p.liq)}
-          {left != null &&
-            ` · ${left > 0 ? `${num(left / 3600, 1)}h left` : "time stop"}`}
-        </span>
-      </div>
-      {proj && <ProjectionBox x={proj} />}
-    </div>
   )
 }
 
@@ -275,89 +162,6 @@ export type TradeProjection = {
   median_end: number
   analogs: number
   pool: number
-}
-
-function ProjectionBox({ x }: { x: TradeProjection }) {
-  const hrs = (x.horizon_bars * x.bar_sec) / 3600
-  const seg = [
-    {
-      w: x.p_tp_first,
-      c: "bg-emerald-500",
-      label: `TP first ${num(x.p_tp_first * 100, 0)}%`,
-    },
-    {
-      w: x.p_neither,
-      c: "bg-muted-foreground/40",
-      label: `time stop ${num(x.p_neither * 100, 0)}%`,
-    },
-    {
-      w: x.p_sl_first,
-      c: "bg-red-500",
-      label: `SL first ${num(x.p_sl_first * 100, 0)}%`,
-    },
-  ]
-  return (
-    <div className="mt-3 rounded-md border border-dashed p-2.5">
-      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 text-xs">
-        <span className="font-semibold">Projection</span>
-        <span className="text-muted-foreground">
-          next {num(hrs, 1)}h · {x.analogs} similar past moments out of {x.pool}
-        </span>
-        <span className={cn("ml-auto font-mono font-semibold", tone(x.ev_usd))}>
-          expected {x.ev_usd >= 0 ? "+" : "-"}
-          {usd(Math.abs(x.ev_usd))}
-        </span>
-      </div>
-      <div className="flex h-2.5 overflow-hidden rounded-full">
-        {seg.map((s) => (
-          <div
-            key={s.label}
-            className={s.c}
-            style={{ width: `${s.w * 100}%` }}
-            title={s.label}
-          />
-        ))}
-      </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 font-mono text-xs tabular-nums sm:grid-cols-4">
-        <span className="text-emerald-500">
-          TP first {num(x.p_tp_first * 100, 0)}% → +{usd(x.pnl_if_tp)}
-        </span>
-        <span className="text-red-500">
-          SL first {num(x.p_sl_first * 100, 0)}% → -{usd(Math.abs(x.pnl_if_sl))}
-        </span>
-        <span className="text-muted-foreground">
-          neither by then {num(x.p_neither * 100, 0)}%
-        </span>
-        <span>
-          {x.p_tp1_before_sl != null &&
-            `TP1 before SL ${num(x.p_tp1_before_sl * 100, 0)}% · `}
-          median {price(x.median_end)}
-        </span>
-      </div>
-      <p className="mt-1 text-[11px] text-muted-foreground">
-        Odds come from how price moved after the most similar past{" "}
-        {x.bar_sec / 60}m setups, replayed against this order's own levels. A
-        distribution, not a promise.
-      </p>
-    </div>
-  )
-}
-
-function Tick({
-  at,
-  label,
-  color,
-}: {
-  at: number
-  label: string
-  color: string
-}) {
-  return (
-    <div className="absolute top-0 -translate-x-1/2" style={{ left: `${at}%` }}>
-      <div className={cn("h-2 w-0.5", color)} />
-      <div className="mt-0.5 text-[10px] text-muted-foreground">{label}</div>
-    </div>
-  )
 }
 
 function Big({

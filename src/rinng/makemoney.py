@@ -895,7 +895,14 @@ Use an empty actions list to hold."""
             horizon = int(min(max(left // bar_sec, 3), 96))
             res = await asyncio.to_thread(project, bars, p, horizon, self.fee)
             out[str(p.get("id"))] = res
-        data = {"t": time.time(), "tf": tf, "orders": out}
+        flat: dict[str, Any] = {}
+        held = {p["symbol"] for p in self.state["positions"]}
+        for sym in self.cfg.symbols:
+            if sym in held:
+                continue
+            bars = (await self.bn.klines(sym, tf))[:-1]
+            flat[sym] = await asyncio.to_thread(project, bars, None, 48, self.fee)
+        data = {"t": time.time(), "tf": tf, "orders": out, "flat": flat}
         self._proj = (time.time(), data)
         return data
 

@@ -15,7 +15,7 @@ import polars as pl
 from rinng.analysis import forecast as fc
 
 
-def project(bars: list[list[float]], pos: dict, horizon: int, fee: float) -> dict | None:
+def project(bars: list[list[float]], pos: dict | None, horizon: int, fee: float) -> dict | None:
     """bars: closed [open_ms, o, h, l, c, v] of the strategy timeframe, oldest first.
     pos: an open position dict (side, entry, stop, take, tp1, be, qty, mark).
     horizon: bars left before the time stop (capped by the caller)."""
@@ -34,6 +34,29 @@ def project(bars: list[list[float]], pos: dict, horizon: int, fee: float) -> dic
     z, up, down = fc._paths(p, pool, horizon)
     s, c = p.sigma[origin], p.close[origin]
     w = w / w.sum()
+    t0 = int(a[-1, 0] // 1000)
+    step = int((a[-1, 0] - a[-2, 0]) // 1000)
+
+    def cone_of() -> dict:
+        zq = fc._wquantile(z, w, fc.QUANTILES)
+        cq = c * np.exp(zq * s)
+        return {
+            str(q_): [
+                {"time": t0 + step * (j + 1), "value": round(float(cq[i, j]), 8)}
+                for j in range(horizon)
+            ]
+            for i, q_ in enumerate(fc.QUANTILES)
+        }
+
+    if pos is None:  # no order: only where price may go
+        return {
+            "horizon_bars": horizon,
+            "bar_sec": step,
+            "price": float(c),
+            "cone": cone_of(),
+            "analogs": int(len(near)),
+            "pool": int(len(pool)),
+        }
 
     long = pos["side"] == "long"
 
@@ -72,10 +95,7 @@ def project(bars: list[list[float]], pos: dict, horizon: int, fee: float) -> dic
     pnl = np.where(tp_first, pnl_tp, np.where(sl_first, pnl_sl, pnl_end))
     ev = float(np.sum(w * pnl))
 
-    zq = fc._wquantile(z, w, fc.QUANTILES)
-    cone = c * np.exp(zq * s)
-    t0 = int(a[-1, 0] // 1000)
-    step = int((a[-1, 0] - a[-2, 0]) // 1000)
+    cone = cone_of()
     return {
         "horizon_bars": horizon,
         "bar_sec": step,
@@ -87,14 +107,8 @@ def project(bars: list[list[float]], pos: dict, horizon: int, fee: float) -> dic
         "ev_usd": ev,
         "pnl_if_tp": float(pnl_tp),
         "pnl_if_sl": float(pnl_sl),
-        "median_end": float(cone[3, -1]),
-        "cone": {
-            str(q_): [
-                {"time": t0 + step * (j + 1), "value": round(float(cone[i, j]), 8)}
-                for j in range(horizon)
-            ]
-            for i, q_ in enumerate(fc.QUANTILES)
-        },
+        "median_end": cone["0.5"][-1]["value"],
+        "cone": cone,
         "analogs": int(len(near)),
         "pool": int(len(pool)),
     }

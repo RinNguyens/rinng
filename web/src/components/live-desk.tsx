@@ -4,13 +4,11 @@ import { useEffect, useRef, useState } from "react"
 import {
   CandlestickSeries,
   LineSeries,
-  LineStyle,
   createChart,
   createSeriesMarkers,
 } from "lightweight-charts"
 import type {
   IChartApi,
-  IPriceLine,
   ISeriesApi,
   ISeriesMarkersPluginApi,
   Time,
@@ -78,28 +76,12 @@ type Handles = {
   lines: Map<string, ISeriesApi<"Line">>
 }
 
-// An open order to draw on the desk (MakeMoney passes its paper position).
-export type DeskTrade = {
-  id?: number
-  side: "long" | "short"
-  entry: number
-  stop: number
-  take: number
-  tp1?: number | null
-  be?: boolean
-  liq: number
-  upnl: number
-  qty: number
-}
-
 export function LiveDesk({
   symbol,
   exchange,
-  trade,
 }: {
   symbol: string
   exchange: string
-  trade?: DeskTrade | null
 }) {
   const key = `${exchange}:${symbol}`
   const [loaded, setLoaded] = useState<{ key: string; data: Desk } | null>(null)
@@ -190,7 +172,6 @@ export function LiveDesk({
             data={data}
             layers={layers}
             error={error}
-            trade={trade ?? null}
           />
         </div>
         <div className="min-h-0 border-t border-foreground/10 xl:h-[660px] xl:overflow-y-auto xl:border-t-0 xl:border-l">
@@ -215,7 +196,7 @@ export function LiveDesk({
 
 // ----------------------------------------------------------------- header pieces
 
-function LivePrice({
+export function LivePrice({
   symbol,
   exchange,
   fallback,
@@ -247,7 +228,7 @@ function LivePrice({
 }
 
 // Time left in the running 5m candle, with a bar that fills as the candle ages.
-function CandleClock() {
+export function CandleClock() {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
@@ -276,14 +257,12 @@ function DeskChart({
   data,
   layers,
   error,
-  trade,
 }: {
   symbol: string
   exchange: string
   data: Desk | null
   layers: Record<string, boolean>
   error: string | null
-  trade: DeskTrade | null
 }) {
   const host = useRef<HTMLDivElement>(null)
   const dot = useRef<HTMLSpanElement>(null)
@@ -294,51 +273,6 @@ function DeskChart({
   const shown = useRef<number | null>(null)
   const touched = useRef(false)
   const revealed = useRef(0)
-  const tradeLines = useRef<Array<IPriceLine>>([])
-
-  // The open order: entry with live PnL, TP1, TP, SL (with $ at stake) and liquidation.
-  useEffect(() => {
-    const h = handles.current
-    if (!h) return
-    for (const l of tradeLines.current) h.candles.removePriceLine(l)
-    tradeLines.current = []
-    if (!trade) return
-    const add = (
-      price: number,
-      color: string,
-      title: string,
-      style: LineStyle
-    ) =>
-      tradeLines.current.push(
-        h.candles.createPriceLine({
-          price,
-          color,
-          lineWidth: 2,
-          lineStyle: style,
-          axisLabelVisible: true,
-          title,
-        })
-      )
-    const usd = (v: number) => `$${Math.abs(v).toFixed(2)}`
-    const risk = Math.abs(trade.entry - trade.stop) * trade.qty
-    const reward = Math.abs(trade.take - trade.entry) * trade.qty
-    add(
-      trade.entry,
-      "#60a5fa",
-      `#${trade.id ?? ""} ${trade.side.toUpperCase()} ${trade.upnl >= 0 ? "+" : "-"}${usd(trade.upnl)}`,
-      LineStyle.Solid
-    )
-    add(trade.take, "#22c55e", `TP +${usd(reward)}`, LineStyle.Dashed)
-    if (trade.tp1 != null && !trade.be)
-      add(trade.tp1, "#86efac", "TP1", LineStyle.Dotted)
-    add(
-      trade.stop,
-      "#ef4444",
-      trade.be ? "SL break-even" : `SL -${usd(risk)}`,
-      LineStyle.Dashed
-    )
-    add(trade.liq, "#f59e0b", "LIQ", LineStyle.Dotted)
-  }, [trade, data])
 
   // The chart lives as long as the instrument: reloads update its series in place.
   useEffect(() => {
