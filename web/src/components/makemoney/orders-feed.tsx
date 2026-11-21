@@ -212,12 +212,7 @@ export function OrdersFeed({
             {alerts.map((a) => (
               <li
                 key={a.id}
-                className={cn(
-                  "rounded-md border-l-2 bg-muted/40 px-2.5 py-1.5",
-                  a.level === "good" && "border-emerald-500",
-                  a.level === "bad" && "border-red-500",
-                  a.level === "info" && "border-sky-400"
-                )}
+                className="rounded-md bg-muted/40 px-2.5 py-1.5"
               >
                 <div className="flex items-baseline gap-1.5 text-sm">
                   <span
