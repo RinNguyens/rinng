@@ -70,6 +70,10 @@ def create_app(
     async def mm_config(request: Request):
         return mm.update_config(await request.json())
 
+    @app.get("/api/makemoney/symbols")
+    async def mm_symbols():
+        return await mm.bn.top_symbols()
+
     @app.post("/api/makemoney/{action}")
     async def mm_action(action: str):
         try:

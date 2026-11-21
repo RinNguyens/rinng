@@ -142,6 +142,22 @@ class Binance:
             raise ValueError(f"{sym} is not a Binance USDT-M perpetual")
         return self.filters[v]
 
+    async def top_symbols(self, limit: int = 100) -> list[dict]:
+        """Tradable USDT perpetuals, most 24h quote volume first, as rinng ids."""
+        info, tick = await asyncio.gather(
+            self.get("/fapi/v1/exchangeInfo"), self.get("/fapi/v1/ticker/24hr")
+        )
+        live = {
+            s["symbol"]: s["baseAsset"]
+            for s in info["symbols"]
+            if s["contractType"] == "PERPETUAL"
+            and s["quoteAsset"] == "USDT"
+            and s["status"] == "TRADING"
+        }
+        vol = {t["symbol"]: float(t["quoteVolume"]) for t in tick if t["symbol"] in live}
+        top = sorted(vol, key=vol.get, reverse=True)[:limit]
+        return [{"id": f"{live[s]}-USDT-PERP", "base": live[s], "volume": vol[s]} for s in top]
+
     async def quote(self, sym: str) -> dict:
         v = venue_symbol(sym)
         book, prem = await asyncio.gather(

@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -75,8 +82,7 @@ type Snap = {
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
     cache: "no-store",
-    method:
-      body === undefined && !path.includes("/api/makemoney/") ? "GET" : "POST",
+    method: body === undefined ? "GET" : "POST",
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
@@ -229,6 +235,18 @@ function StatusDot({ snap }: { snap: Snap | null }) {
   )
 }
 
+const MODELS = [
+  { value: "claude-haiku-5-5", label: "Claude Haiku 5.5 — fast, cheapest" },
+  { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 — balanced" },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5 — strongest" },
+  { value: "claude-fable-5-2", label: "Claude Fable 5.2" },
+]
+const SOURCES = [
+  { value: "binance", label: "Binance" },
+  { value: "okx", label: "OKX" },
+]
+const MAJORS = ["BTC-USDT-PERP", "ETH-USDT-PERP"]
+
 function Settings({
   snap,
   onSaved,
@@ -242,6 +260,25 @@ function Settings({
   const [form, setForm] = useState<Record<string, string>>({})
   const [key, setKey] = useState("")
   const [saving, setSaving] = useState(false)
+  const [universe, setUniverse] = useState<Array<{ id: string; base: string }>>(
+    MAJORS.map((id) => ({ id, base: id.split("-")[0] }))
+  )
+
+  useEffect(() => {
+    call<Array<{ id: string; base: string }>>("/api/makemoney/symbols")
+      .then(setUniverse)
+      .catch(() => {})
+  }, [])
+
+  const picked = (form.symbols ?? "").split(",").filter(Boolean)
+  const setPicked = (v: Array<string>) =>
+    setForm((f) => ({ ...f, symbols: v.join(",") }))
+  const symbolItems = [
+    ...picked
+      .filter((id) => !universe.some((u) => u.id === id))
+      .map((id) => ({ id, base: id.split("-")[0] })),
+    ...universe,
+  ]
 
   useEffect(() => {
     if (!cfg) return
@@ -250,7 +287,7 @@ function Settings({
         ? f
         : {
             model: cfg.model,
-            symbols: cfg.symbols.join(", "),
+            symbols: cfg.symbols.join(","),
             exchange: cfg.exchange,
             starting_balance: String(cfg.starting_balance),
             max_leverage: String(cfg.max_leverage),
@@ -273,11 +310,8 @@ function Settings({
       await call("/api/makemoney/config", {
         api_key: key.trim(),
         model: form.model.trim(),
-        symbols: form.symbols
-          .split(/[,\s]+/)
-          .map((s) => s.trim().toUpperCase())
-          .filter(Boolean),
-        exchange: form.exchange.trim(),
+        symbols: picked,
+        exchange: form.exchange,
         starting_balance: Number(form.starting_balance),
         max_leverage: Number(form.max_leverage),
         risk_per_trade_pct: Number(form.risk_per_trade_pct),
@@ -334,13 +368,94 @@ function Settings({
             Stored only on this machine in data/makemoney/config.json.
           </p>
         </div>
-        {field("model", "Model")}
-        {field(
-          "symbols",
-          "Symbols",
-          "Comma-separated, e.g. BTC-USDT-PERP, ETH-USDT-PERP"
-        )}
-        {field("exchange", "Price source", "binance or okx")}
+        <div className="grid gap-1">
+          <Label>Model</Label>
+          <Select
+            items={MODELS}
+            value={form.model ?? null}
+            onValueChange={(v) =>
+              v && setForm((f) => ({ ...f, model: String(v) }))
+            }
+          >
+            <SelectTrigger aria-label="Model" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MODELS.map((m) => (
+                <SelectItem key={m.value} value={m.value}>
+                  {m.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Each step is one call to this model.
+          </p>
+        </div>
+        <div className="grid gap-1">
+          <Label>Symbols</Label>
+          <Select
+            multiple
+            value={picked}
+            onValueChange={(v) => setPicked((v as Array<string>) ?? [])}
+          >
+            <SelectTrigger aria-label="Symbols" className="w-full">
+              <span className="truncate">
+                {picked.length
+                  ? `${picked.length} selected — add or remove`
+                  : "Choose coins…"}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="max-h-80" alignItemWithTrigger={false}>
+              {symbolItems.map((u) => (
+                <SelectItem key={u.id} value={u.id}>
+                  {u.base}
+                  <span className="text-muted-foreground"> /USDT perp</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {picked.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPicked(picked.filter((x) => x !== id))}
+                className="rounded-full border px-2 py-0.5 text-xs hover:border-destructive hover:text-destructive"
+                aria-label={`Remove ${id}`}
+              >
+                {id.split("-")[0]} ×
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Binance USDT perpetuals, highest 24h volume first.
+          </p>
+        </div>
+        <div className="grid gap-1">
+          <Label>Price source</Label>
+          <Select
+            items={SOURCES}
+            value={form.exchange ?? null}
+            onValueChange={(v) =>
+              v && setForm((f) => ({ ...f, exchange: String(v) }))
+            }
+          >
+            <SelectTrigger aria-label="Price source" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SOURCES.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Chart data Haiku reads. Fills always use the Binance order book.
+          </p>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           {field(
             "starting_balance",
