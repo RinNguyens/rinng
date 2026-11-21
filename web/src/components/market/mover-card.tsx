@@ -19,7 +19,9 @@ export function MoverCard({
   return (
     <Card size="sm" className="gap-1.5 max-md:min-w-64">
       <CardContent className="space-y-1">
-        <div className="pb-1 text-xs font-medium text-muted-foreground">{title}</div>
+        <div className="pb-1 text-xs font-medium text-muted-foreground">
+          {title}
+        </div>
         {groups.map((g) => (
           <div key={g.label} aria-label={g.label} role="group">
             {g.items.map(({ row, value }) => (
@@ -31,7 +33,9 @@ export function MoverCard({
               >
                 <CoinIcon symbol={row.base} size={16} />
                 <span className="font-medium">{row.base}</span>
-                <span className="ml-auto font-heading tabular-nums">{value}</span>
+                <span className="ml-auto font-heading tabular-nums">
+                  {value}
+                </span>
               </button>
             ))}
           </div>

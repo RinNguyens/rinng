@@ -2,14 +2,26 @@ import { useMemo, useRef, useState } from "react"
 import { createPublicClient, getAddress, http, parseAbi } from "viem"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { AddressChunks } from "@/components/wallet/address-chunks"
 import { walletStore } from "@/components/wallet/use-scan"
 import { checkAddress } from "@/lib/address"
 import { NETWORKS, detectAddress } from "@/lib/chains"
 import type { Network } from "@/lib/chains"
 import { scanWallet } from "@/lib/scan"
-import { extraNotes, lookalikeOf, resolveFrom, sendVerdict, splitFrom } from "@/lib/send-check"
+import {
+  extraNotes,
+  lookalikeOf,
+  resolveFrom,
+  sendVerdict,
+  splitFrom,
+} from "@/lib/send-check"
 import { short, useWallet } from "@/lib/wallet"
 import { readWallets } from "@/lib/wallet-store"
 import { lastScan, rememberScan } from "@/lib/wallet-scan"
@@ -19,7 +31,13 @@ type Props = {
   from?: string
   onChange?: (p: { to?: string; from?: string }) => void
 }
-type Outcome = { title: string; tone: "danger" | "warn" | "note"; notes: Array<string>; address?: string; compare?: string }
+type Outcome = {
+  title: string
+  tone: "danger" | "warn" | "note"
+  notes: Array<string>
+  address?: string
+  compare?: string
+}
 
 const NONE = "none"
 const SYMBOL = parseAbi(["function symbol() view returns (string)"])
@@ -28,10 +46,16 @@ const BANNER = {
   warn: "border-sev-medium",
   danger: "border-sev-high bg-sev-high/10",
 } as const
-const TITLE = { note: "text-pass", warn: "text-sev-medium", danger: "text-sev-high" } as const
+const TITLE = {
+  note: "text-pass",
+  warn: "text-sev-medium",
+  danger: "text-sev-high",
+} as const
 
 const clientFor = (n: Network) =>
-  createPublicClient({ transport: http(n.rpc, { retryCount: 2, batch: { batchSize: 20 } }) })
+  createPublicClient({
+    transport: http(n.rpc, { retryCount: 2, batch: { batchSize: 20 } }),
+  })
 
 export function SendCheck({ to = "", from, onChange }: Props) {
   const wallet = useWallet()
@@ -45,28 +69,41 @@ export function SendCheck({ to = "", from, onChange }: Props) {
   const connectedNet = NETWORKS.find((n) => n.chainId === wallet.chainId)
   const options = [
     { value: NONE, label: "None" },
-    ...(wallet.address && !saved.some((w) => w.address.toLowerCase() === wallet.address!.toLowerCase())
+    ...(wallet.address &&
+    !saved.some(
+      (w) => w.address.toLowerCase() === wallet.address!.toLowerCase()
+    )
       ? [
           {
-            value: connectedNet ? `${wallet.address}|${connectedNet.key}` : wallet.address,
+            value: connectedNet
+              ? `${wallet.address}|${connectedNet.key}`
+              : wallet.address,
             label: `Connected ${short(wallet.address)}`,
           },
         ]
       : []),
-    ...saved.map((w) => ({ value: `${w.address}|${w.net}`, label: `${w.label} ${short(w.address)}` })),
+    ...saved.map((w) => ({
+      value: `${w.address}|${w.net}`,
+      label: `${w.label} ${short(w.address)}`,
+    })),
   ]
-  const resolved = resolveFrom(from, options.filter((o) => o.value !== NONE))
+  const resolved = resolveFrom(
+    from,
+    options.filter((o) => o.value !== NONE)
+  )
   const split = splitFrom(resolved)
   const fromAddr = split.address
   const fromWallet = fromAddr
     ? saved.find(
         (w) =>
-          w.address.toLowerCase() === fromAddr.toLowerCase() && (!split.net || w.net === split.net)
+          w.address.toLowerCase() === fromAddr.toLowerCase() &&
+          (!split.net || w.net === split.net)
       )
     : undefined
   const fromNet = fromWallet
     ? NETWORKS.find((n) => n.key === fromWallet.net)
-    : NETWORKS.find((n) => n.key === split.net) ?? NETWORKS.find((n) => n.chainId === wallet.chainId)
+    : (NETWORKS.find((n) => n.key === split.net) ??
+      NETWORKS.find((n) => n.chainId === wallet.chainId))
   const selected = resolved ?? NONE
 
   async function run() {
@@ -80,7 +117,8 @@ export function SendCheck({ to = "", from, onChange }: Props) {
     setStep("Checking…")
     const fromDetected = fromAddr ? detectAddress(fromAddr) : undefined
     const fromFamily = fromAddr
-      ? fromNet?.family ?? (fromDetected?.ok ? fromDetected.family : undefined)
+      ? (fromNet?.family ??
+        (fromDetected?.ok ? fromDetected.family : undefined))
       : undefined
     const toFamily = detected.family
     const mismatch = !!fromFamily && fromFamily !== toFamily
@@ -91,17 +129,29 @@ export function SendCheck({ to = "", from, onChange }: Props) {
         ...sendVerdict({
           check: mismatch ? "medium" : "ok",
           // With a From wallet the user expects a history comparison; it cannot run here, so it counts as skipped.
-          skipped: fromAddr ? ["Your transfer history was not compared: only format checks are available for this network."] : [],
-          extra: [...extraNotes({ fromFamily, toFamily }), ...(fromAddr ? [] : ["Only format checks are available for this network."])],
+          skipped: fromAddr
+            ? [
+                "Your transfer history was not compared: only format checks are available for this network.",
+              ]
+            : [],
+          extra: [
+            ...extraNotes({ fromFamily, toFamily }),
+            ...(fromAddr
+              ? []
+              : ["Only format checks are available for this network."]),
+          ],
         }),
         address: value,
       })
     }
     const fromEvm = fromFamily === "evm"
-    const net = (fromEvm ? fromNet : undefined) ?? NETWORKS.find((n) => n.chainId === 1)!
+    const net =
+      (fromEvm ? fromNet : undefined) ?? NETWORKS.find((n) => n.chainId === 1)!
     let poisoning
     if (fromAddr && !fromEvm && fromFamily)
-      skipped.push("Your From wallet is not an EVM wallet, so the history and on-chain reads were skipped.")
+      skipped.push(
+        "Your From wallet is not an EVM wallet, so the history and on-chain reads were skipped."
+      )
     else if (fromAddr) {
       try {
         let scan = lastScan(fromAddr, net.key)
@@ -116,10 +166,14 @@ export function SendCheck({ to = "", from, onChange }: Props) {
         }
         poisoning = scan.poisoning
         if (!scan.complete)
-          skipped.push("Your transfer history was incomplete; the look-alike check may have missed something.")
+          skipped.push(
+            "Your transfer history was incomplete; the look-alike check may have missed something."
+          )
       } catch {
         if (stale()) return
-        skipped.push("Could not read your transfer history; the look-alike check did not run.")
+        skipped.push(
+          "Could not read your transfer history; the look-alike check did not run."
+        )
       }
     }
     const c = checkAddress(value, {
@@ -142,29 +196,43 @@ export function SendCheck({ to = "", from, onChange }: Props) {
         isContract = !!code && code !== "0x"
         if (isContract)
           tokenSymbol = await client
-            .readContract({ address: c.address!, abi: SYMBOL, functionName: "symbol" })
+            .readContract({
+              address: c.address!,
+              abi: SYMBOL,
+              functionName: "symbol",
+            })
             // most contracts are not tokens and revert here; the contract note already raises the verdict
             .catch(() => undefined)
       } catch {
-        skipped.push("Could not read this address on-chain, so contract and token checks did not run.")
+        skipped.push(
+          "Could not read this address on-chain, so contract and token checks did not run."
+        )
       }
     }
     if (stale()) return
     const v = sendVerdict({
       check: mismatch && c.severity === "ok" ? "medium" : c.severity,
       skipped,
-      extra: [...c.notes, ...extraNotes({ isContract, tokenSymbol, fromFamily, toFamily })],
+      extra: [
+        ...c.notes,
+        ...extraNotes({ isContract, tokenSymbol, fromFamily, toFamily }),
+      ],
       isContract,
     })
     setStep(null)
     setOut({
       ...v,
       address: c.address,
-      compare: lookalikeOf(c.address!, poisoning?.counterparties, poisoning?.suspects),
+      compare: lookalikeOf(
+        c.address!,
+        poisoning?.counterparties,
+        poisoning?.suspects
+      ),
     })
   }
 
-  const validTo = () => (detectAddress(input.trim()).ok ? input.trim() : undefined)
+  const validTo = () =>
+    detectAddress(input.trim()).ok ? input.trim() : undefined
 
   const submit = () => {
     if (step) return
@@ -209,7 +277,10 @@ export function SendCheck({ to = "", from, onChange }: Props) {
               runId.current++
               setStep(null)
               setOut(null)
-              onChange?.({ to: validTo(), from: v && v !== NONE ? String(v) : undefined })
+              onChange?.({
+                to: validTo(),
+                from: v && v !== NONE ? String(v) : undefined,
+              })
             }}
           >
             <SelectTrigger aria-label="From wallet" className="w-full">
@@ -225,7 +296,11 @@ export function SendCheck({ to = "", from, onChange }: Props) {
           </Select>
         </div>
       </div>
-      {!resolved && <p className="text-xs text-muted-foreground">Pick your wallet to compare against your transfer history</p>}
+      {!resolved && (
+        <p className="text-xs text-muted-foreground">
+          Pick your wallet to compare against your transfer history
+        </p>
+      )}
       <div className="flex items-center gap-3">
         <Button onClick={submit} disabled={!!step}>
           Check
@@ -244,7 +319,9 @@ export function SendCheck({ to = "", from, onChange }: Props) {
           <p className={`font-heading text-base ${TITLE[out.tone]}`}>
             {out.title}
           </p>
-          {out.address && <AddressChunks address={out.address} compare={out.compare} />}
+          {out.address && (
+            <AddressChunks address={out.address} compare={out.compare} />
+          )}
           <ul className="list-disc pl-5 text-sm">
             {out.notes.map((n) => (
               <li key={n}>{n}</li>

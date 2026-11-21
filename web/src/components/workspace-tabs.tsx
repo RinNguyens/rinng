@@ -102,7 +102,7 @@ export function WorkspaceTabs({
       <div
         role="tablist"
         aria-label="Workspaces"
-        className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 [scrollbar-width:none] items-center gap-0.5 overflow-x-auto [&::-webkit-scrollbar]:hidden"
       >
         {workspaces.map((w) => {
           const isActive = w.id === activeId
@@ -150,7 +150,7 @@ export function WorkspaceTabs({
                     onDoubleClick={() => startEdit(w)}
                     onKeyDown={(e) => onTabKey(e, w)}
                     className={cn(
-                      "max-w-48 truncate rounded-md py-1 pl-2.5 text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
+                      "max-w-48 truncate rounded-md py-1 pl-2.5 text-sm transition-colors outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50",
                       single ? "pr-2.5" : "pr-6",
                       isActive ? "text-foreground" : "text-muted-foreground"
                     )}
@@ -192,11 +192,7 @@ export function WorkspaceTabs({
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Tab actions"
-            />
+            <Button variant="ghost" size="icon-xs" aria-label="Tab actions" />
           }
         >
           <HugeiconsIcon icon={MoreHorizontalIcon} />

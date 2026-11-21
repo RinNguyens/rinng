@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react"
 import { createPublicClient, getAddress, http } from "viem"
 import { tokenPrices } from "@/lib/defi"
 import type { Price } from "@/lib/defi"
@@ -11,10 +17,22 @@ import { PLANS, chainScore, scanChain } from "@/lib/multichain"
 import type { ChainReport } from "@/lib/multichain"
 import { useWallet } from "@/lib/wallet"
 import { amountOf, stepOf } from "@/lib/wallet-steps"
-import { combineScores, fingerprint, pool, rememberScan, scanFailure } from "@/lib/wallet-scan"
+import {
+  combineScores,
+  fingerprint,
+  pool,
+  rememberScan,
+  scanFailure,
+} from "@/lib/wallet-scan"
 import type { PlanRow } from "@/lib/wallet-scan"
 import { browserStore } from "@/lib/terminal-nav"
-import { makeSnap, pushSnap, readWallets, storageWorks, writeWallets } from "@/lib/wallet-store"
+import {
+  makeSnap,
+  pushSnap,
+  readWallets,
+  storageWorks,
+  writeWallets,
+} from "@/lib/wallet-store"
 import type { Snap } from "@/lib/wallet-store"
 
 export const EVM_ALL = "evm-all"
@@ -31,7 +49,12 @@ export type Outcome = {
   result?: ScanResult
   report?: ChainReport
 }
-export type NetRow = { net: string; status: "running" | "done" | "error"; outcome?: Outcome; error?: string }
+export type NetRow = {
+  net: string
+  status: "running" | "done" | "error"
+  outcome?: Outcome
+  error?: string
+}
 /** One finding as the tables show it: flat and JSON-safe, so it can go straight into the plan export. */
 export type Row = PlanRow & {
   net: string
@@ -44,17 +67,24 @@ export type Row = PlanRow & {
 export type Found = { fp: string; severity: Severity }
 
 type Step = (label: string, reached: number) => void
-const firstLine = (e: unknown) => (e instanceof Error ? e.message : String(e)).split("\n")[0]
+const firstLine = (e: unknown) =>
+  (e instanceof Error ? e.message : String(e)).split("\n")[0]
 
 /** One network, one address: the same functions the landing uses, nothing else touches the chain. */
-export async function runScan(address: string, net: string, onStep?: Step): Promise<Outcome> {
+export async function runScan(
+  address: string,
+  net: string,
+  onStep?: Step
+): Promise<Outcome> {
   const d = detectAddress(address)
   if (!d.ok) throw new Error(d.reason)
   const key = networkFor(d.family, net)
   const target = networkOf(key)
   if (target.family === "evm") {
     const owner = getAddress(d.address)
-    const client = createPublicClient({ transport: http(target.rpc, { retryCount: 2, batch: { batchSize: 20 } }) })
+    const client = createPublicClient({
+      transport: http(target.rpc, { retryCount: 2, batch: { batchSize: 20 } }),
+    })
     onStep?.("Reading the account", 1)
     const result = await scanWallet(client, owner, {
       lookback: LOOKBACK,
@@ -62,7 +92,9 @@ export async function runScan(address: string, net: string, onStep?: Step): Prom
       onProgress: (l) => onStep?.(l, stepOf(l)),
     })
     rememberScan(owner, key, result)
-    const tokens = result.findings.filter((f) => f.kind === "erc20" || f.kind === "permit2").map((f) => f.token!)
+    const tokens = result.findings
+      .filter((f) => f.kind === "erc20" || f.kind === "permit2")
+      .map((f) => f.token!)
     onStep?.("Pricing what is at risk", stepOf("Pricing what is at risk"))
     const priced = await tokenPrices(target.chainId, tokens).then(
       (prices) => ({ prices, pricesFailed: false }),
@@ -70,11 +102,26 @@ export async function runScan(address: string, net: string, onStep?: Step): Prom
     )
     const { prices, pricesFailed } = priced
     const score = securityScore(result, prices)
-    return { net: key, address: owner, result, prices, pricesFailed, score: pricesFailed ? { ...score, provisional: true } : score }
+    return {
+      net: key,
+      address: owner,
+      result,
+      prices,
+      pricesFailed,
+      score: pricesFailed ? { ...score, provisional: true } : score,
+    }
   }
   const fam = target.family
-  const report = await scanChain(fam, d.address, { onProgress: (i) => onStep?.(PLANS[fam][i].title, i + 1) })
-  return { net: key, address: report.address, report, prices: new Map(), score: chainScore(report) }
+  const report = await scanChain(fam, d.address, {
+    onProgress: (i) => onStep?.(PLANS[fam][i].title, i + 1),
+  })
+  return {
+    net: key,
+    address: report.address,
+    report,
+    prices: new Map(),
+    score: chainScore(report),
+  }
 }
 
 /** A single network, or the six EVM networks two at a time; a network that fails does not stop the rest. */
@@ -83,16 +130,24 @@ export async function runNets(
   net: string,
   h: { onRow?: (r: NetRow) => void; onStep?: Step } = {}
 ): Promise<Array<NetRow>> {
-  const keys = net === EVM_ALL ? NETWORKS.filter((n) => n.family === "evm").map((n) => n.key) : [net]
+  const keys =
+    net === EVM_ALL
+      ? NETWORKS.filter((n) => n.family === "evm").map((n) => n.key)
+      : [net]
   if (net === EVM_ALL) {
     const d = detectAddress(address)
-    if (!d.ok || d.family !== "evm") throw new Error("All EVM needs a 0x… address.")
+    if (!d.ok || d.family !== "evm")
+      throw new Error("All EVM needs a 0x… address.")
   }
   return pool(keys, CONCURRENCY, async (k) => {
     h.onRow?.({ net: k, status: "running" })
     let row: NetRow
     try {
-      row = { net: k, status: "done", outcome: await runScan(address, k, h.onStep) }
+      row = {
+        net: k,
+        status: "done",
+        outcome: await runScan(address, k, h.onStep),
+      }
     } catch (e) {
       row = { net: k, status: "error", error: firstLine(e) }
     }
@@ -123,12 +178,21 @@ export const foundOf = (o: Outcome): Array<Found> =>
   o.result
     ? rowsOf(o).map((r) => ({ fp: r.fp, severity: r.severity }))
     : (o.report?.sections ?? []).flatMap((s) =>
-        s.findings.map((f) => ({ fp: fingerprint(o.net, { kind: s.title, spender: f.title }), severity: f.severity }))
+        s.findings.map((f) => ({
+          fp: fingerprint(o.net, { kind: s.title, spender: f.title }),
+          severity: f.severity,
+        }))
       )
 
 /** One score for the outcomes, provisional when the scan was partial; null when there are none. */
-export const combine = (outs: ReadonlyArray<Outcome>, partial = false): Score | null =>
-  combineScores(outs.map((o) => o.score), { provisional: partial })
+export const combine = (
+  outs: ReadonlyArray<Outcome>,
+  partial = false
+): Score | null =>
+  combineScores(
+    outs.map((o) => o.score),
+    { provisional: partial }
+  )
 
 /** localStorage when it keeps data, else a list that lasts for this page view. */
 const mem = new Map<string, string>()
@@ -156,7 +220,9 @@ export function recordScan(
   const score = combine(outs, partial)
   const fps = found.map((f) => f.fp)
   const list = readWallets(store)
-  const w = list.find((x) => x.net === net && x.address.toLowerCase() === address.toLowerCase())
+  const w = list.find(
+    (x) => x.net === net && x.address.toLowerCase() === address.toLowerCase()
+  )
   if (!w || !score) return { fps }
   const snap = makeSnap({
     at: Date.now(),
@@ -168,7 +234,11 @@ export function recordScan(
     partial,
     pricesFailed: outs.some((o) => o.pricesFailed),
   })
-  if (snap) writeWallets(store, list.map((x) => (x === w ? pushSnap(x, snap) : x)))
+  if (snap)
+    writeWallets(
+      store,
+      list.map((x) => (x === w ? pushSnap(x, snap) : x))
+    )
   return { prev: w.snaps.at(-1), fps }
 }
 
@@ -198,11 +268,23 @@ export type ScanState = {
   error?: string
   switched: boolean
 }
-const IDLE: ScanState = { phase: "idle", address: "", net: "", step: null, reached: 0, rows: [], switched: false }
+const IDLE: ScanState = {
+  phase: "idle",
+  address: "",
+  net: "",
+  step: null,
+  reached: 0,
+  rows: [],
+  switched: false,
+}
 const upsert = (rows: Array<NetRow>, r: NetRow) =>
-  rows.some((x) => x.net === r.net) ? rows.map((x) => (x.net === r.net ? r : x)) : [...rows, r]
+  rows.some((x) => x.net === r.net)
+    ? rows.map((x) => (x.net === r.net ? r : x))
+    : [...rows, r]
 
-export function useScan(onDone?: (r: { address: string; net: string; rows: Array<NetRow> }) => void) {
+export function useScan(
+  onDone?: (r: { address: string; net: string; rows: Array<NetRow> }) => void
+) {
   const wallet = useWallet()
   const [s, set] = useState<ScanState>(IDLE)
   const id = useRef(0)
@@ -223,9 +305,11 @@ export function useScan(onDone?: (r: { address: string; net: string; rows: Array
 
   const hooks = useCallback((live: () => boolean) => {
     return {
-      onRow: (r: NetRow) => live() && set((p) => ({ ...p, rows: upsert(p.rows, r) })),
+      onRow: (r: NetRow) =>
+        live() && set((p) => ({ ...p, rows: upsert(p.rows, r) })),
       onStep: (label: string, i: number) =>
-        live() && set((p) => ({ ...p, step: label, reached: Math.max(p.reached, i) })),
+        live() &&
+        set((p) => ({ ...p, step: label, reached: Math.max(p.reached, i) })),
     }
   }, [])
 
@@ -236,13 +320,29 @@ export function useScan(onDone?: (r: { address: string; net: string; rows: Array
       busy.current = true
       set({ ...IDLE, phase: "running", address, net, reached: 1 })
       try {
-        const rows = await runNets(address, net, hooks(() => me === id.current))
+        const rows = await runNets(
+          address,
+          net,
+          hooks(() => me === id.current)
+        )
         if (me !== id.current) return
         const failure = scanFailure(rows)
-        set((p) => ({ ...p, phase: failure ? "error" : "done", error: failure, step: null, rows }))
+        set((p) => ({
+          ...p,
+          phase: failure ? "error" : "done",
+          error: failure,
+          step: null,
+          rows,
+        }))
         if (!failure) done.current?.({ address, net, rows })
       } catch (e) {
-        if (me === id.current) set((p) => ({ ...p, phase: "error", error: firstLine(e), step: null }))
+        if (me === id.current)
+          set((p) => ({
+            ...p,
+            phase: "error",
+            error: firstLine(e),
+            step: null,
+          }))
       } finally {
         if (me === id.current) busy.current = false
       }
@@ -263,12 +363,17 @@ export function useScan(onDone?: (r: { address: string; net: string; rows: Array
       const main = id.current
       const me = (retryId.current.get(net) ?? 0) + 1
       retryId.current.set(net, me)
-      const [row] = await runNets(target.current.address, net, hooks(() => main === id.current && retryId.current.get(net) === me))
+      const [row] = await runNets(
+        target.current.address,
+        net,
+        hooks(() => main === id.current && retryId.current.get(net) === me)
+      )
       if (main !== id.current || retryId.current.get(net) !== me) return
       set((p) => ({
         ...p,
         phase: p.phase === "error" && row.status === "done" ? "done" : p.phase,
-        error: p.phase === "error" && row.status === "done" ? undefined : p.error,
+        error:
+          p.phase === "error" && row.status === "done" ? undefined : p.error,
         rows: upsert(p.rows, row),
       }))
     },
@@ -279,7 +384,12 @@ export function useScan(onDone?: (r: { address: string; net: string; rows: Array
   useEffect(() => {
     const was = prevWallet.current
     prevWallet.current = wallet.address
-    if (was && wallet.address !== was && busy.current && target.current.address.toLowerCase() === was.toLowerCase()) {
+    if (
+      was &&
+      wallet.address !== was &&
+      busy.current &&
+      target.current.address.toLowerCase() === was.toLowerCase()
+    ) {
       id.current++
       busy.current = false
       set({ ...IDLE, switched: true })

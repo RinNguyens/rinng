@@ -20,8 +20,22 @@ export const LETTERS: Array<{ x: number; polygons: Array<string> }> = [
     ],
   },
   { x: 246, polygons: ["0,0 14,0 14,100 0,100"] }, // I
-  { x: 326, polygons: ["0,0 14,0 14,100 0,100", "200,0 214,0 214,100 200,100", "0,0 33,0 214,100 181,100"] }, // N
-  { x: 606, polygons: ["0,0 14,0 14,100 0,100", "200,0 214,0 214,100 200,100", "0,0 33,0 214,100 181,100"] }, // N
+  {
+    x: 326,
+    polygons: [
+      "0,0 14,0 14,100 0,100",
+      "200,0 214,0 214,100 200,100",
+      "0,0 33,0 214,100 181,100",
+    ],
+  }, // N
+  {
+    x: 606,
+    polygons: [
+      "0,0 14,0 14,100 0,100",
+      "200,0 214,0 214,100 200,100",
+      "0,0 33,0 214,100 181,100",
+    ],
+  }, // N
   {
     x: 886, // G
     polygons: [
@@ -42,7 +56,15 @@ const TONES: Record<"paper" | "dark", Tone> = {
 
 const LEVELS = 6
 
-type Dot = { hx: number; hy: number; ink: boolean; sx: number; sy: number; delay: number; seed: number }
+type Dot = {
+  hx: number
+  hy: number
+  ink: boolean
+  sx: number
+  sy: number
+  delay: number
+  seed: number
+}
 type Tick = { row: number; x: number; speed: number }
 
 export function DotField({
@@ -139,7 +161,10 @@ export function DotField({
           })
         }
       }
-      buckets = Array.from({ length: LEVELS * 2 + 1 }, () => new Float32Array(dots.length * 2))
+      buckets = Array.from(
+        { length: LEVELS * 2 + 1 },
+        () => new Float32Array(dots.length * 2)
+      )
       ticks = Array.from({ length: Math.max(6, Math.round(W / 60)) }, () => ({
         row: Math.floor(Math.random() * (rows + 1)),
         x: Math.random() * W,
@@ -157,7 +182,10 @@ export function DotField({
       ptr.x += (ptr.tx - ptr.x) * 0.18
       ptr.y += (ptr.ty - ptr.y) * 0.18
       const R = Math.max(50, W / 16)
-      const waveY = (x: number) => H * 0.5 + Math.sin(x * 0.009 - t * 0.0012) * H * 0.22 + Math.sin(x * 0.023 + t * 0.0007) * H * 0.08
+      const waveY = (x: number) =>
+        H * 0.5 +
+        Math.sin(x * 0.009 - t * 0.0012) * H * 0.22 +
+        Math.sin(x * 0.023 + t * 0.0007) * H * 0.08
       const inkSize = gap * 0.52
       const dustSize = Math.max(1, gap * 0.22)
 
@@ -187,9 +215,17 @@ export function DotField({
         if (!d.ink) {
           const off = wave ? Math.abs(d.hy - waveY(d.hx)) : Infinity
           if (off < gap * 1.2) {
-            b = LEVELS + 1 + Math.min(LEVELS - 1, Math.floor((off / (gap * 1.2)) * LEVELS))
+            b =
+              LEVELS +
+              1 +
+              Math.min(LEVELS - 1, Math.floor((off / (gap * 1.2)) * LEVELS))
           } else {
-            const level = 0.5 + 0.5 * Math.sin(d.hx * 0.011 + d.hy * 0.03 - t * 0.0015 + d.seed * 0.15)
+            const level =
+              0.5 +
+              0.5 *
+                Math.sin(
+                  d.hx * 0.011 + d.hy * 0.03 - t * 0.0015 + d.seed * 0.15
+                )
             b = 1 + Math.min(LEVELS - 1, Math.floor(level * LEVELS))
           }
         }
@@ -216,7 +252,8 @@ export function DotField({
         }
         const arr = buckets[b]
         const half = size / 2
-        for (let k = 0; k < n; k++) ctx.fillRect(arr[k * 2] - half, arr[k * 2 + 1] - half, size, size)
+        for (let k = 0; k < n; k++)
+          ctx.fillRect(arr[k * 2] - half, arr[k * 2 + 1] - half, size, size)
       }
 
       // blue ticks sliding along the lattice rows, each with a short trail
@@ -296,8 +333,15 @@ export function DotField({
     kick.current()
   }, [running, reduced])
 
-  return <canvas ref={canvas} className="absolute inset-0 h-full w-full" aria-hidden="true" />
+  return (
+    <canvas
+      ref={canvas}
+      className="absolute inset-0 h-full w-full"
+      aria-hidden="true"
+    />
+  )
 }
 
 /** The aspect ratio a DotField's box should have for a given vertical padding. */
-export const dotAspect = (padY: number) => `1100 / ${Math.round(100 * (1 + padY * 2))}`
+export const dotAspect = (padY: number) =>
+  `1100 / ${Math.round(100 * (1 + padY * 2))}`

@@ -192,12 +192,15 @@ export function ChartTools({
   candles,
   storageKey,
   autoFib,
+  fibBars,
 }: {
   chart: IChartApi
   series: ISeriesApi<"Candlestick">
   candles: Array<Candle>
   storageKey: string
   autoFib?: boolean
+  // auto Fibonacci over the last N candles only (default: the whole window)
+  fibBars?: number
 }) {
   const times = useMemo(() => candles.map((c) => c.time), [candles])
   const axis = useMemo(() => makeAxis(times), [times])
@@ -323,7 +326,10 @@ export function ChartTools({
     }
   }
 
-  const swing = useMemo(() => majorSwing(candles), [candles])
+  const swing = useMemo(
+    () => majorSwing(fibBars ? candles.slice(-fibBars) : candles),
+    [candles, fibBars]
+  )
   const el = svg.current
   const W = el?.clientWidth ?? 0
   const plotW = W - (chart.priceScale("right").width() || 0)
@@ -617,7 +623,7 @@ function Fib({
               strokeDasharray={key618 || r === 0 || r === 1 ? undefined : "2 3"}
             />
             {r === 0.65 ? null : (
-              <Tag x={x0 + 4} y={yy} color={color}>
+              <Tag x={Math.max(x0, 44) + 4} y={yy} color={color}>
                 {key618 ? "★ 0.618" : r} · {fmt(at(r))}
               </Tag>
             )}
@@ -625,7 +631,7 @@ function Fib({
         )
       })}
       {auto ? (
-        <Tag x={x0 + 4} y={y(at(1)) - 14} color="#94a3b8">
+        <Tag x={Math.max(x0, 44) + 4} y={y(at(1)) - 14} color="#94a3b8">
           Auto Fib · major swing
         </Tag>
       ) : null}

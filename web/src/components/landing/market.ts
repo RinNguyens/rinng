@@ -4,7 +4,11 @@
 const FAPI = "https://fapi.binance.com/fapi/v1"
 
 export type Bar = { t: number; o: number; h: number; l: number; c: number }
-export type Swing = { i: number; price: number; kind: "HH" | "HL" | "LH" | "LL" }
+export type Swing = {
+  i: number
+  price: number
+  kind: "HH" | "HL" | "LH" | "LL"
+}
 export type Specimen = {
   symbol: string
   bars: Array<Bar>
@@ -31,10 +35,18 @@ export function swings(bars: Array<Bar>, k = 4): Array<Swing> {
   for (let i = k; i < bars.length - k; i++) {
     const win = bars.slice(i - k, i + k + 1)
     if (bars[i].h === Math.max(...win.map((b) => b.h))) {
-      out.push({ i, price: bars[i].h, kind: lastHigh === null || bars[i].h > lastHigh ? "HH" : "LH" })
+      out.push({
+        i,
+        price: bars[i].h,
+        kind: lastHigh === null || bars[i].h > lastHigh ? "HH" : "LH",
+      })
       lastHigh = bars[i].h
     } else if (bars[i].l === Math.min(...win.map((b) => b.l))) {
-      out.push({ i, price: bars[i].l, kind: lastLow === null || bars[i].l > lastLow ? "HL" : "LL" })
+      out.push({
+        i,
+        price: bars[i].l,
+        kind: lastLow === null || bars[i].l > lastLow ? "HL" : "LL",
+      })
       lastLow = bars[i].l
     }
   }
@@ -51,14 +63,35 @@ function trendOf(s: Array<Swing>): Specimen["trend"] {
   return "Range"
 }
 
-export async function loadSpecimen(signal?: AbortSignal, symbol = "BTCUSDT"): Promise<Specimen> {
+export async function loadSpecimen(
+  signal?: AbortSignal,
+  symbol = "BTCUSDT"
+): Promise<Specimen> {
   const [klines, ticker, premium, oi] = await Promise.all([
-    json<Array<Array<string | number>>>(`${FAPI}/klines?symbol=${symbol}&interval=4h&limit=120`, signal),
-    json<{ priceChangePercent: string; lastPrice: string }>(`${FAPI}/ticker/24hr?symbol=${symbol}`, signal),
-    json<{ lastFundingRate: string }>(`${FAPI}/premiumIndex?symbol=${symbol}`, signal),
-    json<{ openInterest: string }>(`${FAPI}/openInterest?symbol=${symbol}`, signal),
+    json<Array<Array<string | number>>>(
+      `${FAPI}/klines?symbol=${symbol}&interval=4h&limit=120`,
+      signal
+    ),
+    json<{ priceChangePercent: string; lastPrice: string }>(
+      `${FAPI}/ticker/24hr?symbol=${symbol}`,
+      signal
+    ),
+    json<{ lastFundingRate: string }>(
+      `${FAPI}/premiumIndex?symbol=${symbol}`,
+      signal
+    ),
+    json<{ openInterest: string }>(
+      `${FAPI}/openInterest?symbol=${symbol}`,
+      signal
+    ),
   ])
-  const bars = klines.map((k) => ({ t: +k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4] }))
+  const bars = klines.map((k) => ({
+    t: +k[0],
+    o: +k[1],
+    h: +k[2],
+    l: +k[3],
+    c: +k[4],
+  }))
   const s = swings(bars)
   return {
     symbol,
@@ -72,6 +105,9 @@ export async function loadSpecimen(signal?: AbortSignal, symbol = "BTCUSDT"): Pr
   }
 }
 
-export const fmtPrice = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: n < 100 ? 3 : 1 })
-export const fmtPct = (n: number, d = 2) => `${n > 0 ? "+" : ""}${n.toFixed(d)}%`
-export const fmtCompact = (n: number) => n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 })
+export const fmtPrice = (n: number) =>
+  n.toLocaleString("en-US", { maximumFractionDigits: n < 100 ? 3 : 1 })
+export const fmtPct = (n: number, d = 2) =>
+  `${n > 0 ? "+" : ""}${n.toFixed(d)}%`
+export const fmtCompact = (n: number) =>
+  n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 1 })

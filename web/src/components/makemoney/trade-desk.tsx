@@ -30,6 +30,7 @@ import { cssColor } from "@/lib/chart-sync"
 import { ago, num, price, tone } from "@/lib/format"
 import { useBarClose, useLiveQuote } from "@/lib/live"
 import { cn } from "@/lib/utils"
+import { ChartTools } from "@/components/chart-tools"
 
 type Candle = {
   time: number
@@ -359,6 +360,10 @@ function Chart({
   } | null>(null)
   const last = useRef<Candle | null>(null)
   const fitted = useRef(false)
+  const [drawn, setDrawn] = useState<{
+    chart: IChartApi
+    candles: ISeriesApi<"Candlestick">
+  } | null>(null)
 
   useEffect(() => {
     const el = host.current
@@ -423,7 +428,9 @@ function Chart({
       markers: createSeriesMarkers(candles, []),
       lines: [],
     }
+    setDrawn({ chart, candles })
     return () => {
+      setDrawn(null)
       chart.remove()
       h.current = null
     }
@@ -685,7 +692,21 @@ function Chart({
     x.candles.update({ ...k, time: k.time as Time })
   }, [tick])
 
-  return <div ref={host} className="min-h-0 flex-1" />
+  return (
+    <div className="relative min-h-0 flex-1">
+      <div ref={host} className="absolute inset-0" />
+      {drawn && data?.candles.length ? (
+        <ChartTools
+          chart={drawn.chart}
+          series={drawn.candles}
+          candles={data.candles.slice(-300)}
+          fibBars={140}
+          storageKey={`rinng.drawings.makemoney.${data.tf_sec ?? 300}`}
+          autoFib
+        />
+      ) : null}
+    </div>
+  )
 }
 
 /* ------------------------------------------------------------------ orders panel */

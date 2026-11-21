@@ -46,7 +46,9 @@
   outline-offset: 3px;
 }
 /* on the dark grounds the ring is a lighter blue, so it reads at 3:1 or more */
-:root[data-page="home"] :is(#lenses, footer.closing, [data-visual]) :focus-visible {
+:root[data-page="home"]
+  :is(#lenses, footer.closing, [data-visual])
+  :focus-visible {
   outline-color: #8ea4ff;
 }
 
@@ -97,11 +99,21 @@
 
 /* blueprint: dotted ground and corner crosses (sent.dm) */
 .rl-dots {
-  background-image: radial-gradient(circle, rgb(17 17 17 / 0.13) 1px, transparent 1.3px);
+  background-image: radial-gradient(
+    circle,
+    rgb(17 17 17 / 0.13) 1px,
+    transparent 1.3px
+  );
   background-size: 14px 14px;
 }
 .rl-dots--fade {
-  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 30%,
+    #000 70%,
+    transparent
+  );
 }
 .rl-cross {
   position: absolute;

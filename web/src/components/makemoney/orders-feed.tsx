@@ -262,6 +262,8 @@ export function AlertToaster({ alerts }: { alerts: Array<Alert> }) {
 
   useEffect(() => {
     const top = alerts[0]?.id ?? 0
+    // wait for the first loaded state: an empty list while loading is not a baseline
+    if (last.current == null && !alerts.length) return
     if (last.current == null) {
       last.current = top // do not replay history when the page opens
       return

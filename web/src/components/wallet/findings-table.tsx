@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowUpRight01Icon, Cancel01Icon, Copy01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowUpRight01Icon,
+  Cancel01Icon,
+  Copy01Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { networkOf } from "@/lib/chains"
 import type { ChainReport } from "@/lib/multichain"
 import type { Severity } from "@/lib/scan"
@@ -12,7 +27,12 @@ import { groupFindings, money } from "@/lib/wallet-scan"
 import { SevPill } from "@/components/wallet/sev-pill"
 import type { Row } from "@/components/wallet/use-scan"
 
-const KIND: Record<string, string> = { erc20: "ERC-20", nft: "NFT", permit2: "Permit2", delegation: "7702 delegate" }
+const KIND: Record<string, string> = {
+  erc20: "ERC-20",
+  nft: "NFT",
+  permit2: "Permit2",
+  delegation: "7702 delegate",
+}
 const SEVS: ReadonlyArray<Severity> = ["high", "medium", "low"]
 const SHOWN = 50
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
@@ -25,7 +45,13 @@ function CopyButton({ text }: { text: string }) {
     <Button
       variant="ghost"
       size="icon-xs"
-      aria-label={copied === "ok" ? "Copied" : copied === "fail" ? "Copy failed" : "Copy address"}
+      aria-label={
+        copied === "ok"
+          ? "Copied"
+          : copied === "fail"
+            ? "Copy failed"
+            : "Copy address"
+      }
       onClick={() => {
         const flash = (v: "ok" | "fail") => {
           setCopied(v)
@@ -34,10 +60,21 @@ function CopyButton({ text }: { text: string }) {
         }
         Promise.resolve()
           .then(() => navigator.clipboard.writeText(text))
-          .then(() => flash("ok"), () => flash("fail"))
+          .then(
+            () => flash("ok"),
+            () => flash("fail")
+          )
       }}
     >
-      <HugeiconsIcon icon={copied === "ok" ? Tick02Icon : copied === "fail" ? Cancel01Icon : Copy01Icon} />
+      <HugeiconsIcon
+        icon={
+          copied === "ok"
+            ? Tick02Icon
+            : copied === "fail"
+              ? Cancel01Icon
+              : Copy01Icon
+        }
+      />
     </Button>
   )
 }
@@ -53,7 +90,9 @@ function Asset({ r }: { r: Row }) {
   if (name.length <= 12) return <span>{name}</span>
   return (
     <Tooltip>
-      <TooltipTrigger render={<span tabIndex={0} />}>{name.slice(0, 12)}…</TooltipTrigger>
+      <TooltipTrigger render={<span tabIndex={0} />}>
+        {name.slice(0, 12)}…
+      </TooltipTrigger>
       <TooltipContent>{name}</TooltipContent>
     </Tooltip>
   )
@@ -62,8 +101,12 @@ function Asset({ r }: { r: Row }) {
 function Spender({ r }: { r: Row }) {
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
-      <span className="font-mono text-xs">{r.label && !r.eoa ? r.label : short(r.spender)}</span>
-      {r.label && r.eoa && <span className="text-xs text-muted-foreground">({r.label})</span>}
+      <span className="font-mono text-xs">
+        {r.label && !r.eoa ? r.label : short(r.spender)}
+      </span>
+      {r.label && r.eoa && (
+        <span className="text-xs text-muted-foreground">({r.label})</span>
+      )}
       {r.eoa && <Tag>EOA</Tag>}
       {r.proxy && <Tag>proxy</Tag>}
       {!r.label && !r.eoa && <Tag>unknown</Tag>}
@@ -73,7 +116,8 @@ function Spender({ r }: { r: Row }) {
 }
 
 function AtRisk({ r }: { r: Row }) {
-  if (r.usd !== undefined) return <span className="tabular-nums">{money(r.usd)}</span>
+  if (r.usd !== undefined)
+    return <span className="tabular-nums">{money(r.usd)}</span>
   return (
     <Tooltip>
       <TooltipTrigger render={<span tabIndex={0} />}>—</TooltipTrigger>
@@ -82,7 +126,8 @@ function AtRisk({ r }: { r: Row }) {
   )
 }
 
-export const explorerUrl = (r: Pick<Row, "net" | "address">) => networkOf(r.net).explorer.url(r.address)
+export const explorerUrl = (r: Pick<Row, "net" | "address">) =>
+  networkOf(r.net).explorer.url(r.address)
 
 function ExplorerLink({ r }: { r: Row }) {
   const n = networkOf(r.net)
@@ -99,7 +144,8 @@ function ExplorerLink({ r }: { r: Row }) {
   )
 }
 
-const rowTint = (r: Row, hl?: Set<string>) => (hl?.has(r.fp) ? "bg-sev-high/10" : "")
+const rowTint = (r: Row, hl?: Set<string>) =>
+  hl?.has(r.fp) ? "bg-sev-high/10" : ""
 const NewBadge = () => (
   <Badge variant="destructive" className="ml-1 h-4 px-1.5 text-[10px]">
     New
@@ -119,7 +165,9 @@ export function FindingsTable({
   lookback: Array<{ name: string; block: bigint }>
 }) {
   const [sev, setSev] = useState<Severity | "all">("all")
-  const [by, setBy] = useState<GroupBy>(rows.length > SHOWN ? "spender" : "none")
+  const [by, setBy] = useState<GroupBy>(
+    rows.length > SHOWN ? "spender" : "none"
+  )
   const [all, setAll] = useState(false)
   const count = (s: Severity) => rows.filter((r) => r.severity === s).length
   const filtered = sev === "all" ? rows : rows.filter((r) => r.severity === sev)
@@ -128,18 +176,36 @@ export function FindingsTable({
   const old = lookback.filter((l) => l.block > 0n)
 
   return (
-    <section aria-label="Findings" className="rounded-2xl border border-border bg-card p-4">
+    <section
+      aria-label="Findings"
+      className="rounded-2xl border border-border bg-card p-4"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="mr-2 font-heading text-sm">Findings ({rows.length})</h3>
         {(["all", ...SEVS] as const).map((s) => (
-          <Button key={s} size="xs" variant={sev === s ? "secondary" : "ghost"} aria-pressed={sev === s} onClick={() => setSev(s)}>
-            {s === "all" ? "All" : `${s[0].toUpperCase()}${s.slice(1)} ${count(s)}`}
+          <Button
+            key={s}
+            size="xs"
+            variant={sev === s ? "secondary" : "ghost"}
+            aria-pressed={sev === s}
+            onClick={() => setSev(s)}
+          >
+            {s === "all"
+              ? "All"
+              : `${s[0].toUpperCase()}${s.slice(1)} ${count(s)}`}
           </Button>
         ))}
         <DropdownMenu>
-          <DropdownMenuTrigger render={<Button size="xs" variant="outline" className="ml-auto" />}>group: {by}</DropdownMenuTrigger>
+          <DropdownMenuTrigger
+            render={<Button size="xs" variant="outline" className="ml-auto" />}
+          >
+            group: {by}
+          </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuRadioGroup value={by} onValueChange={(v) => setBy(v as GroupBy)}>
+            <DropdownMenuRadioGroup
+              value={by}
+              onValueChange={(v) => setBy(v as GroupBy)}
+            >
               {(["none", "spender", "network"] as const).map((g) => (
                 <DropdownMenuRadioItem key={g} value={g}>
                   {g}
@@ -153,8 +219,20 @@ export function FindingsTable({
       <table className="mt-3 hidden w-full text-left text-sm md:table">
         <thead className="text-xs text-muted-foreground">
           <tr>
-            {["Sev", "Kind", "Asset", "Spender", "Allowance", "At risk", ""].map((h) => (
-              <th key={h || "link"} scope="col" className="py-1 pr-3 font-normal">
+            {[
+              "Sev",
+              "Kind",
+              "Asset",
+              "Spender",
+              "Allowance",
+              "At risk",
+              "",
+            ].map((h) => (
+              <th
+                key={h || "link"}
+                scope="col"
+                className="py-1 pr-3 font-normal"
+              >
                 {h}
                 {!h && <span className="sr-only">Link</span>}
               </th>
@@ -165,13 +243,21 @@ export function FindingsTable({
           <tbody key={g.key}>
             {g.key && (
               <tr>
-                <th colSpan={7} scope="rowgroup" className="pt-3 pb-1 text-left font-mono text-xs text-muted-foreground">
-                  {by === "network" ? networkOf(g.key).name : short(g.key)} · {g.rows.length}
+                <th
+                  colSpan={7}
+                  scope="rowgroup"
+                  className="pt-3 pb-1 text-left font-mono text-xs text-muted-foreground"
+                >
+                  {by === "network" ? networkOf(g.key).name : short(g.key)} ·{" "}
+                  {g.rows.length}
                 </th>
               </tr>
             )}
             {g.rows.map((r) => (
-              <tr key={r.fp} className={`border-t border-border ${rowTint(r, highlight)}`}>
+              <tr
+                key={r.fp}
+                className={`border-t border-border ${rowTint(r, highlight)}`}
+              >
                 <td className="py-1.5 pr-3">
                   <SevPill severity={r.severity} />
                   {highlight?.has(r.fp) && <NewBadge />}
@@ -198,11 +284,16 @@ export function FindingsTable({
 
       <ul className="mt-3 flex flex-col gap-2 md:hidden">
         {visible.map((r) => (
-          <li key={r.fp} className={`flex flex-col gap-1 rounded-xl border border-border p-3 text-sm ${rowTint(r, highlight)}`}>
+          <li
+            key={r.fp}
+            className={`flex flex-col gap-1 rounded-xl border border-border p-3 text-sm ${rowTint(r, highlight)}`}
+          >
             <div className="flex items-center gap-2">
               <SevPill severity={r.severity} />
               {highlight?.has(r.fp) && <NewBadge />}
-              <span className="text-muted-foreground">{KIND[r.kind] ?? r.kind}</span>
+              <span className="text-muted-foreground">
+                {KIND[r.kind] ?? r.kind}
+              </span>
               <span className="ml-auto">
                 <ExplorerLink r={r} />
               </span>
@@ -223,13 +314,23 @@ export function FindingsTable({
       </ul>
 
       {!all && filtered.length > SHOWN && (
-        <Button className="mt-3" size="sm" variant="outline" onClick={() => setAll(true)}>
+        <Button
+          className="mt-3"
+          size="sm"
+          variant="outline"
+          onClick={() => setAll(true)}
+        >
           Show all {filtered.length}
         </Button>
       )}
       {old.length > 0 && (
         <p className="mt-3 text-xs text-muted-foreground">
-          {old.map((l) => `Approvals granted before block ${l.block.toLocaleString("en-US")}${old.length > 1 ? ` on ${l.name}` : ""} were not read.`).join(" ")}{" "}
+          {old
+            .map(
+              (l) =>
+                `Approvals granted before block ${l.block.toLocaleString("en-US")}${old.length > 1 ? ` on ${l.name}` : ""} were not read.`
+            )
+            .join(" ")}{" "}
           Check on revoke.cash for the full history.
         </p>
       )}
@@ -242,7 +343,10 @@ export function ChainSections({ report }: { report: ChainReport }) {
   return (
     <div className="flex flex-col gap-3">
       {report.sections.map((s) => (
-        <section key={s.title} className="rounded-2xl border border-border bg-card p-4">
+        <section
+          key={s.title}
+          className="rounded-2xl border border-border bg-card p-4"
+        >
           <h3 className="font-heading text-sm">{s.title}</h3>
           <p className="mt-1 text-xs text-muted-foreground">{s.summary}</p>
           <ul className="mt-2 flex flex-col gap-2">
@@ -253,7 +357,9 @@ export function ChainSections({ report }: { report: ChainReport }) {
                   <div>{f.title}</div>
                   <div className="text-xs text-muted-foreground">{f.note}</div>
                 </div>
-                {f.amount && <span className="shrink-0 tabular-nums">{f.amount}</span>}
+                {f.amount && (
+                  <span className="shrink-0 tabular-nums">{f.amount}</span>
+                )}
               </li>
             ))}
           </ul>

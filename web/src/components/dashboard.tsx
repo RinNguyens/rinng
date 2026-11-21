@@ -218,7 +218,9 @@ export function Dashboard({
                 aria-label={
                   watched ? "Remove from watchlist" : "Add to watchlist"
                 }
-                onClick={() => setStarred(toggleStarred(browserStore(), symbol))}
+                onClick={() =>
+                  setStarred(toggleStarred(browserStore(), symbol))
+                }
                 className={cn(
                   "grid size-6 place-items-center rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
                   watched
