@@ -88,6 +88,8 @@ export function structureEvents(data: ChartData): Array<Ev> {
   return out.sort((a, b) => b.t - a.t)
 }
 
+const OPEN_KEY = "rinng.structure-events.open"
+
 const FILTERS: Array<[Side | "all", string]> = [
   ["all", "All"],
   ["bull", "▲ Bullish"],
@@ -96,6 +98,22 @@ const FILTERS: Array<[Side | "all", string]> = [
 
 export function StructureEvents({ data }: { data: ChartData }) {
   const [show, setShow] = useState<Side | "all">("all")
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(OPEN_KEY) !== "0"
+    } catch {
+      return true
+    }
+  })
+  const toggle = () =>
+    setOpen((v) => {
+      try {
+        localStorage.setItem(OPEN_KEY, v ? "0" : "1")
+      } catch {
+        /* no storage */
+      }
+      return !v
+    })
   const all = structureEvents(data)
   const evs = show === "all" ? all : all.filter((e) => e.side === show)
   const n = (s: Side) => all.filter((e) => e.side === s).length
@@ -103,12 +121,30 @@ export function StructureEvents({ data }: { data: ChartData }) {
   return (
     <div className="max-h-[35%] min-h-10 shrink-0 overflow-y-auto border-t px-3 py-1.5 text-[11px]">
       <div className="mb-1 flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 font-medium">Structure events</span>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          className="mr-1 inline-flex items-center gap-1 font-medium hover:text-foreground"
+        >
+          <span
+            className={cn(
+              "inline-block text-muted-foreground transition-transform",
+              open && "rotate-90"
+            )}
+          >
+            ▸
+          </span>
+          Structure events
+        </button>
         {FILTERS.map(([k, label]) => (
           <button
             key={k}
             type="button"
-            onClick={() => setShow(k)}
+            onClick={() => {
+              setShow(k)
+              if (!open) toggle()
+            }}
             className={cn(
               "rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted",
               show === k && "bg-muted text-foreground",
@@ -119,9 +155,11 @@ export function StructureEvents({ data }: { data: ChartData }) {
             {label} {k === "all" ? all.length : n(k)}
           </button>
         ))}
-        <span className="ml-auto text-muted-foreground">newest first</span>
+        {open ? (
+          <span className="ml-auto text-muted-foreground">newest first</span>
+        ) : null}
       </div>
-      {evs.length === 0 ? (
+      {!open ? null : evs.length === 0 ? (
         <p className="text-muted-foreground">No event in this window.</p>
       ) : (
         <ul className="grid gap-0.5 font-mono">
