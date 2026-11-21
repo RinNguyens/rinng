@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ago, num, pct, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { postJson } from "@/lib/http"
 
 type CurvePt = {
   tp_r: number
@@ -87,10 +88,7 @@ export function TpStudy() {
     const id = setInterval(load, st?.running ? 2000 : 30_000)
     return () => clearInterval(id)
   }, [load, st?.running])
-  const run = () =>
-    fetch("/api/makemoney/tp/run", { method: "POST", cache: "no-store" })
-      .then((r) => r.json())
-      .then(setSt)
+  const run = () => postJson<State>("/api/makemoney/tp/run").then(setSt)
 
   const s = st?.studies[0]
   return (

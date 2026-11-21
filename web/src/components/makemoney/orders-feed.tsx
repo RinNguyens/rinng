@@ -210,10 +210,7 @@ export function OrdersFeed({
         ) : (
           <ul className="grid gap-1.5">
             {alerts.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-md bg-muted/40 px-2.5 py-1.5"
-              >
+              <li key={a.id} className="rounded-md bg-muted/40 px-2.5 py-1.5">
                 <div className="flex items-baseline gap-1.5 text-sm">
                   <span
                     className={cn(

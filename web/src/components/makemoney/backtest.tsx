@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { postJson } from "@/lib/http"
 import { TpStudy } from "@/components/makemoney/tp-study"
 
 // Strategy rules and a realistic $-account backtest (backend: src/rinng/makemoney_backtest.py).
@@ -117,12 +118,7 @@ export function Backtest({
   }, [st?.running, load])
 
   const run = () =>
-    fetch(`/api/makemoney/backtest/run?days=${days}`, {
-      method: "POST",
-      cache: "no-store",
-    })
-      .then((r) => r.json())
-      .then(setSt)
+    postJson<State>(`/api/makemoney/backtest/run?days=${days}`).then(setSt)
 
   const r = st?.result
   const risk = (equity * riskPct) / 100

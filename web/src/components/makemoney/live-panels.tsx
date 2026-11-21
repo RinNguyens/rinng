@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { postJson } from "@/lib/http"
 
 // Live account status, per-coin signal watch, the signal journal and continuous training.
 // Backend: src/rinng/makemoney.py (snapshot, /analysis, /training).
@@ -488,9 +489,7 @@ export function TrainingPanel() {
   }, [load, st?.running])
 
   const run = () =>
-    fetch("/api/makemoney/training/run", { method: "POST", cache: "no-store" })
-      .then((r) => r.json())
-      .then(setSt)
+    postJson<Training>("/api/makemoney/training/run").then(setSt)
 
   const m = (x: M) => (
     <span className="font-mono tabular-nums">
