@@ -576,3 +576,169 @@ def train(
     res["checks"] = {k: bool(v) for k, v in checks.items()}  # plain bools for JSON
     res["adopt"] = all(res["checks"].values())
     return res
+
+
+# ---------------------------------------------------------------- take-profit study
+
+TP_GRID = [round(0.5 + 0.25 * i, 2) for i in range(19)]  # 0.5R .. 5R
+
+
+def excursions(data, p: Strategy, acct: Account, t_from: int, t_to: int) -> list[dict]:
+    """For every signal of `p` in [t_from, t_to): entry at the next open (+slippage), then follow
+    the bars with the stop fixed at its original level. Records the best move in our favour
+    before the stop (MFE, in R), whether the stop was hit, the R at the time stop, and the cost
+    of a round trip in R (two taker fees + two slippages)."""
+    tfm = TF_MIN[p.tf]
+    max_bars = max(1, math.ceil(p.max_bars * 5 / tfm))
+    out = []
+    for sym, d in data.items():
+        key = (sym, p.tf, len(d["bars"]), d["bars"][-1][0] if d["bars"] else 0)
+        ind = _IND.get(key)
+        if ind is None:
+            ind = _IND[key] = indicators(resample(d["bars"], tfm))
+        t_ms = ind["t"] * 1000
+        lo_i = int(np.searchsorted(t_ms, t_from))
+        hi_i = int(np.searchsorted(t_ms, t_to))
+        o, h, lo, c = ind["o"], ind["h"], ind["l"], ind["c"]
+        for s in find_signals(ind, p, start=max(lo_i, 210), end=min(hi_i, len(c) - 1)):
+            j0 = s["i"] + 1
+            if j0 >= len(c) - 1:
+                continue
+            long = s["side"] == "long"
+            entry = o[j0] * (1 + acct.slippage) if long else o[j0] * (1 - acct.slippage)
+            risk = abs(entry - s["stop"])
+            if risk <= 0 or (long and s["stop"] >= entry) or (not long and s["stop"] <= entry):
+                continue
+            mfe, stopped, end_r, bars = 0.0, False, 0.0, 0
+            for j in range(j0, min(j0 + max_bars, len(c) - 1)):
+                bars += 1
+                if (lo[j] <= s["stop"]) if long else (h[j] >= s["stop"]):
+                    stopped = True
+                    break
+                fav = (h[j] - entry) if long else (entry - lo[j])
+                mfe = max(mfe, fav / risk)
+                end_r = ((c[j] - entry) if long else (entry - c[j])) / risk
+            cost_r = (2 * acct.taker_fee + 2 * acct.slippage) * entry / risk
+            out.append(
+                {
+                    "symbol": sym,
+                    "time": s["time"],
+                    "side": s["side"],
+                    "mfe": mfe,
+                    "stopped": stopped,
+                    "end_r": end_r,
+                    "cost_r": cost_r,
+                    "bars": bars,
+                }
+            )
+    return out
+
+
+def tp_curve(ex: list[dict], grid=TP_GRID) -> list[dict]:
+    """Net expectancy (R per trade, costs included) and hit rate for each fixed TP.
+    Same-bar ambiguity is resolved against us: the MFE only counts bars before the stop."""
+    rows = []
+    n = len(ex)
+    for tp in grid:
+        total, hits = 0.0, 0
+        for e in ex:
+            if e["mfe"] >= tp:
+                total += tp - e["cost_r"]
+                hits += 1
+            elif e["stopped"]:
+                total += -1 - e["cost_r"]
+            else:
+                total += e["end_r"] - e["cost_r"]
+        rows.append(
+            {
+                "tp_r": tp,
+                "expectancy_r": total / n if n else 0.0,
+                "hit_rate": hits / n * 100 if n else 0.0,
+                "trades": n,
+            }
+        )
+    return rows
+
+
+def tp_study(data, filters, acct: Account, p: Strategy, split: float = 0.67) -> dict:
+    """Find the take-profit for strategy `p`: the excursion curve picks a TP on the first part,
+    the last part (never seen) judges it, and the full simulator confirms the best few TP /
+    TP1 combinations with real sizing, fees and funding."""
+    t0 = min(int(d["start_ms"]) for d in data.values())
+    t1 = int(time.time() * 1000)
+    cut = int(t0 + (t1 - t0) * split)
+    ex_tr = excursions(data, p, acct, t0, cut)
+    ex_te = excursions(data, p, acct, cut, t1)
+    tr, te = tp_curve(ex_tr), tp_curve(ex_te)
+    best = max(tr, key=lambda r: r["expectancy_r"]) if tr else None
+    mfes = sorted(e["mfe"] for e in ex_tr + ex_te)
+    hist = [0] * 12  # 0-0.5R, 0.5-1R, ..., >=5.5R
+    for m in mfes:
+        hist[min(int(m / 0.5), 11)] += 1
+
+    # confirm with the full simulator: current exits vs the best TPs, with and without TP1
+    keys = ("trades", "win_rate", "return_pct", "profit_factor", "max_drawdown_pct", "avg_r")
+    top = sorted(tr, key=lambda r: r["expectancy_r"], reverse=True)[:3]
+    combos = [("current", p)]
+    for r in top:
+        combos.append((f"TP {r['tp_r']:g}R", replace(p, tp2_r=r["tp_r"], tp1_frac=0.0)))
+        if r["tp_r"] >= 1.5:
+            combos.append(
+                (
+                    f"TP1 1R 50% + TP {r['tp_r']:g}R",
+                    replace(p, tp2_r=r["tp_r"], tp1_r=1.0, tp1_frac=0.5),
+                )
+            )
+    confirm = []
+    for name, q in combos:
+        mt = run(data, filters, q, acct, cut, t1)
+        mf = run(data, filters, q, acct, t0, t1)
+        confirm.append(
+            {
+                "name": name,
+                "tp2_r": q.tp2_r,
+                "tp1_r": q.tp1_r,
+                "tp1_frac": q.tp1_frac,
+                "test": {k: mt[k] for k in keys},
+                "full": {k: mf[k] for k in keys},
+            }
+        )
+    cur = confirm[0]
+    rivals = [x for x in confirm[1:]]
+    pick = max(
+        rivals, key=lambda x: (x["test"]["return_pct"], x["full"]["return_pct"]), default=None
+    )
+    checks = {}
+    if pick:
+        checks = {
+            "more trades than 8 out of sample": pick["test"]["trades"] >= 8,
+            "profitable out of sample": pick["test"]["return_pct"] > 0,
+            "beats current exits out of sample": pick["test"]["return_pct"]
+            > cur["test"]["return_pct"],
+            "beats current exits over the whole period": pick["full"]["return_pct"]
+            > cur["full"]["return_pct"],
+            "differs from current exits": (pick["tp2_r"], pick["tp1_frac"])
+            != (p.tp2_r, p.tp1_frac),
+        }
+    return {
+        "t": time.time(),
+        "from": t0 // 1000,
+        "cut": cut // 1000,
+        "to": t1 // 1000,
+        "tf": p.tf,
+        "mode": p.mode,
+        "current_tp": {"tp2_r": p.tp2_r, "tp1_r": p.tp1_r, "tp1_frac": p.tp1_frac},
+        "signals_train": len(ex_tr),
+        "signals_test": len(ex_te),
+        "curve_train": tr,
+        "curve_test": te,
+        "best_train": best,
+        "best_on_test": next((r for r in te if best and r["tp_r"] == best["tp_r"]), None),
+        "mfe_hist": hist,
+        "mfe_median": float(np.median(mfes)) if mfes else None,
+        "stop_rate": sum(e["stopped"] for e in ex_tr + ex_te) / max(len(mfes), 1) * 100,
+        "confirm": confirm,
+        "pick": pick,
+        "checks": {k: bool(v) for k, v in checks.items()},
+        "adopt": bool(pick) and all(checks.values()),
+    }

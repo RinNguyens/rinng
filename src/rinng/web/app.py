@@ -78,6 +78,14 @@ def create_app(
     async def mm_projection():
         return await mm.projections()
 
+    @app.get("/api/makemoney/tp")
+    async def mm_tp_state():
+        return mm.tp_state()
+
+    @app.post("/api/makemoney/tp/run")
+    async def mm_tp_run():
+        return mm.start_tp_study()
+
     @app.get("/api/makemoney/training")
     async def mm_training_state():
         return mm.training_state()

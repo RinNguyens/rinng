@@ -64,6 +64,7 @@ class Config:
     train_every_h: float = 12.0
     train_days: int = 90
     train_tfs: list[str] = field(default_factory=lambda: ["5m", "15m", "1h"])
+    tp_every_h: float = 4.0  # how often the take-profit study re-runs on fresh data
     notes: str = ""
 
     def public(self) -> dict:
@@ -214,6 +215,7 @@ class MakeMoney:
         self._bt_running = False
         self._train_running = False
         self._train_task: asyncio.Task | None = None
+        self._tp_running = False
         self._bt_error: str | None = None
 
     # ---------- persistence ----------
@@ -317,6 +319,11 @@ class MakeMoney:
                 due = time.time() - last >= self.cfg.train_every_h * 3600
                 if self.cfg.auto_train and due and not self._train_running:
                     await self._training("schedule")
+                studies = self.state.get("tp_studies", [])
+                last_tp = studies[0]["t"] if studies else 0
+                tp_due = time.time() - last_tp >= self.cfg.tp_every_h * 3600
+                if self.cfg.auto_train and tp_due and not self._tp_running:
+                    await self._tp_study("schedule")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -391,6 +398,91 @@ class MakeMoney:
             self._note(f"TRAINING failed: {e}")
         finally:
             self._train_running = False
+        # the exits are re-tuned on the setup that is live now
+        if not self._tp_running:
+            await self._tp_study(f"after training ({why})")
+
+    # ---------- take-profit study ----------
+    def _account(self):
+        from rinng import makemoney_backtest as bt
+
+        c = self.cfg
+        return bt.Account(
+            balance=c.starting_balance,
+            risk_pct=c.risk_per_trade_pct,
+            leverage=c.max_leverage,
+            max_positions=c.max_positions,
+            taker_fee=self.fee,
+            slippage=self.slip,
+        )
+
+    def start_tp_study(self) -> dict:
+        if not self._tp_running:
+            self._tp_running = True
+            asyncio.create_task(self._tp_study("manual"))
+        return self.tp_state()
+
+    def tp_state(self) -> dict:
+        studies = self.state.get("tp_studies", [])
+        last = studies[0]["t"] if studies else None
+        s = self.strategy
+        return {
+            "running": self._tp_running,
+            "auto": self.cfg.auto_train,
+            "every_h": self.cfg.tp_every_h,
+            "next": (last + self.cfg.tp_every_h * 3600) if (last and self.cfg.auto_train) else None,
+            "current": {
+                "tp2_r": s.tp2_r,
+                "tp1_r": s.tp1_r,
+                "tp1_frac": s.tp1_frac,
+                "tf": s.tf,
+                "mode": s.mode,
+            },
+            "studies": studies[:20],
+        }
+
+    async def _tp_study(self, why: str) -> None:
+        from rinng import makemoney_backtest as bt
+
+        self._tp_running = True
+        try:
+            c = self.cfg
+            data = {
+                s: await bt.history(self.bn, s, c.train_days, self.dir / "history")
+                for s in c.symbols
+            }
+            filt = {s: await self.bn.symbol_filters(s) for s in c.symbols}
+            res = await asyncio.to_thread(bt.tp_study, data, filt, self._account(), self.strategy)
+            res |= {"trigger": why, "symbols": c.symbols, "days": c.train_days}
+            async with self.lock:
+                studies = self.state.setdefault("tp_studies", [])
+                studies.insert(0, res)
+                del studies[30:]
+                pick = res["pick"]
+                if res["adopt"] and pick:
+                    self.cfg.strategy = self.strategy.to_dict() | {
+                        "tp2_r": pick["tp2_r"],
+                        "tp1_r": pick["tp1_r"],
+                        "tp1_frac": pick["tp1_frac"],
+                    }
+                    self._save_config()
+                    self._analysis.clear()
+                    msg = (
+                        f"TP STUDY adopted {pick['name']}: out of sample "
+                        f"{pick['test']['return_pct']:+.1f}% vs current "
+                        f"{res['confirm'][0]['test']['return_pct']:+.1f}%"
+                    )
+                    self._note(msg)
+                    self._alert({}, "open", "Take-profit updated", msg, "good")
+                else:
+                    failed = [k for k, ok in res["checks"].items() if not ok] or ["no candidate"]
+                    self._note("TP STUDY kept the current exits (" + ", ".join(failed) + ")")
+                self._save_state()
+        except Exception as e:
+            log.exception("makemoney tp study failed")
+            self._note(f"TP STUDY failed: {e}")
+        finally:
+            self._tp_running = False
 
     async def _loop(self) -> None:
         while self.running:

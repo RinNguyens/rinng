@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { TpStudy } from "@/components/makemoney/tp-study"
 
 // Strategy rules and a realistic $-account backtest (backend: src/rinng/makemoney_backtest.py).
 
@@ -189,6 +190,8 @@ export function Backtest({
             </p>
           </div>
         </div>
+
+        <TpStudy />
 
         {st?.error && (
           <p className="text-sm text-destructive">
