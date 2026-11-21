@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rinng.config import Settings
 from rinng.exchanges.listing import Catalog
-from rinng.makemoney import MakeMoney
+from rinng.makemoney import MakeMoney, venue_symbol
 from rinng.service import NETWORK_ERRORS, TIMEFRAMES, BadRequest, NotFound, Rinng
 from rinng.web import solana
 
@@ -73,6 +73,26 @@ def create_app(
     @app.get("/api/makemoney/symbols")
     async def mm_symbols():
         return await mm.bn.top_symbols()
+
+    @app.get("/api/makemoney/candles")
+    async def mm_candles(
+        symbol: str = Query("BTC-USDT-PERP"), limit: int = Query(288, ge=10, le=1500)
+    ):
+        """Live Binance 5m candles (the last one is still forming)."""
+        raw = await mm.bn.get(
+            "/fapi/v1/klines", symbol=venue_symbol(symbol), interval="5m", limit=limit
+        )
+        return [
+            {
+                "time": int(b[0]) // 1000,
+                "open": float(b[1]),
+                "high": float(b[2]),
+                "low": float(b[3]),
+                "close": float(b[4]),
+                "volume": float(b[5]),
+            }
+            for b in raw
+        ]
 
     @app.post("/api/makemoney/{action}")
     async def mm_action(action: str):
