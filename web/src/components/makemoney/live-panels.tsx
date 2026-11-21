@@ -74,6 +74,29 @@ export function LiveStatus({
   autoSignal: boolean
   tf: string
 }) {
+  const [proj, setProj] = useState<
+    Partial<Record<string, TradeProjection | null>>
+  >({})
+  const openIds = positions.map((p) => p.id).join(",")
+  useEffect(() => {
+    if (!openIds) return
+    let alive = true
+    const load = () =>
+      fetch("/api/makemoney/projection", { cache: "no-store" })
+        .then((r) => r.json())
+        .then(
+          (d: { orders: Partial<Record<string, TradeProjection | null>> }) => {
+            if (alive) setProj(d.orders)
+          }
+        )
+        .catch(() => {})
+    load()
+    const id = setInterval(load, 30_000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [openIds])
   const total = Math.max(equity, 1)
   const freePct = (balance / total) * 100
   const marginPct = (marginUsed / total) * 100
@@ -146,7 +169,11 @@ export function LiveStatus({
         ) : (
           <div className="grid gap-3">
             {positions.map((p) => (
-              <PositionCard key={p.symbol} p={p} />
+              <PositionCard
+                key={p.symbol}
+                p={p}
+                proj={proj[String(p.id)] ?? null}
+              />
             ))}
           </div>
         )}
@@ -155,7 +182,13 @@ export function LiveStatus({
   )
 }
 
-function PositionCard({ p }: { p: LivePosition }) {
+function PositionCard({
+  p,
+  proj,
+}: {
+  p: LivePosition
+  proj: TradeProjection | null
+}) {
   const long = p.side === "long"
   const mark = p.mark ?? p.entry
   // a straight line from the stop (0%) to the take-profit (100%)
@@ -223,6 +256,89 @@ function PositionCard({ p }: { p: LivePosition }) {
             ` · ${left > 0 ? `${num(left / 3600, 1)}h left` : "time stop"}`}
         </span>
       </div>
+      {proj && <ProjectionBox x={proj} />}
+    </div>
+  )
+}
+
+export type TradeProjection = {
+  horizon_bars: number
+  bar_sec: number
+  price: number
+  p_tp_first: number
+  p_sl_first: number
+  p_neither: number
+  p_tp1_before_sl: number | null
+  ev_usd: number
+  pnl_if_tp: number
+  pnl_if_sl: number
+  median_end: number
+  analogs: number
+  pool: number
+}
+
+function ProjectionBox({ x }: { x: TradeProjection }) {
+  const hrs = (x.horizon_bars * x.bar_sec) / 3600
+  const seg = [
+    {
+      w: x.p_tp_first,
+      c: "bg-emerald-500",
+      label: `TP first ${num(x.p_tp_first * 100, 0)}%`,
+    },
+    {
+      w: x.p_neither,
+      c: "bg-muted-foreground/40",
+      label: `time stop ${num(x.p_neither * 100, 0)}%`,
+    },
+    {
+      w: x.p_sl_first,
+      c: "bg-red-500",
+      label: `SL first ${num(x.p_sl_first * 100, 0)}%`,
+    },
+  ]
+  return (
+    <div className="mt-3 rounded-md border border-dashed p-2.5">
+      <div className="mb-1.5 flex flex-wrap items-baseline gap-x-3 text-xs">
+        <span className="font-semibold">Projection</span>
+        <span className="text-muted-foreground">
+          next {num(hrs, 1)}h · {x.analogs} similar past moments out of {x.pool}
+        </span>
+        <span className={cn("ml-auto font-mono font-semibold", tone(x.ev_usd))}>
+          expected {x.ev_usd >= 0 ? "+" : "-"}
+          {usd(Math.abs(x.ev_usd))}
+        </span>
+      </div>
+      <div className="flex h-2.5 overflow-hidden rounded-full">
+        {seg.map((s) => (
+          <div
+            key={s.label}
+            className={s.c}
+            style={{ width: `${s.w * 100}%` }}
+            title={s.label}
+          />
+        ))}
+      </div>
+      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 font-mono text-xs tabular-nums sm:grid-cols-4">
+        <span className="text-emerald-500">
+          TP first {num(x.p_tp_first * 100, 0)}% → +{usd(x.pnl_if_tp)}
+        </span>
+        <span className="text-red-500">
+          SL first {num(x.p_sl_first * 100, 0)}% → -{usd(Math.abs(x.pnl_if_sl))}
+        </span>
+        <span className="text-muted-foreground">
+          neither by then {num(x.p_neither * 100, 0)}%
+        </span>
+        <span>
+          {x.p_tp1_before_sl != null &&
+            `TP1 before SL ${num(x.p_tp1_before_sl * 100, 0)}% · `}
+          median {price(x.median_end)}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Odds come from how price moved after the most similar past{" "}
+        {x.bar_sec / 60}m setups, replayed against this order's own levels. A
+        distribution, not a promise.
+      </p>
     </div>
   )
 }

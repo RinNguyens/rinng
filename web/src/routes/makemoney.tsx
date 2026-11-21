@@ -16,6 +16,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TradeChart } from "@/components/makemoney/trade-chart"
+import { LiveDesk } from "@/components/live-desk"
+import { api } from "@/lib/api"
+import { live } from "@/lib/live"
 import { Backtest } from "@/components/makemoney/backtest"
 import {
   LiveStatus,
@@ -65,6 +68,10 @@ type Position = {
   upnl: number
   liq: number
   funding?: number
+  tp1?: number | null
+  be?: boolean
+  deadline?: number | null
+  source?: string
 }
 type Trade = Position & {
   exit: number
@@ -120,6 +127,76 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
     throw new Error(d)
   }
   return r.json() as Promise<T>
+}
+
+// The terminal's Live desk (5m chart with structure, liquidity, profile, EMAs, the analog
+// projection cone and setups, plus the agents' read), with the open paper order drawn on it.
+function DeskSection({
+  symbols,
+  positions,
+}: {
+  symbols: Array<string>
+  positions: Array<Position>
+}) {
+  const [symbol, setSymbol] = useState(symbols[0])
+  const sym = symbols.includes(symbol) ? symbol : symbols[0]
+  const exchange = "binance"
+
+  // start the live feed like the terminal shell does
+  useEffect(() => {
+    api
+      .meta()
+      .then((m) => live.configure(m.live))
+      .catch(() => {})
+  }, [])
+  useEffect(() => {
+    live.select(sym, exchange)
+  }, [sym])
+
+  const p = positions.find((x) => x.symbol === sym)
+  return (
+    <div className="grid gap-2">
+      {symbols.length > 1 && (
+        <div className="flex gap-1">
+          {symbols.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSymbol(s)}
+              className={cn(
+                "rounded-md border px-2.5 py-1 font-mono text-xs",
+                s === sym
+                  ? "border-foreground bg-muted"
+                  : "text-muted-foreground"
+              )}
+            >
+              {s.split("-")[0]}
+            </button>
+          ))}
+        </div>
+      )}
+      <LiveDesk
+        symbol={sym}
+        exchange={exchange}
+        trade={
+          p
+            ? {
+                id: p.id,
+                side: p.side,
+                entry: p.entry,
+                stop: p.stop,
+                take: p.take,
+                tp1: p.tp1,
+                be: p.be,
+                liq: p.liq,
+                upnl: p.upnl,
+                qty: p.qty,
+              }
+            : null
+        }
+      />
+    </div>
+  )
 }
 
 function MakeMoneyPage() {
@@ -229,6 +306,12 @@ function MakeMoneyPage() {
               running={snap.running}
               autoSignal={snap.config.auto_signal}
               tf={snap.strategy.tf}
+            />
+          )}
+          {snap && snap.config.symbols.length > 0 && (
+            <DeskSection
+              symbols={snap.config.symbols}
+              positions={snap.positions}
             />
           )}
           {snap && (
@@ -453,11 +536,7 @@ function Settings({
         </div>
         <div className="grid gap-1">
           <Label>Symbols</Label>
-          <Select
-            multiple
-            value={picked}
-            onValueChange={(v) => setPicked(v)}
-          >
+          <Select multiple value={picked} onValueChange={(v) => setPicked(v)}>
             <SelectTrigger aria-label="Symbols" className="w-full">
               <span className="truncate">
                 {picked.length

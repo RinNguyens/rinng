@@ -878,6 +878,27 @@ Use an empty actions list to hold."""
             except Exception as e:
                 self._note(f"REJECTED {a.get('type')} {a.get('symbol')}: {e}")
 
+    # ---------- projection of open orders ----------
+    async def projections(self) -> dict:
+        """Analog projection for every open order (makemoney_projection), cached 30s."""
+        from rinng.makemoney_projection import project
+
+        hit = getattr(self, "_proj", None)
+        if hit and time.time() - hit[0] < 30:
+            return hit[1]
+        tf = self.strategy.tf
+        bar_sec = {"5m": 300, "15m": 900, "1h": 3600}.get(tf, 300)
+        out: dict[str, Any] = {}
+        for p in list(self.state["positions"]):
+            bars = (await self.bn.klines(p["symbol"], tf))[:-1]  # closed bars only
+            left = (p.get("deadline") or time.time() + 48 * bar_sec) - time.time()
+            horizon = int(min(max(left // bar_sec, 3), 96))
+            res = await asyncio.to_thread(project, bars, p, horizon, self.fee)
+            out[str(p.get("id"))] = res
+        data = {"t": time.time(), "tf": tf, "orders": out}
+        self._proj = (time.time(), data)
+        return data
+
     # ---------- backtest ----------
     def backtest_state(self) -> dict:
         p = self.dir / "backtest.json"
