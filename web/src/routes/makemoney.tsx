@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TradeChart } from "@/components/makemoney/trade-chart"
+import { Backtest } from "@/components/makemoney/backtest"
 
 // MakeMoney: a simulated futures account that Claude Haiku trades long/short.
 // Backend: src/rinng/makemoney.py (no exchange account is touched; everything is paper).
@@ -72,6 +73,7 @@ type Trade = Position & {
 }
 type Snap = {
   config: Config
+  strategy: { rules: Array<string>; tp2_r: number }
   running: boolean
   busy: boolean
   last_tick: number | null
@@ -213,6 +215,12 @@ function MakeMoneyPage() {
               />
             </CardContent>
           </Card>
+          <Backtest
+            rules={snap?.strategy.rules ?? []}
+            equity={snap?.equity ?? 1000}
+            riskPct={snap?.config.risk_per_trade_pct ?? 1}
+            tp2R={snap?.strategy.tp2_r ?? 3}
+          />
           <EquityCurve
             curve={snap?.equity_curve ?? []}
             start={snap?.config.starting_balance ?? 1000}

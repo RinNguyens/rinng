@@ -74,6 +74,14 @@ def create_app(
     async def mm_symbols():
         return await mm.bn.top_symbols()
 
+    @app.get("/api/makemoney/backtest")
+    async def mm_backtest_state():
+        return mm.backtest_state()
+
+    @app.post("/api/makemoney/backtest/run")
+    async def mm_backtest_run(days: int = Query(60, ge=7, le=180)):
+        return mm.start_backtest(days)
+
     @app.get("/api/makemoney/analysis")
     async def mm_analysis(symbol: str = Query("BTC-USDT-PERP")):
         """5m candles, EMAs, VWAP, RSI, swings, BOS/CHoCH, levels and long/short signals."""

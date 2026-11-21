@@ -86,6 +86,7 @@ type Analysis = {
   resistance: Array<number>
   support: Array<number>
   signals: Array<Signal>
+  strategy?: { tp2_r: number; rules: Array<string> }
   summary: {
     price: number
     bias: string
@@ -655,7 +656,9 @@ export function TradeChart({
                     {price(sig.stop)}
                   </div>
                   <div>
-                    <div className="text-emerald-500">Target 2R</div>
+                    <div className="text-emerald-500">
+                      Target {data?.strategy?.tp2_r ?? 3}R
+                    </div>
                     {price(sig.take)}
                   </div>
                 </div>
@@ -747,11 +750,12 @@ export function TradeChart({
               {sm.signal_stats.count} signals · {sm.signal_stats.wins}✓{" "}
               {sm.signal_stats.losses}✗
             </Stat>
-            <Stat label="Hit rate @2R">
+            <Stat label={`Hit rate @${data.strategy?.tp2_r ?? 3}R`}>
               {sm.signal_stats.hit_rate != null ? (
                 <span
                   className={
-                    sm.signal_stats.hit_rate >= 34
+                    sm.signal_stats.hit_rate >=
+                    100 / (1 + (data.strategy?.tp2_r ?? 3))
                       ? "text-emerald-500"
                       : "text-red-500"
                   }
@@ -761,7 +765,10 @@ export function TradeChart({
               ) : (
                 "–"
               )}{" "}
-              <span className="text-muted-foreground">(break-even ≈ 34%)</span>
+              <span className="text-muted-foreground">
+                (break-even ≈ {num(100 / (1 + (data.strategy?.tp2_r ?? 3)), 0)}
+                %)
+              </span>
             </Stat>
           </div>
         </div>

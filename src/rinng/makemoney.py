@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from rinng.makemoney_signals import analyse
+from rinng.makemoney_signals import Strategy, analyse
 
 if TYPE_CHECKING:
     from rinng.service import Rinng
@@ -59,6 +59,7 @@ class Config:
     taker_fee_pct: float = 0.05  # Binance regular tier taker
     slippage_bps: float = 2.0  # beyond best bid/ask on market and stop fills
     auto_signal: bool = True  # open a simulated order as soon as a 5m signal fires
+    strategy: dict = field(default_factory=dict)  # makemoney_signals.Strategy overrides
     notes: str = ""
 
     def public(self) -> dict:
@@ -208,6 +209,8 @@ class MakeMoney:
         self.last_tick: float | None = None
         self.last_guard: float | None = None
         self._analysis: dict[str, tuple[float, dict]] = {}
+        self._bt_running = False
+        self._bt_error: str | None = None
 
     # ---------- persistence ----------
     def _load_config(self) -> Config:
@@ -332,16 +335,38 @@ class MakeMoney:
         self.state["log"].insert(0, {"t": time.time(), "msg": msg})
         del self.state["log"][300:]
 
+    def _partial(self, p: dict, fill: float, frac: float, why: str) -> None:
+        """Close `frac` of the original size at `fill` and keep the rest open."""
+        qx = min(p.get("qty0", p["qty"]) * frac, p["qty"])
+        pnl = self._pnl(p, fill) * qx / p["qty"]
+        fee = fill * qx * self.fee
+        freed = p["margin"] * qx / p["qty"]
+        self.state["balance"] += freed + pnl - fee
+        p["margin"] -= freed
+        p["qty"] -= qx
+        p["realized"] = p.get("realized", 0.0) + pnl
+        p["partial_fees"] = p.get("partial_fees", 0.0) + fee
+        p.setdefault("partials", []).append(
+            {"t": time.time(), "price": fill, "qty": qx, "why": why}
+        )
+        self._note(
+            f"{why.upper()} #{p.get('id', '?')} {p['symbol']} closed {qx:g} @ {fill:.6g} "
+            f"({pnl - fee:+.2f} USDT); stop → break-even {p['entry']:.6g}"
+        )
+
     def _close(self, p: dict, fill: float, why: str, t: float | None = None) -> None:
+        done = p.get("realized", 0.0)  # gross PnL already banked by partial take-profits
+        done_fees = p.get("partial_fees", 0.0)
         if why == "liquidated":
-            # the whole isolated margin (funding included) goes to the insurance fund
-            fee = 0.0
-            net = -(p["margin_in"] + p["open_fee"])
+            # what is left of the isolated margin (funding included) goes to the insurance fund
+            fee, pnl = 0.0, -p["margin"]
+            net = done - done_fees - p["margin_in"] * (p["qty"] / p.get("qty0", p["qty"]))
+            net -= p["open_fee"]
         else:
             pnl = self._pnl(p, fill)
             fee = fill * p["qty"] * self.fee
             self.state["balance"] += p["margin"] + pnl - fee
-            net = pnl - fee - p["open_fee"] + p["funding"]
+            net = done + pnl - done_fees - fee - p["open_fee"] + p["funding"]
         self.state["positions"].remove(p)
         self.state["trades"].insert(
             0,
@@ -350,9 +375,10 @@ class MakeMoney:
                 "exit": fill,
                 "closed": t or time.time(),
                 "pnl": net,
-                "gross_pnl": 0.0 if why == "liquidated" else pnl,
-                "exit_fee": fee,
-                "fees": p["open_fee"] + fee,
+                "gross_pnl": done + pnl,
+                "exit_fee": fee + done_fees,
+                "fees": p["open_fee"] + fee + done_fees,
+                "qty": p.get("qty0", p["qty"]),
                 "roe_pct": net / p["margin_in"] * 100,
                 "exit_reason": why,
             },
@@ -363,13 +389,17 @@ class MakeMoney:
         )
 
     # ---------- orders ----------
+    @property
+    def strategy(self) -> Strategy:
+        return Strategy.from_dict(self.cfg.strategy)
+
     async def analysis(self, sym: str) -> dict:
         """5m analysis (see makemoney_signals), cached for 15s per symbol."""
         hit = self._analysis.get(sym)
         if hit and time.time() - hit[0] < 15:
             return hit[1]
         bars = await self.bn.klines_5m(sym)
-        a = await asyncio.to_thread(analyse, bars)
+        a = await asyncio.to_thread(analyse, bars, self.strategy)
         self._analysis[sym] = (time.time(), a)
         return a
 
@@ -400,7 +430,18 @@ class MakeMoney:
                     for lev in range(self.cfg.max_leverage, 0, -1):
                         try:
                             await self._open(
-                                sym, sig["side"], lev, sig["stop"], sig["take"], why, "signal"
+                                sym,
+                                sig["side"],
+                                lev,
+                                sig["stop"],
+                                sig["take"],
+                                why,
+                                "signal",
+                                plan={
+                                    "tp1": sig["tp1"],
+                                    "tp1_frac": self.strategy.tp1_frac,
+                                    "deadline": time.time() + self.strategy.max_bars * 300,
+                                },
                             )
                             err = None
                             break
@@ -421,6 +462,7 @@ class MakeMoney:
         take: float,
         why: str,
         source: str = "haiku",
+        plan: dict | None = None,
     ):
         f = await self.bn.symbol_filters(sym)
         if f["status"] != "TRADING":
@@ -455,12 +497,17 @@ class MakeMoney:
             "symbol": sym,
             "side": side,
             "qty": qty,
+            "qty0": qty,
             "entry": fill,
             "leverage": lev,
             "margin": margin,
             "margin_in": margin,
             "stop": stop,
             "take": take,
+            "tp1": _round(plan["tp1"], f["tick"]) if plan and plan.get("tp1") else None,
+            "tp1_frac": (plan or {}).get("tp1_frac", 0.0),
+            "be": False,
+            "deadline": (plan or {}).get("deadline"),
             "opened": time.time(),
             "reason": why,
             "source": source,
@@ -512,6 +559,9 @@ class MakeMoney:
             marks = {b[0]: b for b in mark}
             long_ = p["side"] == "long"
             f = await self.bn.symbol_filters(sym)
+            if p.get("deadline") and time.time() >= p["deadline"]:
+                await self._market_close(p, "time")
+                continue
             for b in last:
                 t, o, h, lo, _c = b
                 liq = liq_price(p)
@@ -526,8 +576,14 @@ class MakeMoney:
                     gap = (o <= p["stop"]) if long_ else (o >= p["stop"])
                     trig = o if gap else p["stop"]
                     fill = trig * (1 - self.slip) if long_ else trig * (1 + self.slip)
-                    self._close(p, _round(fill, f["tick"]), "stop", t / 1000)
+                    why = "breakeven" if p.get("be") else "stop"
+                    self._close(p, _round(fill, f["tick"]), why, t / 1000)
                     break
+                tp1 = p.get("tp1")
+                if tp1 and not p.get("be") and (h >= tp1 if long_ else lo <= tp1):
+                    fill = tp1 * (1 - self.slip) if long_ else tp1 * (1 + self.slip)
+                    self._partial(p, _round(fill, f["tick"]), p.get("tp1_frac", 0.5), "tp1")
+                    p["stop"], p["be"] = p["entry"], True
                 if take_hit:
                     gap = (o >= p["take"]) if long_ else (o <= p["take"])
                     trig = o if gap else p["take"]
@@ -703,12 +759,50 @@ Use an empty actions list to hold."""
             except Exception as e:
                 self._note(f"REJECTED {a.get('type')} {a.get('symbol')}: {e}")
 
+    # ---------- backtest ----------
+    def backtest_state(self) -> dict:
+        p = self.dir / "backtest.json"
+        last = json.loads(p.read_text()) if p.exists() else None
+        return {"running": self._bt_running, "error": self._bt_error, "result": last}
+
+    def start_backtest(self, days: int) -> dict:
+        if self._bt_running:
+            return self.backtest_state()
+        self._bt_running, self._bt_error = True, None
+        asyncio.create_task(self._backtest(max(7, min(int(days), 180))))
+        return self.backtest_state()
+
+    async def _backtest(self, days: int) -> None:
+        from rinng import makemoney_backtest as bt
+
+        try:
+            c = self.cfg
+            data = {s: await bt.history(self.bn, s, days, self.dir / "history") for s in c.symbols}
+            filt = {s: await self.bn.symbol_filters(s) for s in c.symbols}
+            acct = bt.Account(
+                balance=c.starting_balance,
+                risk_pct=c.risk_per_trade_pct,
+                leverage=c.max_leverage,
+                max_positions=c.max_positions,
+                taker_fee=self.fee,
+                slippage=self.slip,
+            )
+            res = await asyncio.to_thread(bt.report, data, filt, self.strategy, acct)
+            res |= {"days": days, "symbols": c.symbols, "ran_at": time.time()}
+            (self.dir / "backtest.json").write_text(json.dumps(res, default=float))
+        except Exception as e:
+            log.exception("makemoney backtest failed")
+            self._bt_error = str(e)
+        finally:
+            self._bt_running = False
+
     def snapshot(self) -> dict:
         trades = self.state["trades"]
         wins = [t for t in trades if t["pnl"] > 0]
         eq = self.equity_now()
         return {
             "config": self.cfg.public(),
+            "strategy": self.strategy.to_dict() | {"rules": self.strategy.describe()},
             "running": self.running,
             "busy": self.busy,
             "last_tick": self.last_tick,
