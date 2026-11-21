@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rinng.config import Settings
 from rinng.exchanges.listing import Catalog
+from rinng.makemoney import MakeMoney
 from rinng.service import NETWORK_ERRORS, TIMEFRAMES, BadRequest, NotFound, Rinng
 from rinng.web import solana
 
@@ -54,6 +55,37 @@ def create_app(
 
     for error in NETWORK_ERRORS:
         app.add_exception_handler(error, exchange_unreachable)
+
+    mm = MakeMoney(svc, Path(settings.data_dir))
+    app.state.makemoney = mm
+
+    app.router.on_startup.append(mm.ensure_guard)  # resting SL/TP keep working
+
+    @app.get("/api/makemoney")
+    async def mm_state():
+        mm.ensure_guard()
+        return mm.snapshot()
+
+    @app.post("/api/makemoney/config")
+    async def mm_config(request: Request):
+        return mm.update_config(await request.json())
+
+    @app.post("/api/makemoney/{action}")
+    async def mm_action(action: str):
+        try:
+            if action == "start":
+                mm.start()
+            elif action == "stop":
+                mm.stop()
+            elif action == "reset":
+                return mm.reset()
+            elif action == "tick":
+                return await mm.tick()
+            else:
+                raise HTTPException(404, "unknown action")
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(400, str(e)) from e
+        return mm.snapshot()
 
     @app.get("/api/meta")
     def meta():

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as MakemoneyRouteImport } from './routes/makemoney'
 import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as TerminalIndexRouteImport } from './routes/terminal/index'
 import { Route as TerminalCoinRouteImport } from './routes/terminal/coin'
@@ -26,6 +27,11 @@ import { Route as TerminalWalletWatchRouteImport } from './routes/terminal/walle
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MakemoneyRoute = MakemoneyRouteImport.update({
+  id: '/makemoney',
+  path: '/makemoney',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TerminalRoute = TerminalRouteImport.update({
@@ -91,6 +97,7 @@ const TerminalWalletWatchRoute = TerminalWalletWatchRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/makemoney': typeof MakemoneyRoute
   '/terminal': typeof TerminalRouteWithChildren
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
@@ -106,6 +113,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/makemoney': typeof MakemoneyRoute
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
   '/terminal': typeof TerminalIndexRoute
@@ -120,6 +128,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/makemoney': typeof MakemoneyRoute
   '/terminal': typeof TerminalRouteWithChildren
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/makemoney'
     | '/terminal'
     | '/terminal/coin'
     | '/terminal/market'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/makemoney'
     | '/terminal/coin'
     | '/terminal/market'
     | '/terminal'
@@ -165,6 +176,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/makemoney'
     | '/terminal'
     | '/terminal/coin'
     | '/terminal/market'
@@ -181,6 +193,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  MakemoneyRoute: typeof MakemoneyRoute
   TerminalRoute: typeof TerminalRouteWithChildren
 }
 
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/makemoney': {
+      id: '/makemoney'
+      path: '/makemoney'
+      fullPath: '/makemoney'
+      preLoaderRoute: typeof MakemoneyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terminal': {
@@ -324,6 +344,7 @@ const TerminalRouteWithChildren = TerminalRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  MakemoneyRoute: MakemoneyRoute,
   TerminalRoute: TerminalRouteWithChildren,
 }
 export const routeTree = rootRouteImport
