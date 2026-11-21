@@ -177,10 +177,8 @@ class Binance:
             "next_funding": int(prem["nextFundingTime"]),
         }
 
-    async def klines_5m(self, sym: str, limit: int = 1500) -> list[list[float]]:
-        raw = await self.get(
-            "/fapi/v1/klines", symbol=venue_symbol(sym), interval="5m", limit=limit
-        )
+    async def klines(self, sym: str, tf: str = "5m", limit: int = 1500) -> list[list[float]]:
+        raw = await self.get("/fapi/v1/klines", symbol=venue_symbol(sym), interval=tf, limit=limit)
         return [[float(x) for x in b[:6]] for b in raw]
 
     async def bars(self, sym: str, start_ms: int, mark: bool = False) -> list[list]:
@@ -398,7 +396,7 @@ class MakeMoney:
         hit = self._analysis.get(sym)
         if hit and time.time() - hit[0] < 15:
             return hit[1]
-        bars = await self.bn.klines_5m(sym)
+        bars = await self.bn.klines(sym, self.strategy.tf)
         a = await asyncio.to_thread(analyse, bars, self.strategy)
         self._analysis[sym] = (time.time(), a)
         return a

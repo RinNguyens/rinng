@@ -33,21 +33,22 @@ SWING = 5  # pivot half-width for swing highs/lows
 
 @dataclass(frozen=True)
 class Strategy:
-    htf: bool = True
-    adx_min: float = 25.0
+    htf: bool = False
+    adx_min: float = 0.0
     vol_mult: float = 0.0
     rsi_long: tuple[float, float] = (45.0, 72.0)
     rsi_short: tuple[float, float] = (28.0, 55.0)
-    stop_atr_min: float = 3.0
+    stop_atr_min: float = 1.5
     stop_atr_max: float = 3.0
     tp1_r: float = 1.0
-    tp1_frac: float = 0.0  # 0 = no partial take-profit
-    tp2_r: float = 3.0
+    tp1_frac: float = 0.5  # 0 = no partial take-profit
+    tp2_r: float = 1.5
     max_bars: int = 288  # 24h
     cooldown: int = 6
-    mode: str = "pullback"  # "pullback" (trend continuation) or "reversion" (fade a stretch)
-    dev_atr: float = 2.0  # reversion: how far beyond EMA50 (in ATR) counts as stretched
-    min_stop_pct: float = 1.0  # stop at least this % of price away
+    mode: str = "reversion"  # "pullback" (trend continuation) or "reversion" (fade a stretch)
+    dev_atr: float = 1.5  # reversion: how far beyond EMA50 (in ATR) counts as stretched
+    min_stop_pct: float = 0.75  # stop at least this % of price away
+    tf: str = "1h"  # bar size the signals run on: 5m, 15m or 1h
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -506,6 +507,7 @@ def analyse(bars: list[list[float]], p: Strategy = DEFAULT) -> dict:
         "support": lows[:3],
         "signals": signals,
         "strategy": p.to_dict() | {"rules": p.describe()},
+        "tf_sec": int(t[1] - t[0]) if len(t) > 1 else 300,
         "summary": {
             "price": price,
             "bias": bias,

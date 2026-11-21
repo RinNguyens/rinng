@@ -86,7 +86,8 @@ type Analysis = {
   resistance: Array<number>
   support: Array<number>
   signals: Array<Signal>
-  strategy?: { tp2_r: number; rules: Array<string> }
+  strategy?: { tp2_r: number; rules: Array<string>; tf: string }
+  tf_sec?: number
   summary: {
     price: number
     bias: string
@@ -116,7 +117,7 @@ type Analysis = {
 
 const UP = "#26a69a"
 const DOWN = "#ef5350"
-const BAR = 300
+let BAR = 300 // seconds per bar of the strategy's timeframe (set from the analysis)
 const COL = {
   ema21: "#f59e0b",
   ema50: "#38bdf8",
@@ -302,6 +303,7 @@ export function TradeChart({
     const c = chart.current
     const s = base.current
     if (!c || !s || !data?.candles.length) return
+    BAR = data.tf_sec ?? 300
     const cs = data.candles
     s.candles.setData(cs.map((k) => ({ ...k, time: k.time as Time })))
     s.volume.setData(
@@ -564,7 +566,9 @@ export function TradeChart({
             </button>
           ))}
         </div>
-        <span className="text-xs text-muted-foreground">5m · Binance live</span>
+        <span className="text-xs text-muted-foreground">
+          {data?.strategy?.tf ?? "5m"} · Binance live
+        </span>
         <div className="ml-auto flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs tabular-nums">
           {sm && <span>{price(sm.price)}</span>}
           {open && (

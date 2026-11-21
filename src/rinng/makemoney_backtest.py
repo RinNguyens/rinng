@@ -20,7 +20,7 @@ import asyncio
 import json
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from rinng.makemoney import Binance
 
 BAR_MS = 300_000
+WARM_BARS = 2700  # 5m bars of warm-up (~9.4 days): enough for EMA200 on 1h bars
 _IND: dict[tuple, dict] = {}  # indicators per (symbol, bar count, last bar)
 
 
@@ -57,11 +58,11 @@ async def history(bn: Binance, sym: str, days: int, cache: Path) -> dict:
     data = json.loads(f.read_text()) if f.exists() else {"bars": [], "funding": []}
     now = int(time.time() * 1000)
     start = now - days * 86_400_000
-    bars = [b for b in data["bars"] if b[0] >= start - 300 * BAR_MS]  # keep warm-up
+    bars = [b for b in data["bars"] if b[0] >= start - (WARM_BARS + 50) * BAR_MS]
     have_from = bars[0][0] if bars else now
-    if have_from > start - 250 * BAR_MS:  # need older history: refetch the whole window
+    if have_from > start - WARM_BARS * BAR_MS:  # need older history: refetch the whole window
         bars = []
-    cursor = int(bars[-1][0]) + BAR_MS if bars else start - 250 * BAR_MS
+    cursor = int(bars[-1][0]) + BAR_MS if bars else start - WARM_BARS * BAR_MS
     while cursor < now - BAR_MS:
         raw = await bn.get(
             "/fapi/v1/klines",
@@ -96,6 +97,35 @@ async def history(bn: Binance, sym: str, days: int, cache: Path) -> dict:
 # ---------------------------------------------------------------- simulation
 
 
+def resample(bars: list[list[float]], minutes: int) -> list[list[float]]:
+    """5m [open_ms, o, h, l, c, v] -> `minutes` bars (only complete ones)."""
+    if minutes == 5:
+        return bars
+    ms = minutes * 60_000
+    need = minutes // 5
+    out: list[list[float]] = []
+    cur: list[float] | None = None
+    n = 0
+    for b in bars:
+        k = b[0] - b[0] % ms
+        if cur is None or k != cur[0]:
+            if cur is not None and n == need:
+                out.append(cur)
+            cur, n = [k, b[1], b[2], b[3], b[4], b[5]], 1
+        else:
+            cur[2] = max(cur[2], b[2])
+            cur[3] = min(cur[3], b[3])
+            cur[4] = b[4]
+            cur[5] += b[5]
+            n += 1
+    if cur is not None and n == need:
+        out.append(cur)
+    return out
+
+
+TF_MIN = {"5m": 5, "15m": 15, "1h": 60}
+
+
 def run(
     data: dict[str, dict],
     filters: dict[str, dict],
@@ -106,12 +136,16 @@ def run(
 ) -> dict:
     """data: {symbol: {"bars", "funding"}}; filters: {symbol: {"step", "min_qty",
     "min_notional"}}. Only signals with t_from <= signal time < t_to (ms) are traded."""
+    tfm = TF_MIN[p.tf]
+    bar_ms = tfm * 60_000
+    # time stop and cooldown are defined on 5m bars; keep the same hours on other frames
+    p = replace(p, max_bars=max(1, math.ceil(p.max_bars * 5 / tfm)))
     per = {}
     for sym, d in data.items():
-        key = (sym, len(d["bars"]), d["bars"][-1][0] if d["bars"] else 0)
+        key = (sym, p.tf, len(d["bars"]), d["bars"][-1][0] if d["bars"] else 0)
         ind = _IND.get(key)
         if ind is None:
-            ind = _IND[key] = indicators(d["bars"])
+            ind = _IND[key] = indicators(resample(d["bars"], tfm))
         t_ms = ind["t"] * 1000
         lo_i = int(np.searchsorted(t_ms, t_from)) if t_from else 0
         hi_i = int(np.searchsorted(t_ms, t_to)) if t_to else len(t_ms) - 1
@@ -120,7 +154,7 @@ def run(
             "ind": ind,
             "t": t_ms,
             "by_fill": {int(t_ms[s["i"] + 1]): s for s in sigs if s["i"] + 1 < len(t_ms)},
-            "fund": {int(ft - ft % BAR_MS): r for ft, r in d["funding"]},
+            "fund": {int(ft - ft % bar_ms): r for ft, r in d["funding"]},
             "idx": {int(x): k for k, x in enumerate(t_ms)},
         }
     grid = sorted({int(x) for v in per.values() for x in v["t"]})
@@ -240,7 +274,7 @@ def run(
                         "symbol": sym,
                         "side": q["side"],
                         "opened": q["opened"] // 1000,
-                        "closed": ts // 1000 + 300,
+                        "closed": (ts + bar_ms) // 1000,
                         "entry": q["entry"],
                         "exit": q["exits"][-1]["price"],
                         "qty": q["qty0"],
