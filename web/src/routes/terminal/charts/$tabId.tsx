@@ -33,15 +33,19 @@ function Charts() {
     tabs
   const navigate = useNavigate()
   const [library, setLibrary] = useState(true)
-  const [syncOn, setSyncOn] = useState(true)
   const go = (id: string, replace = false) =>
     navigate({ to: "/terminal/charts/$tabId", params: { tabId: id }, replace })
 
   // One sync group per tab; switching tabs rebuilds the charts, so make a new group.
   const sync = useMemo(() => new SyncGroup(), [tabId, symbol, exchange])
-  sync.enabled = syncOn
 
   const ws = workspaces.find((w) => w.id === tabId)
+  // Saved per tab; a combo can start with sync off (rin).
+  const syncOn = ws?.sync ?? comboById(ws?.guide)?.sync ?? true
+  const setSyncOn = (on: boolean) => {
+    if (ws) update(ws.id, (w) => ({ ...w, sync: on }))
+  }
+  sync.enabled = syncOn
   const forward = tabRedirect(tabId, workspaces)
   useEffect(() => {
     if (forward) navigate({ to: "/terminal/charts/$tabId", params: { tabId: forward }, replace: true })

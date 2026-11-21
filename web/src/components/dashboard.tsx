@@ -397,7 +397,7 @@ function ProjectionPanel({
 }) {
   const [cfg] = useState<PanelCfg>(() => ({
     ...fromPreset(PRESETS[6]),
-    days: 60,
+    days: 365,
   }))
   const [d, setD] = useState<ChartData | null>(null)
   const f = d?.forecast

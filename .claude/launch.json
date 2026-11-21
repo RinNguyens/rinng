@@ -124,6 +124,18 @@
         "cd web && exec ./node_modules/.bin/vite dev --port 3070 --strictPort"
       ],
       "port": 3070
+    },
+    {
+      "name": "rinng-slices-ui",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec ./node_modules/.bin/vite dev --port 3041 --strictPort"
+      ],
+      "port": 3041,
+      "env": {
+        "RINNG_API": "http://127.0.0.1:8001"
+      }
     }
   ]
 }

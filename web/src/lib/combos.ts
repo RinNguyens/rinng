@@ -13,6 +13,7 @@ export type Combo = {
   layout: LayoutKey
   charts: Array<Chart>
   steps: Array<string>
+  sync?: boolean // false: the tab opens with chart sync off
 }
 
 const c = (lens: string, tf: string, days: number, period: "week" | "day" = "week"): Chart => ({
@@ -24,15 +25,28 @@ const c = (lens: string, tf: string, days: number, period: "week" | "day" = "wee
 
 export const COMBOS: Array<Combo> = [
   {
+    id: "rin",
+    title: "rin",
+    question: "Structure on the left; value and Wyckoff/Elliott phase on the right.",
+    layout: "1|2",
+    sync: false,
+    charts: [c("structure", "1d", 365), c("profile", "1d", 365), c("wyckoff", "1d", 365)],
+    steps: [
+      "SMC structure: trend, last BOS/CHoCH and the major-swing Fibonacci (0.618 golden pocket).",
+      "Volume profile: is the 0.618 level backed by a POC or value-area edge?",
+      "Wyckoff / Elliott: which phase or wave price is in, and whether a pullback to 0.618 fits it.",
+    ],
+  },
+  {
     id: "top-down",
     title: "Top-down structure",
     question: "Which way is the higher-timeframe trend, and where is price inside it?",
     layout: "1+2",
-    charts: [c("structure", "1d", 365), c("structure", "4h", 90), c("liquidity", "1h", 30)],
+    charts: [c("structure", "1d", 365), c("structure", "1d", 365), c("liquidity", "1d", 365)],
     steps: [
       "1D: read the trend (HH/HL or LH/LL) and whether price sits in premium or discount.",
-      "4H: check the last BOS/CHoCH agrees with 1D; a 4H CHoCH against 1D is only a pullback until 1D breaks too.",
-      "1H: find the nearest BSL/SSL; with-trend moves usually run the liquidity on the far side first.",
+      "Check the last BOS/CHoCH; a lower-timeframe CHoCH against it is only a pullback until 1D breaks too.",
+      "Liquidity: find the nearest BSL/SSL; with-trend moves usually run the liquidity on the far side first.",
     ],
   },
   {
@@ -40,11 +54,11 @@ export const COMBOS: Array<Combo> = [
     title: "Value vs. liquidity",
     question: "Where has the market accepted price, and where are the stops resting?",
     layout: "2",
-    charts: [c("profile", "4h", 90), c("liquidity", "4h", 90)],
+    charts: [c("profile", "1d", 365), c("liquidity", "1d", 365)],
     steps: [
       "Profile: POC and value area show accepted prices; D = balance, P/b = one-sided, DD = value moved.",
       "Liquidity: BSL/SSL outside value are the likely targets of a move out of balance.",
-      "Naked POCs and untouched equal highs/lows act as magnets; both charts share the 4H time axis.",
+      "Naked POCs and untouched equal highs/lows act as magnets; both charts share the 1D time axis.",
     ],
   },
   {
@@ -52,7 +66,7 @@ export const COMBOS: Array<Combo> = [
     title: "Trend health",
     question: "Is the move backed by momentum, volume and positioning?",
     layout: "1+2",
-    charts: [c("structure", "4h", 180), c("indicators", "4h", 180), c("derivatives", "4h", 180)],
+    charts: [c("structure", "1d", 365), c("indicators", "1d", 365), c("derivatives", "1d", 365)],
     steps: [
       "Structure: confirm the trend and the last break.",
       "Indicators: price vs. EMA 21/50/200, RSI divergence and MACD fading against new highs/lows.",
@@ -64,7 +78,7 @@ export const COMBOS: Array<Combo> = [
     title: "Positioning & squeeze risk",
     question: "Is leverage crowded on one side, and where would a squeeze run to?",
     layout: "1+2",
-    charts: [c("derivatives", "1h", 30), c("liquidity", "1h", 30), c("profile", "1h", 14, "day")],
+    charts: [c("derivatives", "1d", 365), c("liquidity", "1d", 365), c("profile", "1d", 365)],
     steps: [
       "Derivatives: high funding + rising OI + skewed long/short = crowded side.",
       "Liquidity: the crowded side's stops sit beyond the nearest BSL/SSL; that is where a squeeze ends.",
@@ -76,11 +90,11 @@ export const COMBOS: Array<Combo> = [
     title: "Market cycle",
     question: "Accumulation, markup, distribution or markdown?",
     layout: "1+2",
-    charts: [c("wyckoff", "1d", 1000), c("profile", "1d", 365), c("wyckoff", "4h", 180)],
+    charts: [c("wyckoff", "1d", 365), c("profile", "1d", 365), c("wyckoff", "1d", 365)],
     steps: [
       "1D Wyckoff: SC/BC and trading ranges mark where the phase changed.",
       "Weekly profile: value building inside a range supports accumulation/distribution.",
-      "4H Wyckoff: spring or upthrust at the range edge is the trigger to watch.",
+      "Wyckoff: spring or upthrust at the range edge is the trigger to watch.",
     ],
   },
   {
@@ -88,7 +102,7 @@ export const COMBOS: Array<Combo> = [
     title: "Risk map",
     question: "How far can price reasonably travel, and which levels are in reach?",
     layout: "1+2",
-    charts: [c("forecast", "4h", 90), c("liquidity", "4h", 90), c("profile", "4h", 90)],
+    charts: [c("forecast", "1d", 365), c("liquidity", "1d", 365), c("profile", "1d", 365)],
     steps: [
       "Projection: the 80% band is a realistic range for the next 7 days; it does not call direction.",
       "Liquidity and profile: levels inside the band are in reach; the touch odds are printed on the projection.",
@@ -101,15 +115,15 @@ export const COMBOS: Array<Combo> = [
     question: "What matters for the next 12–48 hours?",
     layout: "2x2",
     charts: [
-      c("profile", "1h", 14, "day"),
-      c("liquidity", "15m", 14),
-      c("indicators", "15m", 14),
-      c("forecast", "1h", 14),
+      c("profile", "1d", 365),
+      c("liquidity", "1d", 365),
+      c("indicators", "1d", 365),
+      c("forecast", "1d", 365),
     ],
     steps: [
       "Daily profile: yesterday's POC/VA are today's reference levels.",
-      "15m liquidity and indicators: sweeps of local highs/lows with RSI divergence mark exhaustion.",
-      "1H projection: keep plans inside the 80% band for the next 2 days.",
+      "Liquidity and indicators: sweeps of local highs/lows with RSI divergence mark exhaustion.",
+      "Projection: keep plans inside the 80% band.",
     ],
   },
 ]
@@ -121,6 +135,7 @@ export function comboWorkspace(combo: Combo): Workspace {
     layout: combo.layout,
     slots: combo.charts.map((ch) => ({ ...ch, id: newId() })),
     guide: combo.id,
+    sync: combo.sync,
   }
 }
 
@@ -132,6 +147,7 @@ export function applyCombo(w: Workspace, combo: Combo): Workspace {
     layout: combo.layout,
     slots: combo.charts.map((ch) => ({ ...ch, id: newId() })),
     guide: combo.id,
+    sync: combo.sync,
   }
 }
 
