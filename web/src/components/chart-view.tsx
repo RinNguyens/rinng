@@ -21,7 +21,7 @@ import type { PanelCfg } from "@/lib/workspaces"
 import { live, useBarClose } from "@/lib/live"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChartTools } from "@/components/chart-tools"
-import { BearishEvents } from "@/components/bearish-events"
+import { StructureEvents } from "@/components/structure-events"
 
 type Props = {
   cfg: PanelCfg
@@ -305,7 +305,7 @@ export function ChartView({
           </div>
         ) : null}
       </div>
-      {wide && data ? <BearishEvents data={data} /> : null}
+      {wide && data ? <StructureEvents data={data} /> : null}
     </div>
   )
 }
