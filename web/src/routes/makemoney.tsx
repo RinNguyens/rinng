@@ -40,6 +40,7 @@ type Config = {
   api_key_hint: string
 }
 type Position = {
+  id?: number
   symbol: string
   side: "long" | "short"
   qty: number
@@ -60,6 +61,12 @@ type Trade = Position & {
   closed: number
   pnl: number
   exit_reason: string
+  margin_in?: number
+  open_fee?: number
+  exit_fee?: number
+  fees?: number
+  gross_pnl?: number
+  roe_pct?: number
 }
 type Snap = {
   config: Config
@@ -208,10 +215,8 @@ function MakeMoneyPage() {
             start={snap?.config.starting_balance ?? 1000}
           />
           <Positions rows={snap?.positions ?? []} />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Trades rows={snap?.trades ?? []} />
-            <Log rows={snap?.log ?? []} />
-          </div>
+          <Trades rows={snap?.trades ?? []} />
+          <Log rows={snap?.log ?? []} />
         </div>
       </main>
     </div>
@@ -633,9 +638,10 @@ function Positions({ rows }: { rows: Array<Position> }) {
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">Flat.</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[820px] text-sm whitespace-nowrap [&_td]:px-1.5 [&_th]:px-1.5 [&_th]:font-normal">
             <thead className="text-left text-xs text-muted-foreground">
               <tr>
+                <th>#</th>
                 <th>Symbol</th>
                 <th>Side</th>
                 <th>Lev</th>
@@ -652,7 +658,12 @@ function Positions({ rows }: { rows: Array<Position> }) {
             <tbody className="font-mono tabular-nums">
               {rows.map((p) => (
                 <tr key={p.symbol} title={p.reason} className="border-t">
-                  <td className="py-1.5 font-sans">{p.symbol}</td>
+                  <td className="py-1.5 text-muted-foreground">
+                    #{p.id ?? "–"}
+                  </td>
+                  <td className="font-sans">
+                    {p.symbol.replace("-USDT-PERP", "")}
+                  </td>
                   <td>
                     <Side s={p.side} />
                   </td>
@@ -675,42 +686,192 @@ function Positions({ rows }: { rows: Array<Position> }) {
   )
 }
 
+const EXIT_LABEL: Record<string, string> = {
+  "take-profit": "Take-profit",
+  stop: "Stop-loss",
+  liquidated: "Liquidated",
+}
+
+function hold(sec: number) {
+  const m = Math.max(0, Math.round(sec / 60))
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  return h < 48 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`
+}
+
+function stamp(t: number) {
+  return new Date(t * 1000).toLocaleString(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+}
+
 function Trades({ rows }: { rows: Array<Trade> }) {
+  const [only, setOnly] = useState("all")
+  const coins = Array.from(new Set(rows.map((t) => t.symbol)))
+  const shown = only === "all" ? rows : rows.filter((t) => t.symbol === only)
+  const total = (k: (t: Trade) => number) => shown.reduce((a, t) => a + k(t), 0)
+  const net = total((t) => t.pnl)
+  const wins = shown.filter((t) => t.pnl > 0).length
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Closed trades</CardTitle>
+      <CardHeader className="flex flex-row flex-wrap items-center gap-2">
+        <CardTitle>Order history</CardTitle>
+        <span className="text-xs text-muted-foreground">
+          {shown.length} orders · {wins}W / {shown.length - wins}L
+        </span>
+        {coins.length > 1 && (
+          <div className="ml-auto flex flex-wrap gap-1">
+            {["all", ...coins].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setOnly(c)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 font-mono text-xs",
+                  only === c
+                    ? "border-foreground bg-muted"
+                    : "text-muted-foreground"
+                )}
+              >
+                {c === "all" ? "All" : c.split("-")[0]}
+              </button>
+            ))}
+          </div>
+        )}
       </CardHeader>
-      <CardContent className="max-h-96 overflow-auto">
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">None yet.</p>
+      <CardContent className="max-h-[32rem] overflow-auto">
+        {shown.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No closed orders yet.</p>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1100px] text-sm whitespace-nowrap">
+            <thead className="sticky top-0 bg-card text-left text-xs text-muted-foreground">
+              <tr className="[&>th]:px-1.5 [&>th]:py-1 [&>th]:font-normal">
+                <th>#</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Opened</th>
+                <th>Closed</th>
+                <th>Held</th>
+                <th className="text-right">Qty</th>
+                <th className="text-right">Lev</th>
+                <th className="text-right">Entry</th>
+                <th className="text-right">Exit</th>
+                <th className="text-right">Margin</th>
+                <th className="text-right">Gross PnL</th>
+                <th className="text-right">Fees</th>
+                <th className="text-right">Funding</th>
+                <th className="text-right">Net PnL</th>
+                <th className="text-right">ROE</th>
+                <th>Closed by</th>
+              </tr>
+            </thead>
             <tbody className="font-mono tabular-nums">
-              {rows.map((t) => (
-                <tr
-                  key={`${t.symbol}-${t.closed}`}
-                  className="border-t"
-                  title={t.reason}
-                >
-                  <td className="py-1.5 font-sans">
-                    {t.symbol.replace("-USDT-PERP", "")}
-                  </td>
-                  <td>
-                    <Side s={t.side} />
-                  </td>
-                  <td>
-                    {price(t.entry)} → {price(t.exit)}
-                  </td>
-                  <td className="font-sans text-xs text-muted-foreground">
-                    {t.exit_reason}
-                  </td>
-                  <td className={cn("text-right", tone(t.pnl))}>
-                    {num(t.pnl, 2)}
-                  </td>
-                </tr>
-              ))}
+              {shown.map((t) => {
+                const margin = t.margin_in ?? t.margin
+                const roe = t.roe_pct ?? (margin ? (t.pnl / margin) * 100 : 0)
+                return (
+                  <tr
+                    key={`${t.id}-${t.closed}`}
+                    className="border-t [&>td]:px-1.5 [&>td]:py-1.5"
+                    title={t.reason}
+                  >
+                    <td className="text-muted-foreground">#{t.id ?? "–"}</td>
+                    <td className="font-sans">
+                      {t.symbol.replace("-USDT-PERP", "")}
+                    </td>
+                    <td>
+                      <Side s={t.side} />
+                    </td>
+                    <td className="text-xs">{stamp(t.opened)}</td>
+                    <td className="text-xs">{stamp(t.closed)}</td>
+                    <td className="text-xs text-muted-foreground">
+                      {hold(t.closed - t.opened)}
+                    </td>
+                    <td className="text-right">{t.qty}</td>
+                    <td className="text-right">{t.leverage}x</td>
+                    <td className="text-right">{price(t.entry)}</td>
+                    <td className="text-right">{price(t.exit)}</td>
+                    <td className="text-right">{num(margin, 2)}</td>
+                    <td className={cn("text-right", tone(t.gross_pnl ?? 0))}>
+                      {t.gross_pnl == null ? "–" : num(t.gross_pnl, 2)}
+                    </td>
+                    <td className="text-right text-muted-foreground">
+                      {t.fees == null ? "–" : `-${num(t.fees, 3)}`}
+                    </td>
+                    <td className={cn("text-right", tone(t.funding ?? 0))}>
+                      {num(t.funding ?? 0, 3)}
+                    </td>
+                    <td className={cn("text-right font-semibold", tone(t.pnl))}>
+                      {t.pnl >= 0 ? "+" : ""}
+                      {num(t.pnl, 2)}
+                    </td>
+                    <td className={cn("text-right", tone(roe))}>{pct(roe)}</td>
+                    <td className="font-sans text-xs">
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5",
+                          t.exit_reason === "take-profit" &&
+                            "bg-emerald-500/15 text-emerald-500",
+                          t.exit_reason === "stop" &&
+                            "bg-red-500/15 text-red-500",
+                          t.exit_reason === "liquidated" &&
+                            "bg-amber-500/15 text-amber-500",
+                          !EXIT_LABEL[t.exit_reason] &&
+                            "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {EXIT_LABEL[t.exit_reason] ?? `Haiku: ${t.exit_reason}`}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
+            <tfoot className="sticky bottom-0 border-t-2 bg-card font-mono text-xs tabular-nums">
+              <tr className="[&>td]:px-1.5 [&>td]:py-1.5">
+                <td colSpan={11} className="font-sans text-muted-foreground">
+                  Total ({shown.length})
+                </td>
+                <td
+                  className={cn(
+                    "text-right",
+                    tone(total((t) => t.gross_pnl ?? 0))
+                  )}
+                >
+                  {num(
+                    total((t) => t.gross_pnl ?? 0),
+                    2
+                  )}
+                </td>
+                <td className="text-right text-muted-foreground">
+                  -
+                  {num(
+                    total((t) => t.fees ?? 0),
+                    3
+                  )}
+                </td>
+                <td
+                  className={cn(
+                    "text-right",
+                    tone(total((t) => t.funding ?? 0))
+                  )}
+                >
+                  {num(
+                    total((t) => t.funding ?? 0),
+                    3
+                  )}
+                </td>
+                <td className={cn("text-right font-semibold", tone(net))}>
+                  {net >= 0 ? "+" : ""}
+                  {num(net, 2)}
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
           </table>
         )}
       </CardContent>

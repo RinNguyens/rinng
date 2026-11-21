@@ -216,6 +216,13 @@ class MakeMoney:
         p = self.dir / "state.json"
         if p.exists():
             s = json.loads(p.read_text())
+            # number orders opened before ids existed, oldest first
+            seq = 0
+            for t in reversed(s["trades"]):
+                if "id" not in t:
+                    seq += 1
+                    t["id"] = seq
+            s.setdefault("seq", max([t["id"] for t in s["trades"]] + [0]))
             # positions opened by the earlier, simpler simulator lack the exchange fields
             s["positions"] = [p for p in s["positions"] if "next_funding" in p]
             return s
@@ -331,11 +338,17 @@ class MakeMoney:
                 "exit": fill,
                 "closed": t or time.time(),
                 "pnl": net,
+                "gross_pnl": 0.0 if why == "liquidated" else pnl,
+                "exit_fee": fee,
                 "fees": p["open_fee"] + fee,
+                "roe_pct": net / p["margin_in"] * 100,
                 "exit_reason": why,
             },
         )
-        self._note(f"CLOSE {p['side']} {p['symbol']} @ {fill:.6g} ({why}) net {net:+.2f} USDT")
+        self._note(
+            f"CLOSE #{p.get('id', '?')} {p['side']} {p['symbol']} @ {fill:.6g} ({why}) "
+            f"net {net:+.2f} USDT"
+        )
 
     # ---------- orders ----------
     async def _open(self, sym: str, side: str, lev: int, stop: float, take: float, why: str):
@@ -366,7 +379,9 @@ class MakeMoney:
             )
         margin = qty * fill / lev
         open_fee = qty * fill * self.fee
+        self.state["seq"] = self.state.get("seq", len(self.state["trades"])) + 1
         pos = {
+            "id": self.state["seq"],
             "symbol": sym,
             "side": side,
             "qty": qty,
@@ -392,7 +407,8 @@ class MakeMoney:
         self.state["balance"] -= margin + open_fee
         self.state["positions"].append(pos)
         self._note(
-            f"OPEN {side} {sym} {qty:g} x{lev} @ {fill:.6g} (book {q['bid']}/{q['ask']}) "
+            f"OPEN #{pos['id']} {side} {sym} {qty:g} x{lev} @ {fill:.6g} "
+            f"(book {q['bid']}/{q['ask']}) "
             f"SL {stop:.6g} TP {take:.6g} liq {liq:.6g} fee {open_fee:.3f} — {why}"
         )
 

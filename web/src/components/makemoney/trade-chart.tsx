@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils"
 // shows entry / SL / TP / liquidation lines and a shaded profit (green) / loss (red) area.
 
 export type ChartPosition = {
+  id?: number
   symbol: string
   side: "long" | "short"
   qty: number
@@ -221,7 +222,7 @@ export function TradeChart({
         position: p.side === "long" ? "belowBar" : "aboveBar",
         shape: p.side === "long" ? "arrowUp" : "arrowDown",
         color: p.side === "long" ? UP : DOWN,
-        text: `${p.side === "long" ? "LONG" : "SHORT"} x${p.leverage}`,
+        text: `${p.id ? `#${p.id} ` : ""}${p.side === "long" ? "LONG" : "SHORT"} x${p.leverage}`,
       })
 
     // closed trades: entry → exit segment, green for profit, red for loss
@@ -254,7 +255,7 @@ export function TradeChart({
         position: "inBar",
         shape: "circle",
         color: col,
-        text: `${win ? "+" : ""}${num(t.pnl, 2)}$ ${t.exit_reason}`,
+        text: `${t.id ? `#${t.id} ` : ""}${win ? "+" : ""}${num(t.pnl, 2)}$`,
       })
     }
 
