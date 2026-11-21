@@ -276,3 +276,53 @@ def test_retracements_up_leg():
     # The swing high at candle 5 becomes known at the close of candle 7: the leg flips down.
     assert f.row(7, named=True)["leg_dir"] == -1
     assert f["leg_dir"][3] is None  # swing low at 2 is only known at the close of candle 4
+
+
+# --- Containment merging + fractals -------------------------------------------------------------
+
+CHAN = [
+    (10.0, 10.5, 9.5, 10.2),  # 0
+    (10.2, 11.0, 10.0, 10.8),  # 1  up
+    (10.8, 12.0, 10.6, 11.5),  # 2  high 12
+    (11.5, 11.8, 10.9, 11.0),  # 3  inside 2 -> merged up: high 12 (idx 2), low 10.9 (idx 3)
+    (11.0, 11.2, 10.2, 10.3),  # 4  lower: confirms nothing yet (bar 4 is still open)
+    (10.3, 10.6, 9.0, 9.2),  # 5  lower low: merged bar 3 (candle 4) final -> top confirmed here
+    (9.2, 10.0, 9.1, 9.9),  # 6  inside 5 -> merged down: high 10.0, low 9.0 (idx 5)
+    (9.9, 11.5, 9.6, 11.4),  # 7  breaks out -> bar(5,6) final; bottom needs one more final bar
+    (11.4, 12.5, 11.3, 12.4),  # 8  bar 7 final -> bottom at candle 5 confirmed here
+]
+
+
+def test_merged_bars_containment():
+    mb = smc.merged_bars(bars(CHAN))
+    assert mb.select("start_index", "end_index").rows() == [
+        (0, 0),
+        (1, 1),
+        (2, 3),
+        (4, 4),
+        (5, 6),
+        (7, 7),
+        (8, 8),
+    ]
+    row = mb.row(2, named=True)
+    assert (row["high"], row["high_index"], row["low"], row["low_index"]) == (12.0, 2, 10.9, 3)
+    row = mb.row(4, named=True)  # down merge: min high, min low
+    assert (row["high"], row["low"], row["low_index"]) == (10.0, 9.0, 5)
+    assert mb["final_index"].to_list() == [1, 2, 4, 5, 7, 8, None]
+
+
+def test_fractals_timing_and_extreme():
+    ev = smc.fractals(bars(CHAN))
+    got = [(k, t, ka, p) for k, t, ka, p, _ in rows_of(ev)]
+    hour = timedelta(hours=1)
+    assert got == [
+        ("fractal_top", T0 + 2 * hour, T0 + 6 * hour, 12.0),
+        ("fractal_bottom", T0 + 5 * hour, T0 + 9 * hour, 9.0),
+    ]
+    attrs = json.loads(ev["attrs"][0])
+    assert attrs["merged_start"] == 2 and attrs["merged_end"] == 3 and attrs["confirm_index"] == 5
+
+
+def test_fractals_no_lookahead():
+    o = random_walk(300, seed=7)
+    assert_no_lookahead(smc.fractals, o, [30, 77, 150, 151, 299])

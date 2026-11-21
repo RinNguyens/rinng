@@ -79,6 +79,14 @@ swing index). After a swing low the leg is up: origin = swing low, extreme = max
 to i; after a swing high it is symmetric. retrace_pct = 100 x (extreme - close) / (extreme -
 origin) for an up leg (mirror for down), may exceed 100 when price passes the origin. deepest_pct =
 the largest retrace_pct since the extreme last moved. leg_dir = +1 / -1. Null before any swing.
+Fractals (`fractals`, `merged_bars`; Chan theory containment + fractals):
+- Containment: candle i and the current merged bar overlap fully (one's high >= and low <= the
+  other's). Merge direction = up when the previous final merged bar has a lower high, else down
+  (with no previous bar: the merged bar's first candle body). Up keeps max high and max low, down
+  keeps min high and min low; each extreme remembers its raw candle.
+- A merged bar is final when the next non-contained candle arrives. A fractal on merged bar k is
+  known at the close of the candle that makes k+1 final: computed in one forward pass, so it never
+  repaints. event_time = raw candle of the extreme.
 """
 
 from collections.abc import Mapping
@@ -588,10 +596,146 @@ def retracements(ohlcv: pl.DataFrame, swing_length: int = 5) -> pl.DataFrame:
     )
 
 
+class _Merged:
+    """One bar after containment merging (Chan theory 包含处理)."""
+
+    __slots__ = ("start", "end", "high", "low", "high_index", "low_index")
+
+    def __init__(self, i: int, high: float, low: float):
+        self.start = self.end = self.high_index = self.low_index = i
+        self.high, self.low = high, low
+
+    def contains_or_inside(self, high: float, low: float) -> bool:
+        return (self.high >= high and self.low <= low) or (high >= self.high and low <= self.low)
+
+    def absorb(self, i: int, high: float, low: float, up: bool) -> None:
+        """Up: take the higher high and higher low; down: the lower high and lower low. Ties keep
+        the earlier candle, so the extreme index never moves later without a strictly better
+        price."""
+        self.end = i
+        if up:
+            if high > self.high:
+                self.high, self.high_index = high, i
+            if low > self.low:
+                self.low, self.low_index = low, i
+        else:
+            if high < self.high:
+                self.high, self.high_index = high, i
+            if low < self.low:
+                self.low, self.low_index = low, i
+
+
+def _merge_and_fractals(bars: _Bars) -> tuple[list[_Merged], list[dict]]:
+    """Single causal pass. A merged bar is final once a candle arrives that it does not contain;
+    a fractal centred on merged bar k is confirmed when merged bar k+1 becomes final, i.e. at the
+    close of the first candle after k+1 that is not contained in it."""
+    merged: list[_Merged] = []
+    fractals: list[dict] = []
+
+    def check_fractal(confirm_i: int) -> None:
+        # merged[-1] is the open bar; the three before it are final.
+        if len(merged) < 4:
+            return
+        a, b, c = merged[-4], merged[-3], merged[-2]
+        if b.high > a.high and b.high > c.high:
+            fractals.append(
+                {
+                    "side": "top",
+                    "bar": b,
+                    "price": b.high,
+                    "index": b.high_index,
+                    "confirm": confirm_i,
+                    "merged_index": len(merged) - 3,
+                }
+            )
+        elif b.low < a.low and b.low < c.low:
+            fractals.append(
+                {
+                    "side": "bottom",
+                    "bar": b,
+                    "price": b.low,
+                    "index": b.low_index,
+                    "confirm": confirm_i,
+                    "merged_index": len(merged) - 3,
+                }
+            )
+
+    for i in range(bars.n):
+        high, low = float(bars.h[i]), float(bars.l[i])
+        if merged and merged[-1].contains_or_inside(high, low):
+            last = merged[-1]
+            # Direction from the last final bar; with none yet, from the open bar's own body.
+            if len(merged) >= 2:
+                up = merged[-2].high < last.high
+            else:
+                up = bars.c[last.start] >= bars.o[last.start]
+            last.absorb(i, high, low, up)
+            continue
+        merged.append(_Merged(i, high, low))
+        check_fractal(i)
+    return merged, fractals
+
+
+def merged_bars(ohlcv: pl.DataFrame) -> pl.DataFrame:
+    """Candles after containment merging, one row per merged bar.
+
+    Columns: start_index, end_index (raw candle span), high, low, high_index, low_index (the raw
+    candle holding each extreme), final_index (raw candle whose close makes the bar final; null for
+    the last, still open bar). Rows with final_index null may still change.
+    """
+    bars = _Bars(ohlcv)
+    merged, _ = _merge_and_fractals(bars)
+    finals = [m.start for m in merged[1:]] + [None]
+    return pl.DataFrame(
+        {
+            "start_index": [m.start for m in merged],
+            "end_index": [m.end for m in merged],
+            "high": [m.high for m in merged],
+            "low": [m.low for m in merged],
+            "high_index": [m.high_index for m in merged],
+            "low_index": [m.low_index for m in merged],
+            "final_index": finals,
+        },
+        schema_overrides={"final_index": pl.Int64},
+    )
+
+
+def fractals(ohlcv: pl.DataFrame) -> pl.DataFrame:
+    """Events fractal_top / fractal_bottom on containment-merged bars (Chan theory 分型).
+
+    Top: merged bar k has a strictly higher high than k-1 and k+1 (after merging, its low is then
+    higher too). Bottom is symmetric. event_time = the raw candle holding the extreme (not the
+    start of the merged bar); known_at = close of the candle that makes merged bar k+1 final, so a
+    fractal never appears and then disappears. price_low = price_high = the extreme. attrs:
+    {"merged_index", "merged_start", "merged_end", "extreme_index", "confirm_index"}.
+    """
+    bars = _Bars(ohlcv)
+    phash = params_hash(MODULE, {"fn": "fractals"})
+    _, found = _merge_and_fractals(bars)
+    rows = [
+        {
+            "kind": f"fractal_{f['side']}",
+            "event_time": bars.times[f["index"]],
+            "known_at": bars.close_time(f["confirm"]),
+            "price_low": f["price"],
+            "price_high": f["price"],
+            "attrs": {
+                "merged_index": f["merged_index"],
+                "merged_start": f["bar"].start,
+                "merged_end": f["bar"].end,
+                "extreme_index": f["index"],
+                "confirm_index": f["confirm"],
+            },
+        }
+        for f in found
+    ]
+    return bars.frame(rows, phash)
+
+
 def events(ohlcv: pl.DataFrame, params: Mapping[str, Any] | None = None) -> pl.DataFrame:
     """Combine all SMC Events. `params` = {"breaks": {...}, "displacement": {...}, "fvg": {...},
-    "order_blocks": {...}, "previous_levels": {...}}, each entry is kwargs for the corresponding
-    function."""
+    "order_blocks": {...}, "previous_levels": {...}} (fractals take no params), each
+    entry is kwargs for the corresponding function."""
     p = dict(params or {})
     parts = [
         structure_breaks(ohlcv, **p.get("breaks", {})),
@@ -599,6 +743,7 @@ def events(ohlcv: pl.DataFrame, params: Mapping[str, Any] | None = None) -> pl.D
         fair_value_gaps(ohlcv, **p.get("fvg", {})),
         order_blocks(ohlcv, **p.get("order_blocks", {})),
         previous_levels(ohlcv, **p.get("previous_levels", {})),
+        fractals(ohlcv),
     ]
     out = pl.concat([x for x in parts if not x.is_empty()] or [empty_events()])
     return out.sort(["event_time", "kind", "event_id"])
