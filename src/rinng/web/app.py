@@ -64,8 +64,8 @@ def create_app(
         lens: str = Query("structure"),
         symbol: str = Query("BTC-USDT-PERP"),
         exchange: str = Query("binance"),
-        tf: str = Query("4h"),
-        days: int = Query(180, ge=2, le=3000),
+        tf: str = Query("1d"),
+        days: int = Query(365, ge=2, le=3000),
         period: str = Query("week"),
         zigzag: str = Query("auto", pattern=r"^(auto|\d{1,2}(\.\d+)?)$"),
     ):

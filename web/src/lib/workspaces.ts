@@ -63,64 +63,64 @@ export const PRESETS: Array<Preset> = [
     title: "SMC structure",
     hint: "Swing, BOS/CHoCH, OB, FVG, premium/discount",
     lens: "structure",
-    tf: "4h",
-    days: 90,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
   {
     title: "Liquidity",
     hint: "BSL/SSL, EQH/EQL, sweep",
     lens: "liquidity",
-    tf: "1h",
-    days: 30,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
   {
     title: "Weekly volume profile",
     hint: "Buy/sell profile, POC, D/P/b/DD, naked POC",
     lens: "profile",
-    tf: "4h",
-    days: 90,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
   {
-    title: "Daily volume profile",
-    hint: "One profile per day on 1h candles",
+    title: "Weekly volume profile (1D)",
+    hint: "One profile per week on 1D candles",
     lens: "profile",
-    tf: "1h",
-    days: 14,
-    period: "day",
+    tf: "1d",
+    days: 365,
+    period: "week",
   },
   {
     title: "Wyckoff / Elliott",
     hint: "SC/BC, spring/UT, trading range, zigzag",
     lens: "wyckoff",
     tf: "1d",
-    days: 1000,
+    days: 365,
     period: "week",
   },
   {
     title: "Derivatives & CVD",
     hint: "Funding, OI, long/short, CVD",
     lens: "derivatives",
-    tf: "1h",
-    days: 30,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
   {
     title: "Projection",
     hint: "Probability cone, median path, touch odds for key levels",
     lens: "forecast",
-    tf: "4h",
-    days: 90,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
   {
     title: "Indicators",
     hint: "EMA 21/50/200, RSI, MACD, delta",
     lens: "indicators",
-    tf: "4h",
-    days: 180,
+    tf: "1d",
+    days: 365,
     period: "week",
   },
 ]
@@ -151,14 +151,29 @@ function defaults(): Array<Workspace> {
   ]
 }
 
-const KEY = "rinng.workspaces.v2"
+const KEY = "rinng.workspaces.v3"
+// v2 tabs are carried over once with every chart reset to the 1D / 365-day default.
+const OLD_KEY = "rinng.workspaces.v2"
 const OLD_OVERVIEW = "T\u1ed5ng quan"
+
+function toDaily(ws: Array<Workspace>): Array<Workspace> {
+  return ws.map((w) => ({
+    ...w,
+    slots: w.slots.map((s) => (s ? { ...s, tf: "1d", days: 365, period: "week" } : s)),
+  }))
+}
 
 function load(): Array<Workspace> | null {
   try {
-    const raw = localStorage.getItem(KEY)
+    let raw = localStorage.getItem(KEY)
+    let migrate = false
+    if (!raw) {
+      raw = localStorage.getItem(OLD_KEY)
+      migrate = true
+    }
     if (!raw) return null
-    const ws = JSON.parse(raw) as Array<Workspace>
+    const parsed = JSON.parse(raw) as Array<Workspace>
+    const ws = migrate && Array.isArray(parsed) ? toDaily(parsed) : parsed
     if (!Array.isArray(ws) || !ws.length) return null
     // Tabs saved before the UI switched to English keep their old default name.
     return ws.map((w) => (w.name === OLD_OVERVIEW ? { ...w, name: "Overview" } : w))
