@@ -74,6 +74,14 @@ def create_app(
     async def mm_symbols():
         return await mm.bn.top_symbols()
 
+    @app.get("/api/makemoney/training")
+    async def mm_training_state():
+        return mm.training_state()
+
+    @app.post("/api/makemoney/training/run")
+    async def mm_training_run():
+        return mm.start_training()
+
     @app.get("/api/makemoney/backtest")
     async def mm_backtest_state():
         return mm.backtest_state()

@@ -426,6 +426,107 @@ def r_multiple(sig: dict, ex: dict, entry: float) -> float:
     return sum(sgn * (px - entry) / sig["risk"] * frac for _, px, frac, _ in ex["fills"])
 
 
+def checklist(ind: dict, p: Strategy, i: int) -> dict:
+    """Each entry condition on closed bar i, for both sides, with the value behind it.
+    Mirrors find_signals so the page shows exactly why a signal did or did not fire."""
+    t, o, h, lo, c, v = ind["t"], ind["o"], ind["h"], ind["l"], ind["c"], ind["v"]
+    e21, e50, e200 = ind["e21"], ind["e50"], ind["e200"]
+    r, A, ax, vavg, h1 = ind["rsi"][i], ind["atr"][i], ind["adx"][i], ind["vavg"][i], ind["h1"][i]
+    if np.isnan(e200[i]) or np.isnan(A) or np.isnan(r):
+        return {"bar": int(t[i]), "long": [], "short": [], "ready": False}
+
+    def item(label: str, ok: bool, value: str) -> dict:
+        return {"label": label, "ok": bool(ok), "value": value}
+
+    common = []
+    if p.adx_min:
+        common.append(item(f"ADX ≥ {p.adx_min:g}", ax >= p.adx_min, f"{ax:.0f}"))
+    if p.vol_mult:
+        common.append(
+            item(
+                f"Volume ≥ {p.vol_mult:g}× avg",
+                v[i] >= p.vol_mult * vavg[i],
+                f"{v[i] / vavg[i]:.1f}×" if vavg[i] else "–",
+            )
+        )
+    out = {}
+    for side in ("long", "short"):
+        L = side == "long"
+        if p.mode == "reversion":
+            stretch = (e50[i] - lo[i]) / A if L else (h[i] - e50[i]) / A
+            rows = [
+                item(
+                    ("1h trend up" if L else "1h trend down")
+                    if p.htf
+                    else ("Price above EMA200" if L else "Price below EMA200"),
+                    (h1 > 0 if L else h1 < 0)
+                    if p.htf
+                    else (c[i] > e200[i] if L else c[i] < e200[i]),
+                    ("up" if h1 > 0 else "down" if h1 < 0 else "flat")
+                    if p.htf
+                    else f"{(c[i] / e200[i] - 1) * 100:+.2f}%",
+                ),
+                item(
+                    f"Stretched {p.dev_atr:g} ATR {'below' if L else 'above'} EMA50",
+                    stretch >= p.dev_atr,
+                    f"{stretch:.1f} ATR",
+                ),
+                item(
+                    "Reversal bar " + ("(green, close > prior)" if L else "(red, close < prior)"),
+                    (c[i] > o[i] and c[i] > c[i - 1]) if L else (c[i] < o[i] and c[i] < c[i - 1]),
+                    f"{(c[i] / o[i] - 1) * 100:+.2f}%",
+                ),
+                item(
+                    f"RSI {'≤' if L else '≥'} {p.rsi_long[1] if L else p.rsi_short[0]:g}",
+                    r <= p.rsi_long[1] if L else r >= p.rsi_short[0],
+                    f"{r:.0f}",
+                ),
+            ]
+        else:
+            lo_band = (lo[i - 3 : i + 1] <= e21[i - 3 : i + 1] + 0.25 * A).any()
+            hi_band = (h[i - 3 : i + 1] >= e21[i - 3 : i + 1] - 0.25 * A).any()
+            rows = [
+                item(
+                    "Price & EMA50 " + ("above" if L else "below") + " EMA200",
+                    (c[i] > e200[i] and e50[i] > e200[i])
+                    if L
+                    else (c[i] < e200[i] and e50[i] < e200[i]),
+                    f"{(c[i] / e200[i] - 1) * 100:+.2f}%",
+                ),
+                *(
+                    [
+                        item(
+                            "1h trend " + ("up" if L else "down"),
+                            h1 > 0 if L else h1 < 0,
+                            "up" if h1 > 0 else "down" if h1 < 0 else "flat",
+                        )
+                    ]
+                    if p.htf
+                    else []
+                ),
+                item("Pullback to EMA21 (3 bars)", lo_band if L else hi_band, ""),
+                item(
+                    "Close beyond prior " + ("high" if L else "low"),
+                    (c[i] > h[i - 1] and c[i] > e21[i] and c[i] > o[i])
+                    if L
+                    else (c[i] < lo[i - 1] and c[i] < e21[i] and c[i] < o[i]),
+                    "",
+                ),
+                item(
+                    f"RSI {p.rsi_long[0]:g}–{p.rsi_long[1]:g}"
+                    if L
+                    else f"RSI {p.rsi_short[0]:g}–{p.rsi_short[1]:g}",
+                    (p.rsi_long[0] <= r <= p.rsi_long[1])
+                    if L
+                    else (p.rsi_short[0] <= r <= p.rsi_short[1]),
+                    f"{r:.0f}",
+                ),
+            ]
+        rows = common + rows
+        out[side] = rows
+    return {"bar": int(t[i]), "ready": True, **out}
+
+
 def analyse(bars: list[list[float]], p: Strategy = DEFAULT) -> dict:
     """bars: [open_ms, o, h, l, c, v] oldest first, the last one may still be forming."""
     ind = indicators(bars)
@@ -531,6 +632,7 @@ def analyse(bars: list[list[float]], p: Strategy = DEFAULT) -> dict:
                 else None
             ),
             "last_signal": signals[-1] if signals else None,
+            "checklist": checklist(ind, p, k) if len(c) > 2 else None,
             "signal_stats": {
                 "count": len(signals),
                 "wins": wins,

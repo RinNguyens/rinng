@@ -60,6 +60,10 @@ class Config:
     slippage_bps: float = 2.0  # beyond best bid/ask on market and stop fills
     auto_signal: bool = True  # open a simulated order as soon as a 5m signal fires
     strategy: dict = field(default_factory=dict)  # makemoney_signals.Strategy overrides
+    auto_train: bool = True  # re-tune on fresh data on a schedule (adopt only if it holds up)
+    train_every_h: float = 12.0
+    train_days: int = 90
+    train_tfs: list[str] = field(default_factory=lambda: ["5m", "15m", "1h"])
     notes: str = ""
 
     def public(self) -> dict:
@@ -208,6 +212,8 @@ class MakeMoney:
         self.last_guard: float | None = None
         self._analysis: dict[str, tuple[float, dict]] = {}
         self._bt_running = False
+        self._train_running = False
+        self._train_task: asyncio.Task | None = None
         self._bt_error: str | None = None
 
     # ---------- persistence ----------
@@ -282,6 +288,91 @@ class MakeMoney:
     def ensure_guard(self) -> None:
         if self._guard is None or self._guard.done():
             self._guard = asyncio.create_task(self._guard_loop())
+        if self._train_task is None or self._train_task.done():
+            self._train_task = asyncio.create_task(self._train_loop())
+
+    async def _train_loop(self) -> None:
+        while True:
+            try:
+                runs = self.state.get("training", [])
+                last = runs[0]["t"] if runs else 0
+                due = time.time() - last >= self.cfg.train_every_h * 3600
+                if self.cfg.auto_train and due and not self._train_running:
+                    await self._training("schedule")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("makemoney training loop: %s", e)
+            await asyncio.sleep(60)
+
+    def start_training(self) -> dict:
+        if not self._train_running:
+            asyncio.create_task(self._training("manual"))
+            self._train_running = True
+        return self.training_state()
+
+    def training_state(self) -> dict:
+        runs = self.state.get("training", [])
+        last = runs[0]["t"] if runs else None
+        return {
+            "running": self._train_running,
+            "auto": self.cfg.auto_train,
+            "every_h": self.cfg.train_every_h,
+            "days": self.cfg.train_days,
+            "tfs": self.cfg.train_tfs,
+            "next": (last + self.cfg.train_every_h * 3600)
+            if (last and self.cfg.auto_train)
+            else None,
+            "current": self.strategy.to_dict() | {"rules": self.strategy.describe()},
+            "runs": runs[:30],
+        }
+
+    async def _training(self, why: str) -> None:
+        from rinng import makemoney_backtest as bt
+
+        self._train_running = True
+        try:
+            c = self.cfg
+            data = {
+                s: await bt.history(self.bn, s, c.train_days, self.dir / "history")
+                for s in c.symbols
+            }
+            filt = {s: await self.bn.symbol_filters(s) for s in c.symbols}
+            acct = bt.Account(
+                balance=c.starting_balance,
+                risk_pct=c.risk_per_trade_pct,
+                leverage=c.max_leverage,
+                max_positions=c.max_positions,
+                taker_fee=self.fee,
+                slippage=self.slip,
+            )
+            res = await asyncio.to_thread(
+                bt.train, data, filt, acct, self.strategy, tuple(c.train_tfs)
+            )
+            res |= {"trigger": why, "symbols": c.symbols, "days": c.train_days}
+            async with self.lock:
+                runs = self.state.setdefault("training", [])
+                runs.insert(0, res)
+                del runs[50:]
+                if res["adopt"]:
+                    self.cfg.strategy = res["candidate"]
+                    self._save_config()
+                    self._analysis.clear()
+                    self._note(
+                        f"TRAINING adopted a new {res['candidate']['tf']} "
+                        f"{res['candidate']['mode']} setup: out of sample "
+                        f"{res['candidate_test']['return_pct']:+.1f}% vs current "
+                        f"{res['current_test']['return_pct']:+.1f}%"
+                    )
+                else:
+                    failed = [k for k, ok in res["checks"].items() if not ok]
+                    self._note("TRAINING kept the current setup (" + ", ".join(failed) + ")")
+                self._save_state()
+        except Exception as e:
+            log.exception("makemoney training failed")
+            self._note(f"TRAINING failed: {e}")
+        finally:
+            self._train_running = False
 
     async def _loop(self) -> None:
         while self.running:
@@ -366,6 +457,10 @@ class MakeMoney:
             self.state["balance"] += p["margin"] + pnl - fee
             net = done + pnl - done_fees - fee - p["open_fee"] + p["funding"]
         self.state["positions"].remove(p)
+        for j in self.state.get("signal_log", []):
+            if j.get("order_id") is not None and j["order_id"] == p.get("id"):
+                j["result"], j["exit_reason"] = net, why
+                break
         self.state["trades"].insert(
             0,
             {
@@ -419,9 +514,30 @@ class MakeMoney:
                 del taken[:-500]
                 held = any(p["symbol"] == sym for p in self.state["positions"])
                 why = f"SIGNAL {sig['side']}: " + "; ".join(sig["reasons"])
+                entry = {
+                    "t": time.time(),
+                    "symbol": sym,
+                    "side": sig["side"],
+                    "bar": sig["time"],
+                    "tf": self.strategy.tf,
+                    "price": sig["entry"],
+                    "stop": sig["stop"],
+                    "tp1": sig["tp1"],
+                    "take": sig["take"],
+                    "reasons": sig["reasons"],
+                    "action": "opened",
+                    "detail": "",
+                    "order_id": None,
+                    "result": None,
+                }
+                journal = self.state.setdefault("signal_log", [])
+                journal.insert(0, entry)
+                del journal[200:]
                 if held:
+                    entry["action"], entry["detail"] = "skipped", "position already open"
                     self._note(f"SIGNAL {sig['side']} {sym} skipped: position already open")
                 elif len(self.state["positions"]) >= self.cfg.max_positions:
+                    entry["action"], entry["detail"] = "skipped", "max positions reached"
                     self._note(f"SIGNAL {sig['side']} {sym} skipped: max positions reached")
                 else:
                     err = None
@@ -448,7 +564,12 @@ class MakeMoney:
                             if "liquidation" not in str(e):
                                 break
                     if err:
+                        entry["action"], entry["detail"] = "rejected", str(err)
                         self._note(f"SIGNAL {sig['side']} {sym} rejected: {err}")
+                    else:
+                        pos = self.state["positions"][-1]
+                        entry["order_id"] = pos["id"]
+                        entry["detail"] = f"filled {pos['entry']:.6g} x{pos['leverage']}"
                 self._save_state()
 
     async def _open(
@@ -821,4 +942,12 @@ Use an empty actions list to hold."""
             "trades": trades[:100],
             "log": self.state["log"][:100],
             "equity_curve": self.state["equity"],
+            "margin_used": sum(p["margin"] for p in self.state["positions"]),
+            "upnl": sum(self._pnl(p, p.get("mark", p["entry"])) for p in self.state["positions"]),
+            "realized": sum(t["pnl"] for t in trades),
+            "realized_today": sum(
+                t["pnl"] for t in trades if t["closed"] >= time.time() - time.time() % 86400
+            ),
+            "signal_log": self.state.get("signal_log", [])[:60],
+            "auto_signal": self.cfg.auto_signal,
         }

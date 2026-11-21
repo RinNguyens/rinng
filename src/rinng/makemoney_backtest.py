@@ -483,3 +483,96 @@ def report(data, filters, p: Strategy, acct: Account, windows: int = 3) -> dict:
         "strategy": p.to_dict() | {"rules": p.describe()},
         "account": acct.__dict__,
     }
+
+
+# ---------------------------------------------------------------- continuous training
+
+
+def train_grid(tf: str) -> list[Strategy]:
+    """A compact search space per timeframe (both families)."""
+    rows: list[dict] = []
+    for adx in (0.0, 25.0):
+        for ms in (0.5, 1.0):
+            for tp1 in (0.0, 0.5):
+                for r in (2.0, 3.0):
+                    rows.append(
+                        dict(
+                            tf=tf,
+                            mode="pullback",
+                            adx_min=adx,
+                            min_stop_pct=ms,
+                            tp1_frac=tp1,
+                            tp2_r=r,
+                            stop_atr_min=2.0,
+                        )
+                    )
+        for htf in (True, False):
+            for dev in (1.5, 2.5):
+                for tp1 in (0.0, 0.5):
+                    for r in (1.0, 1.5):
+                        rows.append(
+                            dict(
+                                tf=tf,
+                                mode="reversion",
+                                adx_min=adx,
+                                htf=htf,
+                                dev_atr=dev,
+                                min_stop_pct=0.75,
+                                tp1_frac=tp1,
+                                tp2_r=r,
+                                stop_atr_min=1.5,
+                            )
+                        )
+    return [Strategy.from_dict(x) for x in rows]
+
+
+def train(
+    data, filters, acct: Account, current: Strategy, tfs=("5m", "15m", "1h"), split: float = 0.67
+) -> dict:
+    """Pick the best setup on the first part, judge it on the rest, compare with `current`.
+    Adopt only if it is profitable out of sample (PF >= 1.1, >= 8 trades) and beats the
+    current setup there and over the whole period."""
+    t0 = min(int(d["start_ms"]) for d in data.values())
+    t1 = int(time.time() * 1000)
+    cut = int(t0 + (t1 - t0) * split)
+    started = time.time()
+    rows = []
+    for tf in tfs:
+        for p in train_grid(tf):
+            m = run(data, filters, p, acct, t0, cut)
+            rows.append((score(m), p, m))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    best = rows[0][1]
+    keys = ("trades", "win_rate", "return_pct", "profit_factor", "max_drawdown_pct")
+
+    def slim(m: dict) -> dict:
+        return {k: m[k] for k in keys}
+
+    res = {
+        "t": time.time(),
+        "seconds": time.time() - started,
+        "tested": len(rows),
+        "from": t0 // 1000,
+        "cut": cut // 1000,
+        "to": t1 // 1000,
+        "candidate": best.to_dict(),
+        "candidate_rules": best.describe(),
+        "candidate_train": slim(rows[0][2]),
+        "candidate_test": slim(run(data, filters, best, acct, cut, t1)),
+        "candidate_full": slim(run(data, filters, best, acct, t0, t1)),
+        "current": current.to_dict(),
+        "current_test": slim(run(data, filters, current, acct, cut, t1)),
+        "current_full": slim(run(data, filters, current, acct, t0, t1)),
+    }
+    ct, cf = res["candidate_test"], res["candidate_full"]
+    checks = {
+        "profitable out of sample": ct["return_pct"] > 0,
+        "profit factor ≥ 1.1 out of sample": (ct["profit_factor"] or 0) >= 1.1,
+        "≥ 8 trades out of sample": ct["trades"] >= 8,
+        "beats current out of sample": ct["return_pct"] > res["current_test"]["return_pct"],
+        "beats current over the whole period": cf["return_pct"] > res["current_full"]["return_pct"],
+        "differs from current": best.to_dict() != current.to_dict(),
+    }
+    res["checks"] = {k: bool(v) for k, v in checks.items()}  # plain bools for JSON
+    res["adopt"] = all(res["checks"].values())
+    return res

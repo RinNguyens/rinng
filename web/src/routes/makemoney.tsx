@@ -17,6 +17,13 @@ import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TradeChart } from "@/components/makemoney/trade-chart"
 import { Backtest } from "@/components/makemoney/backtest"
+import {
+  LiveStatus,
+  SignalJournal,
+  SignalWatch,
+  TrainingPanel,
+} from "@/components/makemoney/live-panels"
+import type { JournalEntry } from "@/components/makemoney/live-panels"
 
 // MakeMoney: a simulated futures account that Claude Haiku trades long/short.
 // Backend: src/rinng/makemoney.py (no exchange account is touched; everything is paper).
@@ -57,7 +64,7 @@ type Position = {
   mark?: number
   upnl: number
   liq: number
-  funding: number
+  funding?: number
 }
 type Trade = Position & {
   exit: number
@@ -73,7 +80,7 @@ type Trade = Position & {
 }
 type Snap = {
   config: Config
-  strategy: { rules: Array<string>; tp2_r: number }
+  strategy: { rules: Array<string>; tp2_r: number; tf: string }
   running: boolean
   busy: boolean
   last_tick: number | null
@@ -86,6 +93,11 @@ type Snap = {
   trades: Array<Trade>
   log: Array<{ t: number; msg: string }>
   equity_curve: Array<[number, number]>
+  margin_used: number
+  upnl: number
+  realized: number
+  realized_today: number
+  signal_log: Array<JournalEntry>
   last_guard: number | null
   fees_paid: number
   funding_paid: number
@@ -204,7 +216,24 @@ function MakeMoneyPage() {
       <main className="grid gap-4 p-4 lg:grid-cols-[360px_1fr]">
         <Settings snap={snap} onSaved={setSnap} onError={setErr} />
         <div className="grid content-start gap-4">
-          <Stats snap={snap} />
+          {snap && (
+            <LiveStatus
+              start={snap.config.starting_balance}
+              equity={snap.equity}
+              balance={snap.balance}
+              marginUsed={snap.margin_used}
+              upnl={snap.upnl}
+              realized={snap.realized}
+              realizedToday={snap.realized_today}
+              positions={snap.positions}
+              running={snap.running}
+              autoSignal={snap.config.auto_signal}
+              tf={snap.strategy.tf}
+            />
+          )}
+          {snap && (
+            <SignalWatch symbols={snap.config.symbols} tf={snap.strategy.tf} />
+          )}
           <Card>
             <CardContent>
               <TradeChart
@@ -221,6 +250,8 @@ function MakeMoneyPage() {
             riskPct={snap?.config.risk_per_trade_pct ?? 1}
             tp2R={snap?.strategy.tp2_r ?? 3}
           />
+          <SignalJournal rows={snap?.signal_log ?? []} />
+          <TrainingPanel />
           <EquityCurve
             curve={snap?.equity_curve ?? []}
             start={snap?.config.starting_balance ?? 1000}
@@ -283,7 +314,7 @@ function Settings({
   onError: (e: string | null) => void
 }) {
   const cfg = snap?.config
-  const [form, setForm] = useState<Record<string, string>>({})
+  const [form, setForm] = useState<Partial<Record<string, string>>>({})
   const [key, setKey] = useState("")
   const [saving, setSaving] = useState(false)
   const [universe, setUniverse] = useState<Array<{ id: string; base: string }>>(
@@ -336,7 +367,7 @@ function Settings({
     try {
       await call("/api/makemoney/config", {
         api_key: key.trim(),
-        model: form.model.trim(),
+        model: (form.model ?? "").trim(),
         symbols: picked,
         exchange: form.exchange,
         starting_balance: Number(form.starting_balance),
@@ -425,7 +456,7 @@ function Settings({
           <Select
             multiple
             value={picked}
-            onValueChange={(v) => setPicked((v as Array<string>) ?? [])}
+            onValueChange={(v) => setPicked(v)}
           >
             <SelectTrigger aria-label="Symbols" className="w-full">
               <span className="truncate">
@@ -545,45 +576,6 @@ function Settings({
         </Button>
       </CardContent>
     </Card>
-  )
-}
-
-function Stats({ snap }: { snap: Snap | null }) {
-  const items = [
-    ["Equity", snap ? `$${num(snap.equity, 2)}` : "–", null],
-    ["Return", snap ? pct(snap.return_pct) : "–", snap?.return_pct ?? null],
-    ["Available", snap ? `$${num(snap.balance, 2)}` : "–", null],
-    ["Fees paid", snap ? `$${num(snap.fees_paid, 2)}` : "–", null],
-    [
-      "Funding",
-      snap ? `$${num(snap.funding_paid, 2)}` : "–",
-      snap?.funding_paid ?? null,
-    ],
-    ["Trades", snap ? String(snap.trades.length) : "–", null],
-    [
-      "Win rate",
-      snap?.win_rate != null ? `${num(snap.win_rate, 0)}%` : "–",
-      null,
-    ],
-  ] as const
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-      {items.map(([k, v, t]) => (
-        <Card key={k} size="sm">
-          <CardContent>
-            <div className="text-xs text-muted-foreground">{k}</div>
-            <div
-              className={cn(
-                "font-mono text-lg tabular-nums",
-                t != null && tone(t)
-              )}
-            >
-              {v}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
   )
 }
 

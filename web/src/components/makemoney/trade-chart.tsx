@@ -661,7 +661,7 @@ export function TradeChart({
                   </div>
                   <div>
                     <div className="text-emerald-500">
-                      Target {data?.strategy?.tp2_r ?? 3}R
+                      Target {data.strategy?.tp2_r ?? 3}R
                     </div>
                     {price(sig.take)}
                   </div>
