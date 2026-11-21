@@ -74,6 +74,7 @@ type Snap = {
 
 async function call<T>(path: string, body?: unknown): Promise<T> {
   const r = await fetch(path, {
+    cache: "no-store",
     method:
       body === undefined && !path.includes("/api/makemoney/") ? "GET" : "POST",
     headers: { "content-type": "application/json" },
