@@ -34,7 +34,7 @@ SWING = 5  # pivot half-width for swing highs/lows
 @dataclass(frozen=True)
 class Strategy:
     htf: bool = False
-    adx_min: float = 0.0
+    adx_min: float = 25.0
     vol_mult: float = 0.0
     rsi_long: tuple[float, float] = (45.0, 72.0)
     rsi_short: tuple[float, float] = (28.0, 55.0)
