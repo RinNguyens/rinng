@@ -15,12 +15,7 @@ export type Combo = {
   steps: Array<string>
 }
 
-const c = (
-  lens: string,
-  tf: string,
-  days: number,
-  period: "week" | "day" = "week"
-): Chart => ({
+const c = (lens: string, tf: string, days: number, period: "week" | "day" = "week"): Chart => ({
   lens,
   tf,
   days,
@@ -31,14 +26,9 @@ export const COMBOS: Array<Combo> = [
   {
     id: "rin",
     title: "rin",
-    question:
-      "Structure on the left; value and Wyckoff/Elliott phase on the right.",
+    question: "Structure on the left; value and Wyckoff/Elliott phase on the right.",
     layout: "1|2",
-    charts: [
-      c("structure", "1d", 365),
-      c("profile", "1d", 365),
-      c("wyckoff", "1d", 365),
-    ],
+    charts: [c("structure", "1d", 365), c("profile", "1d", 365), c("wyckoff", "1d", 365)],
     steps: [
       "SMC structure: trend, last BOS/CHoCH and the major-swing Fibonacci (0.618 golden pocket).",
       "Volume profile: is the 0.618 level backed by a POC or value-area edge?",
@@ -48,14 +38,9 @@ export const COMBOS: Array<Combo> = [
   {
     id: "top-down",
     title: "Top-down structure",
-    question:
-      "Which way is the higher-timeframe trend, and where is price inside it?",
+    question: "Which way is the higher-timeframe trend, and where is price inside it?",
     layout: "1+2",
-    charts: [
-      c("structure", "1d", 365),
-      c("structure", "1d", 365),
-      c("liquidity", "1d", 365),
-    ],
+    charts: [c("structure", "1d", 365), c("structure", "1d", 365), c("liquidity", "1d", 365)],
     steps: [
       "1D: read the trend (HH/HL or LH/LL) and whether price sits in premium or discount.",
       "Check the last BOS/CHoCH; a lower-timeframe CHoCH against it is only a pullback until 1D breaks too.",
@@ -65,8 +50,7 @@ export const COMBOS: Array<Combo> = [
   {
     id: "value-liquidity",
     title: "Value vs. liquidity",
-    question:
-      "Where has the market accepted price, and where are the stops resting?",
+    question: "Where has the market accepted price, and where are the stops resting?",
     layout: "2",
     charts: [c("profile", "1d", 365), c("liquidity", "1d", 365)],
     steps: [
@@ -80,11 +64,7 @@ export const COMBOS: Array<Combo> = [
     title: "Trend health",
     question: "Is the move backed by momentum, volume and positioning?",
     layout: "1+2",
-    charts: [
-      c("structure", "1d", 365),
-      c("indicators", "1d", 365),
-      c("derivatives", "1d", 365),
-    ],
+    charts: [c("structure", "1d", 365), c("indicators", "1d", 365), c("derivatives", "1d", 365)],
     steps: [
       "Structure: confirm the trend and the last break.",
       "Indicators: price vs. EMA 21/50/200, RSI divergence and MACD fading against new highs/lows.",
@@ -94,14 +74,9 @@ export const COMBOS: Array<Combo> = [
   {
     id: "positioning",
     title: "Positioning & squeeze risk",
-    question:
-      "Is leverage crowded on one side, and where would a squeeze run to?",
+    question: "Is leverage crowded on one side, and where would a squeeze run to?",
     layout: "1+2",
-    charts: [
-      c("derivatives", "1d", 365),
-      c("liquidity", "1d", 365),
-      c("profile", "1d", 365),
-    ],
+    charts: [c("derivatives", "1d", 365), c("liquidity", "1d", 365), c("profile", "1d", 365)],
     steps: [
       "Derivatives: high funding + rising OI + skewed long/short = crowded side.",
       "Liquidity: the crowded side's stops sit beyond the nearest BSL/SSL; that is where a squeeze ends.",
@@ -113,11 +88,7 @@ export const COMBOS: Array<Combo> = [
     title: "Market cycle",
     question: "Accumulation, markup, distribution or markdown?",
     layout: "1+2",
-    charts: [
-      c("wyckoff", "1d", 365),
-      c("profile", "1d", 365),
-      c("wyckoff", "1d", 365),
-    ],
+    charts: [c("wyckoff", "1d", 365), c("profile", "1d", 365), c("wyckoff", "1d", 365)],
     steps: [
       "1D Wyckoff: SC/BC and trading ranges mark where the phase changed.",
       "Weekly profile: value building inside a range supports accumulation/distribution.",
@@ -127,14 +98,9 @@ export const COMBOS: Array<Combo> = [
   {
     id: "risk-map",
     title: "Risk map",
-    question:
-      "How far can price reasonably travel, and which levels are in reach?",
+    question: "How far can price reasonably travel, and which levels are in reach?",
     layout: "1+2",
-    charts: [
-      c("forecast", "1d", 365),
-      c("liquidity", "1d", 365),
-      c("profile", "1d", 365),
-    ],
+    charts: [c("forecast", "1d", 365), c("liquidity", "1d", 365), c("profile", "1d", 365)],
     steps: [
       "Projection: the 80% band is a realistic range for the next 7 days; it does not call direction.",
       "Liquidity and profile: levels inside the band are in reach; the touch odds are printed on the projection.",
@@ -181,5 +147,4 @@ export function applyCombo(w: Workspace, combo: Combo): Workspace {
   }
 }
 
-export const comboById = (id: string | undefined) =>
-  COMBOS.find((x) => x.id === id)
+export const comboById = (id: string | undefined) => COMBOS.find((x) => x.id === id)

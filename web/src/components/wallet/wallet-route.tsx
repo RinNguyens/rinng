@@ -20,8 +20,7 @@ const TAG: Record<RouteStatus, { word: string; rgb: string }> = {
   warn: { word: "REVIEW", rgb: "242,201,76" },
   danger: { word: "RISK", rgb: "255,92,77" },
 }
-const complete = (s: RouteStatus) =>
-  s === "done" || s === "ok" || s === "warn" || s === "danger"
+const complete = (s: RouteStatus) => s === "done" || s === "ok" || s === "warn" || s === "danger"
 
 const PAD = 12
 const GAP = 6
@@ -59,9 +58,7 @@ export function WalletRoute({
   useEffect(() => {
     const el = box.current
     if (!el) return
-    const ro = new ResizeObserver(() =>
-      setSize({ w: el.clientWidth, h: el.clientHeight })
-    )
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }))
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
@@ -83,8 +80,7 @@ export function WalletRoute({
     const g = ground.getContext("2d")!
     g.setTransform(dpr, 0, 0, dpr, 0, 0)
     g.fillStyle = "rgba(255,255,255,0.05)"
-    for (let y = 6; y < H; y += 12)
-      for (let x = 6; x < W; x += 12) g.fillRect(x, y, 1, 1)
+    for (let y = 6; y < H; y += 12) for (let x = 6; x < W; x += 12) g.fillRect(x, y, 1, 1)
 
     const n = props.current.steps.length
     const rows = layout(H, n)
@@ -107,21 +103,14 @@ export function WalletRoute({
     const fit = (text: string, max: number) => {
       if (ctx.measureText(text).width <= max) return text
       let t = text
-      while (t.length > 1 && ctx.measureText(`${t}…`).width > max)
-        t = t.slice(0, -1)
+      while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1)
       return `${t}…`
     }
     const font = (px: number, weight: number, mono = false) =>
       `${weight} ${px}px ${mono ? '"JetBrains Mono", ui-monospace, monospace' : '"Instrument Sans", ui-sans-serif, system-ui, sans-serif'}`
 
     const draw = (t: number) => {
-      const {
-        steps: list,
-        selected: sel,
-        running: run,
-        reduced: red,
-        hover,
-      } = props.current
+      const { steps: list, selected: sel, running: run, reduced: red, hover } = props.current
       const dt = Math.min(0.05, (t - last) / 1000)
       last = t
       const still = red
@@ -185,7 +174,7 @@ export function WalletRoute({
         const from = rows[active - 1].cy
         const to = rows[active].cy
         for (let k = 0; k < 3; k++) {
-          const p = (t / 900 + k / 3) % 1
+          const p = ((t / 900 + k / 3) % 1)
           const y = from + (to - from) * p
           const tail = ctx.createLinearGradient(SPINE_X, y - 14, SPINE_X, y)
           tail.addColorStop(0, `rgba(${BLUE},0)`)
@@ -210,11 +199,7 @@ export function WalletRoute({
         const isActive = s.status === "active"
 
         // the branch from the spine to the card
-        ctx.strokeStyle = isDone
-          ? `rgba(${GREEN},0.55)`
-          : isActive
-            ? `rgba(${BLUE},0.8)`
-            : "rgba(255,255,255,0.14)"
+        ctx.strokeStyle = isDone ? `rgba(${GREEN},0.55)` : isActive ? `rgba(${BLUE},0.8)` : "rgba(255,255,255,0.14)"
         ctx.lineWidth = 1.5
         ctx.beginPath()
         ctx.moveTo(SPINE_X + 12, r.cy)
@@ -225,18 +210,11 @@ export function WalletRoute({
         const rad = 10
         rounded(CARD_X, r.top, cardW, r.h, rad)
         if (isActive) {
-          const fill = ctx.createLinearGradient(
-            CARD_X,
-            r.top,
-            CARD_X + cardW,
-            r.top
-          )
+          const fill = ctx.createLinearGradient(CARD_X, r.top, CARD_X + cardW, r.top)
           fill.addColorStop(0, `rgba(${BLUE},0.16)`)
           fill.addColorStop(1, `rgba(${BLUE},0.03)`)
           ctx.fillStyle = fill
-        } else
-          ctx.fillStyle =
-            i === hover ? "#181818" : isDone ? "#0f1411" : "#121212"
+        } else ctx.fillStyle = i === hover ? "#181818" : isDone ? "#0f1411" : "#121212"
         ctx.fill()
         if (isActive && !still) {
           ctx.save()
@@ -304,18 +282,10 @@ export function WalletRoute({
         const twoLines = r.h >= 46
         ctx.font = font(10, 400, true)
         ctx.fillStyle = "rgba(255,255,255,0.45)"
-        ctx.fillText(
-          String(i + 1).padStart(2, "0"),
-          textX,
-          twoLines ? r.cy - 8 : r.cy
-        )
+        ctx.fillText(String(i + 1).padStart(2, "0"), textX, twoLines ? r.cy - 8 : r.cy)
         ctx.font = font(14.5, 600)
         ctx.fillStyle = isDone || isActive || i === sel ? "#f5f5f5" : "#bdbdbd"
-        ctx.fillText(
-          fit(s.title, textW - 26),
-          textX + 24,
-          twoLines ? r.cy - 8 : r.cy
-        )
+        ctx.fillText(fit(s.title, textW - 26), textX + 24, twoLines ? r.cy - 8 : r.cy)
         if (twoLines) {
           ctx.font = font(12, 400)
           ctx.fillStyle = "#8f8f8f"
@@ -415,11 +385,7 @@ export function WalletRoute({
 
   return (
     <div ref={box} className="relative h-full w-full">
-      <canvas
-        ref={canvas}
-        className="absolute inset-0 h-full w-full"
-        aria-hidden="true"
-      />
+      <canvas ref={canvas} className="absolute inset-0 h-full w-full" aria-hidden="true" />
       {rows.map((r, i) => (
         <button
           key={steps[i].title}

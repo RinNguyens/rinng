@@ -13,19 +13,13 @@ const TABS = [
 export function WalletToolbar() {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <nav
-        aria-label="Wallet sections"
-        className="flex items-center gap-0.5 rounded-4xl bg-muted p-[3px]"
-      >
+      <nav aria-label="Wallet sections" className="flex items-center gap-0.5 rounded-4xl bg-muted p-[3px]">
         {TABS.map((t) => (
           <Link
             key={t.to}
             to={t.to}
             className="inline-flex h-7 items-center rounded-full px-3 text-xs font-medium transition-colors"
-            activeProps={{
-              className:
-                "bg-background ring-1 ring-foreground/10 dark:bg-input/40",
-            }}
+            activeProps={{ className: "bg-background ring-1 ring-foreground/10 dark:bg-input/40" }}
             inactiveProps={{ className: "hover:bg-background/50" }}
           >
             {t.label}

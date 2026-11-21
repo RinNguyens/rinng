@@ -12,8 +12,7 @@ export type PanelCfg = {
   zigzag?: string // zigzag reversal % for the Wyckoff / Elliott lens; "auto" (default) by timeframe
 }
 
-export type LayoutKey =
-  "1" | "2" | "2v" | "1+2" | "1|2" | "3" | "2x2" | "1+3" | "3x2"
+export type LayoutKey = "1" | "2" | "2v" | "1+2" | "1|2" | "3" | "2x2" | "1+3" | "3x2"
 
 export type Workspace = {
   id: string
@@ -28,20 +27,8 @@ export const LAYOUTS: Record<
   { label: string; cols: string; rows: string; areas: Array<string>; n: number }
 > = {
   "1": { label: "Single", cols: "1fr", rows: "1fr", areas: ["s0"], n: 1 },
-  "2": {
-    label: "2 columns",
-    cols: "1fr 1fr",
-    rows: "1fr",
-    areas: ["s0 s1"],
-    n: 2,
-  },
-  "2v": {
-    label: "2 rows",
-    cols: "1fr",
-    rows: "1fr 1fr",
-    areas: ["s0", "s1"],
-    n: 2,
-  },
+  "2": { label: "2 columns", cols: "1fr 1fr", rows: "1fr", areas: ["s0 s1"], n: 2 },
+  "2v": { label: "2 rows", cols: "1fr", rows: "1fr 1fr", areas: ["s0", "s1"], n: 2 },
   "1+2": {
     label: "1 large + 2",
     cols: "3fr 2fr",
@@ -56,20 +43,8 @@ export const LAYOUTS: Record<
     areas: ["s0 s1", "s0 s2"],
     n: 3,
   },
-  "3": {
-    label: "3 columns",
-    cols: "1fr 1fr 1fr",
-    rows: "1fr",
-    areas: ["s0 s1 s2"],
-    n: 3,
-  },
-  "2x2": {
-    label: "2×2",
-    cols: "1fr 1fr",
-    rows: "1fr 1fr",
-    areas: ["s0 s1", "s2 s3"],
-    n: 4,
-  },
+  "3": { label: "3 columns", cols: "1fr 1fr 1fr", rows: "1fr", areas: ["s0 s1 s2"], n: 3 },
+  "2x2": { label: "2×2", cols: "1fr 1fr", rows: "1fr 1fr", areas: ["s0 s1", "s2 s3"], n: 4 },
   "1+3": {
     label: "1 top + 3",
     cols: "1fr 1fr 1fr",
@@ -178,7 +153,7 @@ function defaults(): Array<Workspace> {
       slots: [P(0), P(2), P(1), P(5)],
     },
     ...["top-down", "value-liquidity", "risk-map"].map((id) =>
-      comboWorkspace(COMBOS.find((x) => x.id === id)!)
+      comboWorkspace(COMBOS.find((x) => x.id === id)!),
     ),
   ]
 }
@@ -191,9 +166,7 @@ const OLD_OVERVIEW = "T\u1ed5ng quan"
 function toDaily(ws: Array<Workspace>): Array<Workspace> {
   return ws.map((w) => ({
     ...w,
-    slots: w.slots.map((s) =>
-      s ? { ...s, tf: "1d", days: 365, period: "week" } : s
-    ),
+    slots: w.slots.map((s) => (s ? { ...s, tf: "1d", days: 365, period: "week" } : s)),
   }))
 }
 
@@ -210,9 +183,7 @@ function load(): Array<Workspace> | null {
     const ws = migrate && Array.isArray(parsed) ? toDaily(parsed) : parsed
     if (!Array.isArray(ws) || !ws.length) return null
     // Tabs saved before the UI switched to English keep their old default name.
-    return ws.map((w) =>
-      w.name === OLD_OVERVIEW ? { ...w, name: "Overview" } : w
-    )
+    return ws.map((w) => (w.name === OLD_OVERVIEW ? { ...w, name: "Overview" } : w))
   } catch {
     return null
   }
@@ -236,7 +207,7 @@ export function tabName(next: string, old: string): string {
 // Copy of a tab inserted right after it, with fresh ids; null when the id is unknown.
 export function duplicateAfter(
   all: Array<Workspace>,
-  id: string
+  id: string,
 ): { next: Array<Workspace>; id: string } | null {
   const i = all.findIndex((w) => w.id === id)
   if (i < 0) return null
@@ -247,29 +218,18 @@ export function duplicateAfter(
     name: `${src.name} copy`.slice(0, NAME_MAX),
     slots: src.slots.map((s) => (s ? { ...s, id: newId() } : null)),
   }
-  return {
-    next: [...all.slice(0, i + 1), copy, ...all.slice(i + 1)],
-    id: copy.id,
-  }
+  return { next: [...all.slice(0, i + 1), copy, ...all.slice(i + 1)], id: copy.id }
 }
 
 // Tab to open after closing `closing`: a neighbour when it is the active tab, else null.
-export function closeTarget(
-  ids: Array<string>,
-  closing: string,
-  active: string
-): string | null {
+export function closeTarget(ids: Array<string>, closing: string, active: string): string | null {
   const i = ids.indexOf(closing)
   if (i < 0 || closing !== active || ids.length < 2) return null
   return ids[i + 1] ?? ids[i - 1]
 }
 
 // Tab a navigation key lands on (wraps around), or null for other keys.
-export function tabKey(
-  ids: Array<string>,
-  current: string,
-  key: string
-): string | null {
+export function tabKey(ids: Array<string>, current: string, key: string): string | null {
   if (!ids.length) return null
   const i = ids.indexOf(current)
   if (key === "Home") return ids[0]
@@ -306,7 +266,7 @@ export function useWorkspaces() {
         }
         return next
       }),
-    []
+    [],
   )
 
   return {
@@ -350,11 +310,7 @@ export function swapSlots(w: Workspace, a: number, b: number): Workspace {
   return { ...w, slots }
 }
 
-export function setSlot(
-  w: Workspace,
-  i: number,
-  cfg: PanelCfg | null
-): Workspace {
+export function setSlot(w: Workspace, i: number, cfg: PanelCfg | null): Workspace {
   const slots = [...w.slots]
   slots[i] = cfg
   return { ...w, slots }

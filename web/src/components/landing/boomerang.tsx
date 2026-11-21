@@ -10,21 +10,11 @@ import { useEffect, useRef, useState } from "react"
 const MAX_SECONDS = 8
 
 type VideoWithRvfc = HTMLVideoElement & {
-  requestVideoFrameCallback?: (
-    cb: (now: number, meta: { mediaTime: number }) => void
-  ) => number
+  requestVideoFrameCallback?: (cb: (now: number, meta: { mediaTime: number }) => void) => number
   cancelVideoFrameCallback?: (id: number) => void
 }
 
-export function BoomerangVideoBg({
-  src,
-  running,
-  reduced,
-}: {
-  src: string
-  running: boolean
-  reduced: boolean
-}) {
+export function BoomerangVideoBg({ src, running, reduced }: { src: string; running: boolean; reduced: boolean }) {
   const video = useRef<VideoWithRvfc>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const frames = useRef<Array<HTMLCanvasElement>>([])
@@ -44,10 +34,7 @@ export function BoomerangVideoBg({
     let handle = 0
     let lastTime = -1
     const captured: Array<HTMLCanvasElement> = []
-    const capW = Math.min(
-      960,
-      Math.max(480, Math.round((v.parentElement?.clientWidth ?? 960) * 0.66))
-    )
+    const capW = Math.min(960, Math.max(480, Math.round((v.parentElement?.clientWidth ?? 960) * 0.66)))
 
     const finish = () => {
       if (stopped) return
@@ -144,10 +131,7 @@ export function BoomerangVideoBg({
   }, [ready])
 
   return (
-    <div
-      className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
-      aria-hidden="true"
-    >
+    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden="true">
       <div className="h-full w-full origin-top scale-[1.15] overflow-hidden">
         <video
           ref={video}
@@ -159,11 +143,7 @@ export function BoomerangVideoBg({
           className="h-full w-full object-cover object-top"
           style={{ display: ready ? "none" : "block" }}
         />
-        <canvas
-          ref={canvas}
-          className="h-full w-full object-cover object-top"
-          style={{ display: ready ? "block" : "none" }}
-        />
+        <canvas ref={canvas} className="h-full w-full object-cover object-top" style={{ display: ready ? "block" : "none" }} />
       </div>
     </div>
   )
