@@ -20,6 +20,7 @@ export type Workspace = {
   layout: LayoutKey
   slots: Array<PanelCfg | null>
   guide?: string // combo id when the tab was built from a chart combo (shows its reading guide)
+  sync?: boolean // crosshair/time sync across the tab's charts (default on)
 }
 
 export const LAYOUTS: Record<

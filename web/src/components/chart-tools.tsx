@@ -455,7 +455,7 @@ export function ChartTools({
         ) : null}
       </svg>
 
-      <div className="absolute top-2 left-2 z-20 flex flex-col gap-0.5 rounded-lg border bg-background/85 p-1 shadow-sm backdrop-blur">
+      <div className="absolute top-2 left-2 z-20 flex max-h-[calc(100%-1rem)] flex-col gap-0.5 overflow-y-auto rounded-lg border bg-background/85 p-1 shadow-sm backdrop-blur">
         {TOOLS.map(([t, label]) => (
           <Btn
             key={t}

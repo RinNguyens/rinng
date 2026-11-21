@@ -13,6 +13,7 @@ export type Combo = {
   layout: LayoutKey
   charts: Array<Chart>
   steps: Array<string>
+  sync?: boolean // false: the tab opens with chart sync off
 }
 
 const c = (lens: string, tf: string, days: number, period: "week" | "day" = "week"): Chart => ({
@@ -28,6 +29,7 @@ export const COMBOS: Array<Combo> = [
     title: "rin",
     question: "Structure on the left; value and Wyckoff/Elliott phase on the right.",
     layout: "1|2",
+    sync: false,
     charts: [c("structure", "1d", 365), c("profile", "1d", 365), c("wyckoff", "1d", 365)],
     steps: [
       "SMC structure: trend, last BOS/CHoCH and the major-swing Fibonacci (0.618 golden pocket).",
@@ -133,6 +135,7 @@ export function comboWorkspace(combo: Combo): Workspace {
     layout: combo.layout,
     slots: combo.charts.map((ch) => ({ ...ch, id: newId() })),
     guide: combo.id,
+    sync: combo.sync,
   }
 }
 
@@ -144,6 +147,7 @@ export function applyCombo(w: Workspace, combo: Combo): Workspace {
     layout: combo.layout,
     slots: combo.charts.map((ch) => ({ ...ch, id: newId() })),
     guide: combo.id,
+    sync: combo.sync,
   }
 }
 
