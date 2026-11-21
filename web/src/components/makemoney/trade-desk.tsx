@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BaselineSeries,
   CandlestickSeries,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
@@ -42,6 +43,9 @@ type Check = { label: string; ok: boolean; value: string }
 type Analysis = {
   candles: Array<Candle & { volume: number }>
   ema21: Array<Pt>
+  ema200: Array<Pt>
+  vwap: Array<Pt>
+  rsi: Array<Pt>
   ema50: Array<Pt>
   tf_sec?: number
   summary: {
@@ -72,6 +76,98 @@ export type DeskTrade = {
 }
 export type DeskLog = { t: number; msg: string }
 
+export type Ind =
+  | "ema21"
+  | "ema50"
+  | "ema200"
+  | "vwap"
+  | "bb"
+  | "volume"
+  | "rsi"
+  | "macd"
+  | "projection"
+export const INDICATORS: Array<{ id: Ind; label: string; color: string }> = [
+  { id: "ema21", label: "EMA 21", color: "#f59e0b" },
+  { id: "ema50", label: "EMA 50", color: "#38bdf8" },
+  { id: "ema200", label: "EMA 200", color: "#a78bfa" },
+  { id: "vwap", label: "VWAP", color: "#94a3b8" },
+  { id: "bb", label: "Bollinger", color: "#f472b6" },
+  { id: "volume", label: "Volume", color: "#64748b" },
+  { id: "rsi", label: "RSI", color: "#c084fc" },
+  { id: "macd", label: "MACD", color: "#22d3ee" },
+  { id: "projection", label: "Projection", color: "#60a5fa" },
+]
+const IND_KEY = "rinng.makemoney.indicators"
+const IND_DEFAULT: Record<Ind, boolean> = {
+  ema21: true,
+  ema50: true,
+  ema200: false,
+  vwap: false,
+  bb: false,
+  volume: true,
+  rsi: false,
+  macd: false,
+  projection: true,
+}
+function loadInd(): Record<Ind, boolean> {
+  try {
+    const raw = localStorage.getItem(IND_KEY)
+    if (raw)
+      return {
+        ...IND_DEFAULT,
+        ...(JSON.parse(raw) as Partial<Record<Ind, boolean>>),
+      }
+  } catch {
+    /* no storage: defaults */
+  }
+  return IND_DEFAULT
+}
+
+function emaOf(v: Array<number>, n: number): Array<number | null> {
+  const out: Array<number | null> = []
+  const a = 2 / (n + 1)
+  let e: number | null = null
+  for (let i = 0; i < v.length; i++) {
+    if (i < n - 1) out.push(null)
+    else if (e == null) {
+      e = v.slice(0, n).reduce((x, y) => x + y, 0) / n
+      out.push(e)
+    } else {
+      e = a * v[i] + (1 - a) * e
+      out.push(e)
+    }
+  }
+  return out
+}
+
+function bollinger(c: Array<number>, n = 20, k = 2) {
+  return c.map((_, i) => {
+    if (i < n - 1) return null
+    const w = c.slice(i - n + 1, i + 1)
+    const m = w.reduce((x, y) => x + y, 0) / n
+    const sd = Math.sqrt(w.reduce((x, y) => x + (y - m) ** 2, 0) / n)
+    return { mid: m, up: m + k * sd, lo: m - k * sd }
+  })
+}
+
+function macd(c: Array<number>) {
+  const f = emaOf(c, 12)
+  const sl = emaOf(c, 26)
+  const line = c.map((_, i) => {
+    const a = f[i]
+    const b = sl[i]
+    return a != null && b != null ? a - b : null
+  })
+  const start = line.findIndex((x) => x != null)
+  const sig = start < 0 ? [] : emaOf(line.slice(start) as Array<number>, 9)
+  return line.map((l, i) => {
+    const sv = i >= start && start >= 0 ? sig[i - start] : null
+    return l == null || sv == null
+      ? null
+      : { line: l, signal: sv, hist: l - sv }
+  })
+}
+
 const UP = "#26a69a"
 const DOWN = "#ef5350"
 const usd = (v: number) => `${v < 0 ? "-" : ""}$${num(Math.abs(v), 2)}`
@@ -96,7 +192,17 @@ export function TradeDesk({
   const [data, setData] = useState<Analysis | null>(null)
   const [proj, setProj] = useState<Proj | null>(null)
   const [rev, setRev] = useState(0)
-  const [show, setShow] = useState({ ema: true, projection: true })
+  const [ind, setInd] = useState(loadInd)
+  const toggle = (k: Ind) =>
+    setInd((cur) => {
+      const next = { ...cur, [k]: !cur[k] }
+      try {
+        localStorage.setItem(IND_KEY, JSON.stringify(next))
+      } catch {
+        /* the choice lasts for this page only */
+      }
+      return next
+    })
 
   useBarClose(symbol, exchange, tf, () => setRev((n) => n + 1))
   useEffect(() => {
@@ -143,7 +249,7 @@ export function TradeDesk({
   return (
     <Card size="sm" className="gap-0 overflow-hidden py-0">
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px]">
-        <div className="flex h-[460px] min-w-0 flex-col xl:h-[560px]">
+        <div className="flex h-[520px] min-w-0 flex-col xl:h-[640px]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-foreground/10 px-3 py-2">
             <span className="font-heading text-sm font-medium">Trade desk</span>
             {symbols.length > 1 ? (
@@ -176,33 +282,28 @@ export function TradeDesk({
               fallback={data?.candles.at(-1)?.close}
             />
             <CandleClock />
-            <div className="ml-auto flex gap-1">
-              {(
-                [
-                  ["ema", "EMA 21/50", "#f59e0b"],
-                  ["projection", "Projection", "#60a5fa"],
-                ] as const
-              ).map(([k, label, color]) => (
-                <button
-                  key={k}
-                  type="button"
-                  aria-pressed={show[k]}
-                  onClick={() => setShow((s) => ({ ...s, [k]: !s[k] }))}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] ring-1",
-                    show[k]
-                      ? "bg-muted text-foreground ring-foreground/15"
-                      : "text-muted-foreground ring-foreground/10"
-                  )}
-                >
-                  <i
-                    className="inline-block size-1.5 rounded-full"
-                    style={{ background: color, opacity: show[k] ? 1 : 0.3 }}
-                  />
-                  {label}
-                </button>
-              ))}
-            </div>
+          </div>
+          <div className="flex flex-wrap gap-1 border-b border-foreground/10 px-3 py-1.5">
+            {INDICATORS.map((x) => (
+              <button
+                key={x.id}
+                type="button"
+                aria-pressed={ind[x.id]}
+                onClick={() => toggle(x.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] ring-1 transition-colors",
+                  ind[x.id]
+                    ? "bg-muted text-foreground ring-foreground/15"
+                    : "text-muted-foreground ring-foreground/10 hover:text-foreground"
+                )}
+              >
+                <i
+                  className="inline-block size-1.5 rounded-full"
+                  style={{ background: x.color, opacity: ind[x.id] ? 1 : 0.3 }}
+                />
+                {x.label}
+              </button>
+            ))}
           </div>
           <Chart
             key={symbol}
@@ -210,8 +311,8 @@ export function TradeDesk({
             tick={tick?.price ?? null}
             pos={pos}
             trades={mine}
-            cone={show.projection ? (cone ?? null) : null}
-            ema={show.ema}
+            cone={ind.projection ? (cone ?? null) : null}
+            ind={ind}
           />
         </div>
         <OrdersPanel
@@ -237,22 +338,21 @@ function Chart({
   pos,
   trades,
   cone,
-  ema,
+  ind,
 }: {
   data: Analysis | null
   tick: number | null
   pos: LivePosition | null
   trades: Array<DeskTrade>
   cone: Cone | null
-  ema: boolean
+  ind: Record<Ind, boolean>
 }) {
   const host = useRef<HTMLDivElement>(null)
   const h = useRef<{
     chart: IChartApi
     candles: ISeriesApi<"Candlestick">
     pnl: ISeriesApi<"Baseline">
-    e21: ISeriesApi<"Line">
-    e50: ISeriesApi<"Line">
+    studies: Array<ISeriesApi<"Line"> | ISeriesApi<"Histogram">>
     cone: Array<ISeriesApi<"Line">>
     markers: ISeriesMarkersPluginApi<Time>
     lines: Array<IPriceLine>
@@ -293,16 +393,6 @@ function Chart({
       ...quiet,
       lineVisible: false,
     })
-    const e21 = chart.addSeries(LineSeries, {
-      ...quiet,
-      color: "#f59e0b",
-      lineWidth: 1,
-    })
-    const e50 = chart.addSeries(LineSeries, {
-      ...quiet,
-      color: "#38bdf8",
-      lineWidth: 1,
-    })
     const coneLines = [
       { c: "rgba(96,165,250,0.25)", s: LineStyle.Dotted },
       { c: "rgba(96,165,250,0.5)", s: LineStyle.Dashed },
@@ -328,8 +418,7 @@ function Chart({
       chart,
       candles,
       pnl,
-      e21,
-      e50,
+      studies: [],
       cone: coneLines,
       markers: createSeriesMarkers(candles, []),
       lines: [],
@@ -354,8 +443,130 @@ function Chart({
       s
         .filter((p) => p.time >= from)
         .map((p) => ({ time: p.time as Time, value: p.value }))
-    x.e21.setData(ema ? tail(data.ema21) : [])
-    x.e50.setData(ema ? tail(data.ema50) : [])
+    // indicators: rebuilt from scratch so panes appear and disappear with their toggle
+    for (const st of x.studies) x.chart.removeSeries(st)
+    x.studies = []
+    const quiet = {
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    }
+    const line = (
+      pts: Array<{ time: Time; value: number }>,
+      color: string,
+      pane = 0,
+      extra = {}
+    ) => {
+      const sr = x.chart.addSeries(
+        LineSeries,
+        { ...quiet, color, lineWidth: 1, ...extra },
+        pane
+      )
+      sr.setData(pts)
+      x.studies.push(sr)
+      return sr
+    }
+    const closes = data.candles.map((k) => k.close)
+    const at = (i: number) => data.candles[i].time
+    const keep = (i: number) => at(i) >= from
+    if (ind.ema21) line(tail(data.ema21), "#f59e0b")
+    if (ind.ema50) line(tail(data.ema50), "#38bdf8")
+    if (ind.ema200) line(tail(data.ema200), "#a78bfa", 0, { lineWidth: 2 })
+    if (ind.vwap)
+      line(tail(data.vwap), "#94a3b8", 0, { lineStyle: LineStyle.Dashed })
+    if (ind.bb) {
+      const b = bollinger(closes)
+      const pick = (
+        f: (v: { mid: number; up: number; lo: number }) => number
+      ) =>
+        b.flatMap((v, i) =>
+          v && keep(i) ? [{ time: at(i) as Time, value: f(v) }] : []
+        )
+      line(
+        pick((v) => v.up),
+        "rgba(244,114,182,0.8)"
+      )
+      line(
+        pick((v) => v.mid),
+        "rgba(244,114,182,0.45)",
+        0,
+        { lineStyle: LineStyle.Dotted }
+      )
+      line(
+        pick((v) => v.lo),
+        "rgba(244,114,182,0.8)"
+      )
+    }
+    if (ind.volume) {
+      const v = x.chart.addSeries(HistogramSeries, {
+        ...quiet,
+        priceScaleId: "vol",
+        priceFormat: { type: "volume" },
+      })
+      x.chart
+        .priceScale("vol")
+        .applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+      v.setData(
+        data.candles
+          .filter((k) => k.time >= from)
+          .map((k) => ({
+            time: k.time as Time,
+            value: k.volume,
+            color:
+              k.close >= k.open
+                ? "rgba(38,166,154,0.35)"
+                : "rgba(239,83,80,0.35)",
+          }))
+      )
+      x.studies.push(v)
+    }
+    let pane = 1
+    if (ind.rsi) {
+      const rs = line(tail(data.rsi), "#c084fc", pane, {
+        lastValueVisible: true,
+      })
+      for (const [lvl, col] of [
+        [70, DOWN],
+        [30, UP],
+      ] as const)
+        rs.createPriceLine({
+          price: lvl,
+          color: col,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: "",
+        })
+      pane++
+    }
+    if (ind.macd) {
+      const m = macd(closes)
+      const rows = m.flatMap((v, i) =>
+        v && keep(i) ? [{ t: at(i) as Time, ...v }] : []
+      )
+      const hist = x.chart.addSeries(HistogramSeries, { ...quiet }, pane)
+      hist.setData(
+        rows.map((v) => ({
+          time: v.t,
+          value: v.hist,
+          color: v.hist >= 0 ? "rgba(38,166,154,0.6)" : "rgba(239,83,80,0.6)",
+        }))
+      )
+      x.studies.push(hist)
+      line(
+        rows.map((v) => ({ time: v.t, value: v.line })),
+        "#22d3ee",
+        pane
+      )
+      line(
+        rows.map((v) => ({ time: v.t, value: v.signal })),
+        "#f59e0b",
+        pane
+      )
+      pane++
+    }
+    const panes = x.chart.panes()
+    for (let i = 1; i < panes.length; i++) panes[i].setHeight(90)
     const qs = ["0.1", "0.25", "0.5", "0.75", "0.9"]
     x.cone.forEach((s, i) =>
       s.setData(
@@ -405,7 +616,9 @@ function Chart({
     }
     x.pnl.setData([])
     if (pos) {
-      const risk = Math.abs(pos.entry - pos.stop) * pos.qty
+      // $ result if the stop fills: negative normally, positive once the stop is in profit
+      const atStop =
+        (pos.side === "long" ? 1 : -1) * (pos.stop - pos.entry) * pos.qty
       const reward = Math.abs(pos.take - pos.entry) * pos.qty
       add(
         pos.entry,
@@ -420,7 +633,7 @@ function Chart({
       add(
         pos.stop,
         "#ef4444",
-        pos.be ? "SL BE" : `SL -${usd(risk)}`,
+        pos.be ? "SL BE" : `SL ${atStop >= 0 ? "+" : ""}${usd(atStop)}`,
         LineStyle.Dashed,
         2
       )
@@ -459,7 +672,7 @@ function Chart({
         .setVisibleLogicalRange({ from: cs.length - 140, to: cs.length + 30 })
       fitted.current = true
     }
-  }, [data, pos, trades, cone, ema])
+  }, [data, pos, trades, cone, ind])
 
   // the running candle follows every live tick
   useEffect(() => {
@@ -504,7 +717,7 @@ function OrdersPanel({
     )
     .slice(0, 8)
   return (
-    <div className="flex min-h-0 flex-col border-t border-foreground/10 xl:h-[560px] xl:border-t-0 xl:border-l">
+    <div className="flex min-h-0 flex-col border-t border-foreground/10 xl:h-[640px] xl:border-t-0 xl:border-l">
       <div className="flex items-center gap-2 border-b border-foreground/10 px-3 py-2">
         <span className="font-heading text-sm font-medium">Orders</span>
         <span className="relative flex size-2">
@@ -588,7 +801,8 @@ function OpenOrder({
   const now = live ?? pos.mark ?? pos.entry
   const sgn = long ? 1 : -1
   const upnl = sgn * (now - pos.entry) * pos.qty
-  const risk = Math.abs(pos.entry - pos.stop) * pos.qty
+  const atStop = sgn * (pos.stop - pos.entry) * pos.qty
+  const risk = Math.abs(atStop)
   const reward = Math.abs(pos.take - pos.entry) * pos.qty
   const r = risk ? upnl / risk : 0
   const roe = pos.margin ? (upnl / pos.margin) * 100 : 0
@@ -666,7 +880,7 @@ function OpenOrder({
         </span>
         <span>
           to SL <b className="text-red-500">{num(toSl, 2)}%</b> ·{" "}
-          {pos.be ? "BE" : `-${usd(risk)}`}
+          {pos.be ? "BE" : `${atStop >= 0 ? "+" : ""}${usd(atStop)}`}
         </span>
         <span className="text-muted-foreground">liq {price(pos.liq)}</span>
         <span className="text-muted-foreground">

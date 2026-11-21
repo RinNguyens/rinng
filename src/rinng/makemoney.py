@@ -242,6 +242,24 @@ class MakeMoney:
             s.setdefault("seq", max([t["id"] for t in s["trades"]] + [0]))
             # positions opened by the earlier, simpler simulator lack the exchange fields
             s["positions"] = [p for p in s["positions"] if "next_funding" in p]
+            # the original stop defines 1R; recover it for orders opened before it was kept
+            for p in s["positions"]:
+                if p.get("stop0"):
+                    continue
+                pat = re.compile(rf"^OPEN #{p.get('id')} .* SL ([0-9.]+) ")
+                for line in s.get("log", []):
+                    m = pat.match(line["msg"])
+                    if m:
+                        p["stop0"] = float(m.group(1))
+                        break
+                else:
+                    p["stop0"] = p["stop"]
+                p["alerted"] = []
+                s["alerts"] = [
+                    a
+                    for a in s.get("alerts", [])
+                    if not (a.get("order_id") == p.get("id") and a["kind"] in ("r_up", "r_down"))
+                ]
             return s
         return _empty_state(self.cfg.starting_balance)
 
@@ -424,6 +442,60 @@ class MakeMoney:
         self.state["log"].insert(0, {"t": time.time(), "msg": msg})
         del self.state["log"][300:]
 
+    def _alert(self, p: dict, kind: str, title: str, body: str, level: str = "info") -> None:
+        """Order events the page turns into toasts / browser notifications.
+        level: good (profit), bad (loss / danger), info."""
+        seq = self.state.get("alert_seq", 0) + 1
+        self.state["alert_seq"] = seq
+        alerts = self.state.setdefault("alerts", [])
+        alerts.insert(
+            0,
+            {
+                "id": seq,
+                "t": time.time(),
+                "order_id": p.get("id"),
+                "symbol": p.get("symbol"),
+                "side": p.get("side"),
+                "kind": kind,
+                "level": level,
+                "title": title,
+                "body": body,
+            },
+        )
+        del alerts[200:]
+
+    def _r_now(self, p: dict) -> float:
+        risk = abs(p["entry"] - p.get("stop0", p["stop"])) * p.get("qty0", p["qty"])
+        if not risk:
+            return 0.0
+        return (p.get("realized", 0.0) + self._pnl(p, p.get("mark", p["entry"]))) / risk
+
+    def _check_milestones(self, p: dict) -> None:
+        """+0.5R steps on the way up, and early warnings on the way to the stop."""
+        r = self._r_now(p)
+        hit = set(p.setdefault("alerted", []))
+        name = f"#{p.get('id', '?')} {p['symbol'].split('-')[0]} {p['side'].upper()}"
+        pnl = self._pnl(p, p.get("mark", p["entry"])) + p.get("realized", 0.0)
+        step = 0.5
+        k = int(r // step)
+        for m in range(1, k + 1):
+            key = f"+{m * step:g}R"
+            if key not in hit:
+                hit.add(key)
+                self._alert(p, "r_up", f"{name} reached {key}", f"PnL {pnl:+.2f} USDT", "good")
+        for lvl in (0.5, 0.8):
+            key = f"-{lvl:g}R"
+            if r <= -lvl and key not in hit and not p.get("be"):
+                hit.add(key)
+                self._alert(
+                    p,
+                    "r_down",
+                    f"{name} at {key}: {'near' if lvl >= 0.8 else 'heading to'} stop",
+                    f"PnL {pnl:+.2f} USDT · stop {p['stop']:.6g}",
+                    "bad",
+                )
+        p["alerted"] = sorted(hit)
+
     def _partial(self, p: dict, fill: float, frac: float, why: str) -> None:
         """Close `frac` of the original size at `fill` and keep the rest open."""
         qx = min(p.get("qty0", p["qty"]) * frac, p["qty"])
@@ -441,6 +513,13 @@ class MakeMoney:
         self._note(
             f"{why.upper()} #{p.get('id', '?')} {p['symbol']} closed {qx:g} @ {fill:.6g} "
             f"({pnl - fee:+.2f} USDT); stop → break-even {p['entry']:.6g}"
+        )
+        self._alert(
+            p,
+            "tp1",
+            f"#{p.get('id', '?')} {p['symbol'].split('-')[0]} hit TP1",
+            f"Closed {qx:g} @ {fill:.6g} ({pnl - fee:+.2f} USDT) · stop moved to break-even",
+            "good",
         )
 
     def _close(self, p: dict, fill: float, why: str, t: float | None = None) -> None:
@@ -479,6 +558,20 @@ class MakeMoney:
         self._note(
             f"CLOSE #{p.get('id', '?')} {p['side']} {p['symbol']} @ {fill:.6g} ({why}) "
             f"net {net:+.2f} USDT"
+        )
+        label = {
+            "take-profit": "hit TAKE-PROFIT",
+            "stop": "hit STOP-LOSS",
+            "breakeven": "closed at break-even",
+            "liquidated": "was LIQUIDATED",
+            "time": "closed by the time stop",
+        }.get(why, f"closed ({why})")
+        self._alert(
+            p,
+            "close",
+            f"#{p.get('id', '?')} {p['symbol'].split('-')[0]} {label}",
+            f"Exit {fill:.6g} · net {net:+.2f} USDT",
+            "good" if net > 0 else "bad",
         )
 
     # ---------- orders ----------
@@ -622,6 +715,7 @@ class MakeMoney:
             "margin": margin,
             "margin_in": margin,
             "stop": stop,
+            "stop0": stop,  # the original stop defines 1R even after it moves
             "take": take,
             "tp1": _round(plan["tp1"], f["tick"]) if plan and plan.get("tp1") else None,
             "tp1_frac": (plan or {}).get("tp1_frac", 0.0),
@@ -648,6 +742,14 @@ class MakeMoney:
             f"(book {q['bid']}/{q['ask']}) "
             f"SL {stop:.6g} TP {take:.6g} liq {liq:.6g} fee {open_fee:.3f} — {why}"
         )
+        risk = abs(fill - stop) * qty
+        self._alert(
+            pos,
+            "open",
+            f"#{pos['id']} {sym.split('-')[0]} {side.upper()} opened x{lev}",
+            f"Entry {fill:.6g} · SL {stop:.6g} (-{risk:.2f} USDT) · TP {take:.6g}",
+            "info",
+        )
 
     async def _market_close(self, p: dict, why: str) -> None:
         f = await self.bn.symbol_filters(p["symbol"])
@@ -662,6 +764,7 @@ class MakeMoney:
             sym = p["symbol"]
             q = await self.bn.quote(sym)
             p["mark"] = q["mark"]
+            self._check_milestones(p)
 
             # funding settlements that happened since we last looked
             while now_ms >= p["next_funding"]:
@@ -857,7 +960,18 @@ Use an empty actions list to hold."""
                         raise ValueError(
                             f"stop {stop} would trigger immediately (mark {p['mark']})"
                         )
+                    p.setdefault("stop0", p["stop"])  # 1R stays the original risk
+                    old = p["stop"]
                     p["stop"] = stop
+                    locked = (stop - p["entry"]) * (1 if p["side"] == "long" else -1) * p["qty"]
+                    self._alert(
+                        p,
+                        "r_up" if locked > 0 else "open",
+                        f"#{p.get('id', '?')} {sym.split('-')[0]} stop {old:.6g} → {stop:.6g}",
+                        (f"Locks in {locked:+.2f} USDT" if locked > 0 else "Risk reduced")
+                        + f" · {a.get('reason', '')[:80]}",
+                        "good" if locked > 0 else "info",
+                    )
                     self._note(f"STOP {sym} -> {stop:.6g} — {a.get('reason', '')}")
                 elif t == "open":
                     if sym in held:
@@ -977,5 +1091,9 @@ Use an empty actions list to hold."""
                 t["pnl"] for t in trades if t["closed"] >= time.time() - time.time() % 86400
             ),
             "signal_log": self.state.get("signal_log", [])[:60],
+            "alerts": self.state.get("alerts", [])[:50],
+            "positions_r": {
+                str(p.get("id")): round(self._r_now(p), 3) for p in self.state["positions"]
+            },
             "auto_signal": self.cfg.auto_signal,
         }

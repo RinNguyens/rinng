@@ -17,6 +17,13 @@ import { ago, num, pct, price, tone } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { TradeChart } from "@/components/makemoney/trade-chart"
 import { TradeDesk } from "@/components/makemoney/trade-desk"
+import {
+  AlertToaster,
+  OrdersFeed,
+  useUnseen,
+} from "@/components/makemoney/orders-feed"
+import type { Alert } from "@/components/makemoney/orders-feed"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { api } from "@/lib/api"
 import { live } from "@/lib/live"
 import { Backtest } from "@/components/makemoney/backtest"
@@ -105,6 +112,8 @@ type Snap = {
   realized: number
   realized_today: number
   signal_log: Array<JournalEntry>
+  alerts: Array<Alert>
+  positions_r: Partial<Record<string, number>>
   last_guard: number | null
   fees_paid: number
   funding_paid: number
@@ -129,29 +138,60 @@ async function call<T>(path: string, body?: unknown): Promise<T> {
   return r.json() as Promise<T>
 }
 
-const SETTINGS_KEY = "rinng.makemoney.settings"
+function LeftPanel({
+  snap,
+  onSaved,
+  onError,
+}: {
+  snap: Snap | null
+  onSaved: (s: Snap) => void
+  onError: (e: string | null) => void
+}) {
+  const alerts = snap?.alerts ?? []
+  const { unseen, markSeen } = useUnseen(alerts)
+  const [tab, setTab] = useState<string>("orders")
+  useEffect(() => {
+    if (tab === "orders" && unseen) markSeen()
+  }, [tab, unseen, markSeen])
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={(v) => setTab(String(v))}
+      className="h-fit gap-3 lg:sticky lg:top-4"
+    >
+      <TabsList className="w-full">
+        <TabsTrigger value="orders">
+          Lệnh
+          {unseen > 0 && (
+            <span className="ml-1.5 rounded-full bg-red-500 px-1.5 text-[10px] leading-4 text-white">
+              {unseen}
+            </span>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value="settings">Thiết lập</TabsTrigger>
+      </TabsList>
+      <TabsContent value="orders">
+        <Card>
+          <CardContent className="max-h-[calc(100dvh-9rem)] overflow-y-auto">
+            <OrdersFeed
+              positions={snap?.positions ?? []}
+              rNow={snap?.positions_r ?? {}}
+              alerts={alerts}
+            />
+          </CardContent>
+        </Card>
+      </TabsContent>
+      <TabsContent value="settings">
+        <Settings snap={snap} onSaved={onSaved} onError={onError} />
+      </TabsContent>
+    </Tabs>
+  )
+}
 
 function MakeMoneyPage() {
   const [snap, setSnap] = useState<Snap | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(() => {
-    try {
-      return localStorage.getItem(SETTINGS_KEY) !== "hidden"
-    } catch {
-      return true
-    }
-  })
-  const toggleSettings = () =>
-    setShowSettings((v) => {
-      try {
-        localStorage.setItem(SETTINGS_KEY, v ? "hidden" : "shown")
-      } catch {
-        /* storage unavailable: the choice lasts for this page only */
-      }
-      return !v
-    })
-
   // start the live price feed like the terminal shell does
   useEffect(() => {
     api
@@ -225,9 +265,6 @@ function MakeMoneyPage() {
               Start bot
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={toggleSettings}>
-            {showSettings ? "Ẩn thiết lập" : "Hiện thiết lập"}
-          </Button>
           <Button
             variant="secondary"
             size="sm"
@@ -253,15 +290,9 @@ function MakeMoneyPage() {
         </div>
       )}
 
-      <main
-        className={cn(
-          "grid gap-4 p-4",
-          showSettings && "lg:grid-cols-[360px_1fr]"
-        )}
-      >
-        {showSettings && (
-          <Settings snap={snap} onSaved={setSnap} onError={setErr} />
-        )}
+      <AlertToaster alerts={snap?.alerts ?? []} />
+      <main className="grid gap-4 p-4 lg:grid-cols-[380px_1fr]">
+        <LeftPanel snap={snap} onSaved={setSnap} onError={setErr} />
         <div className="grid content-start gap-4">
           {snap && (
             <LiveStatus
