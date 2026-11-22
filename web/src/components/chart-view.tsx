@@ -57,8 +57,8 @@ export function ChartView({
     chart: IChartApi
     candles: ISeriesApi<"Candlestick">
   } | null>(null)
-  // SMC structure opens zoomed out with the major-swing Fibonacci (0.618) drawn.
-  const wide = cfg.lens === "structure"
+  // SMC structure and Liquidity open zoomed out with the major-swing Fibonacci (0.618) drawn.
+  const wide = cfg.lens === "structure" || cfg.lens === "liquidity"
   useBarClose(symbol, exchange, cfg.tf, () => setReload((n) => n + 1))
 
   useEffect(() => {
@@ -305,7 +305,9 @@ export function ChartView({
           </div>
         ) : null}
       </div>
-      {wide && data ? <StructureEvents data={data} /> : null}
+      {cfg.lens === "structure" && data ? (
+        <StructureEvents data={data} />
+      ) : null}
     </div>
   )
 }
