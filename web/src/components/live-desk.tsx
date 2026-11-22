@@ -196,7 +196,7 @@ export function LiveDesk({
 
 // ----------------------------------------------------------------- header pieces
 
-function LivePrice({
+export function LivePrice({
   symbol,
   exchange,
   fallback,
@@ -228,7 +228,7 @@ function LivePrice({
 }
 
 // Time left in the running 5m candle, with a bar that fills as the candle ages.
-function CandleClock() {
+export function CandleClock() {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)

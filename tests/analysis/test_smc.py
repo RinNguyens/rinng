@@ -1,10 +1,12 @@
 import json
+from datetime import timedelta
 
+import polars as pl
 import pytest
 
 from rinng.analysis import smc
 from rinng.analysis.testing import assert_no_lookahead
-from tests.analysis.helpers import make_ohlcv, random_walk
+from tests.analysis.helpers import T0, make_ohlcv, random_walk
 
 
 def bars(rows):
@@ -89,9 +91,9 @@ def test_fvg_bull_and_full_fill():
     )
     t = o["open_time"].to_list()
     ev = smc.fair_value_gaps(o)
-    assert ev.height == 1
-    row = ev.row(0, named=True)
-    assert row["kind"] == "fvg_bull"
+    assert sorted(ev["kind"]) == ["fvg_bull", "fvg_bull_mitigated"]
+    assert ev.filter(pl.col("kind") == "fvg_bull_mitigated")["event_time"][0] == t[3]
+    row = ev.filter(pl.col("kind") == "fvg_bull").row(0, named=True)
     assert row["event_time"] == t[1] and row["known_at"] == t[3]
     assert (row["price_low"], row["price_high"]) == (10.5, 11.0)
     assert row["invalidated_at"] == t[4] + (t[1] - t[0])
@@ -185,9 +187,142 @@ def test_events_combined():
         lambda x: smc.order_blocks(x, 3, invalidate_on="wick", displacement_k=1.0),
         lambda x: smc.premium_discount(x, 5),
         lambda x: smc.events(x),
+        lambda x: smc.previous_levels(x, "1d"),
+        lambda x: smc.previous_levels(x, "4h"),
+        lambda x: smc.sessions(x, "london"),
+        lambda x: smc.sessions(x, "sydney"),
+        lambda x: smc.retracements(x, 3),
     ],
 )
 def test_smc_no_lookahead(fn):
     o = random_walk(300)
     assert not fn(o).is_empty()
     assert_no_lookahead(fn, o, [40, 120, 121, 250])
+
+
+def test_fvg_first_touch_before_fill():
+    # Bull FVG [10.5, 11.5] from candles 0..2; candle 3 dips to 11.0 (half), candle 4 fills.
+    o = bars(
+        [
+            (10.0, 10.5, 9.8, 10.4),
+            (10.4, 12.0, 10.3, 11.9),
+            (11.9, 12.5, 11.5, 12.4),
+            (12.4, 12.6, 11.0, 12.0),
+            (12.0, 12.1, 10.0, 10.2),
+        ]
+    )
+    ev = smc.fair_value_gaps(o)
+    bull = ev.filter(pl.col("kind") == "fvg_bull").row(0, named=True)
+    touch = ev.filter(pl.col("kind") == "fvg_bull_mitigated").row(0, named=True)
+    assert (bull["price_low"], bull["price_high"]) == (10.5, 11.5)
+    assert touch["event_time"] == o["open_time"][3]
+    assert json.loads(touch["attrs"])["depth"] == pytest.approx(0.5)
+    assert bull["invalidated_at"] == o["open_time"][4] + timedelta(hours=1)
+
+
+def test_previous_levels_daily():
+    # 1h candles from Monday 00:00: day 0 high 105 / low 95 (with a bump), day 1 trades above 105.
+    closes = [100.0] * 48
+    highs = [101.0] * 48
+    lows = [99.0] * 48
+    highs[5], lows[7] = 105.0, 95.0
+    highs[30] = 106.0
+    o = make_ohlcv(closes, highs=highs, lows=lows)
+    ev = smc.previous_levels(o, "1d")
+    # Only day 0 is emitted: day 1 completes exactly at the data end, so it is emitted too.
+    hi = ev.filter(pl.col("kind") == "prev_high").sort("event_time")
+    assert hi["price_high"].to_list() == [105.0, 106.0]
+    first = hi.row(0, named=True)
+    assert first["known_at"] == o["open_time"][24]
+    assert first["invalidated_at"] == o["open_time"][31]
+    lo = ev.filter(pl.col("kind") == "prev_low").row(0, named=True)
+    assert lo["price_low"] == 95.0 and lo["invalidated_at"] is None
+    # An incomplete last day is not emitted.
+    assert smc.previous_levels(o.head(40), "1d").height == 2
+
+
+def test_previous_levels_skips_partial_first_period():
+    o = make_ohlcv([100.0] * 30, start=T0 + timedelta(hours=3))
+    ev = smc.previous_levels(o, "1d")
+    assert ev.is_empty()
+
+
+def test_sessions_reset_and_midnight_cross():
+    highs = [100.0 + i for i in range(48)]
+    o = make_ohlcv([100.0] * 48, highs=highs)
+    f = smc.sessions(o, start="22:00", end="02:00")
+    active = f["session_active"].to_list()
+    assert [i for i in range(24) if active[i]] == [0, 1, 22, 23]
+    sh = f["session_high"].to_list()
+    # 22:00, 23:00 of day 0 and 00:00, 01:00 of day 1 are one instance; 00:00-01:00 of day 0 is
+    # the previous one and must not leak in.
+    assert sh[1] == highs[1]
+    assert sh[22] == highs[22] and sh[25] == highs[25]
+    assert sh[3] is None
+    with pytest.raises(ValueError):
+        smc.sessions(o, "nowhere")
+
+
+def test_retracements_up_leg():
+    # Swing low (L=2) at candle 2, then a rally to 20 and a pullback.
+    closes = [12.0, 11.0, 10.0, 12.0, 14.0, 20.0, 17.0, 15.0]
+    o = make_ohlcv(closes)
+    f = smc.retracements(o, 2)
+    row = f.row(6, named=True)
+    assert row["leg_dir"] == 1
+    # origin 10, extreme 20, close 17 → 30 %.
+    assert row["retrace_pct"] == pytest.approx(30.0)
+    assert f.row(6, named=True)["deepest_pct"] == pytest.approx(30.0)
+    # The swing high at candle 5 becomes known at the close of candle 7: the leg flips down.
+    assert f.row(7, named=True)["leg_dir"] == -1
+    assert f["leg_dir"][3] is None  # swing low at 2 is only known at the close of candle 4
+
+
+# --- Containment merging + fractals -------------------------------------------------------------
+
+CHAN = [
+    (10.0, 10.5, 9.5, 10.2),  # 0
+    (10.2, 11.0, 10.0, 10.8),  # 1  up
+    (10.8, 12.0, 10.6, 11.5),  # 2  high 12
+    (11.5, 11.8, 10.9, 11.0),  # 3  inside 2 -> merged up: high 12 (idx 2), low 10.9 (idx 3)
+    (11.0, 11.2, 10.2, 10.3),  # 4  lower: confirms nothing yet (bar 4 is still open)
+    (10.3, 10.6, 9.0, 9.2),  # 5  lower low: merged bar 3 (candle 4) final -> top confirmed here
+    (9.2, 10.0, 9.1, 9.9),  # 6  inside 5 -> merged down: high 10.0, low 9.0 (idx 5)
+    (9.9, 11.5, 9.6, 11.4),  # 7  breaks out -> bar(5,6) final; bottom needs one more final bar
+    (11.4, 12.5, 11.3, 12.4),  # 8  bar 7 final -> bottom at candle 5 confirmed here
+]
+
+
+def test_merged_bars_containment():
+    mb = smc.merged_bars(bars(CHAN))
+    assert mb.select("start_index", "end_index").rows() == [
+        (0, 0),
+        (1, 1),
+        (2, 3),
+        (4, 4),
+        (5, 6),
+        (7, 7),
+        (8, 8),
+    ]
+    row = mb.row(2, named=True)
+    assert (row["high"], row["high_index"], row["low"], row["low_index"]) == (12.0, 2, 10.9, 3)
+    row = mb.row(4, named=True)  # down merge: min high, min low
+    assert (row["high"], row["low"], row["low_index"]) == (10.0, 9.0, 5)
+    assert mb["final_index"].to_list() == [1, 2, 4, 5, 7, 8, None]
+
+
+def test_fractals_timing_and_extreme():
+    ev = smc.fractals(bars(CHAN))
+    got = [(k, t, ka, p) for k, t, ka, p, _ in rows_of(ev)]
+    hour = timedelta(hours=1)
+    assert got == [
+        ("fractal_top", T0 + 2 * hour, T0 + 6 * hour, 12.0),
+        ("fractal_bottom", T0 + 5 * hour, T0 + 9 * hour, 9.0),
+    ]
+    attrs = json.loads(ev["attrs"][0])
+    assert attrs["merged_start"] == 2 and attrs["merged_end"] == 3 and attrs["confirm_index"] == 5
+
+
+def test_fractals_no_lookahead():
+    o = random_walk(300, seed=7)
+    assert_no_lookahead(smc.fractals, o, [30, 77, 150, 151, 299])

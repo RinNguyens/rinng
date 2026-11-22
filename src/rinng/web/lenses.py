@@ -131,6 +131,20 @@ def lens_structure(o: pl.DataFrame, ctx: dict) -> dict:
         for r in sw.to_dicts()
     ]
     ev = smc.events(o)
+    # Chan fractals on containment-merged bars: small ticks, recent ones only to keep it readable.
+    for e in ev.filter(pl.col("kind").str.starts_with("fractal_")).tail(60).to_dicts():
+        top = e["kind"] == "fractal_top"
+        markers.append(
+            {
+                "time": ts(e["event_time"]),
+                "position": "aboveBar" if top else "belowBar",
+                "shape": "arrowDown" if top else "arrowUp",
+                "color": "rgba(148,163,184,0.7)",
+                "text": "",
+                "size": 0.5,
+            }
+        )
+    markers.sort(key=lambda m: m["time"])
     levels = []
     for e in ev.filter(pl.col("kind").str.contains("bos|choch")).to_dicts():
         a = _attrs(e["attrs"])

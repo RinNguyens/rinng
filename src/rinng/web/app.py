@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from rinng.config import Settings
 from rinng.exchanges.listing import Catalog
+from rinng.makemoney import MakeMoney, venue_symbol
 from rinng.service import NETWORK_ERRORS, TIMEFRAMES, BadRequest, NotFound, Rinng
 from rinng.web import solana
 
@@ -55,6 +56,94 @@ def create_app(
     for error in NETWORK_ERRORS:
         app.add_exception_handler(error, exchange_unreachable)
 
+    mm = MakeMoney(svc, Path(settings.data_dir))
+    app.state.makemoney = mm
+
+    app.router.on_startup.append(mm.ensure_guard)  # resting SL/TP keep working
+
+    @app.get("/api/makemoney")
+    async def mm_state():
+        mm.ensure_guard()
+        return mm.snapshot()
+
+    @app.post("/api/makemoney/config")
+    async def mm_config(request: Request):
+        return mm.update_config(await request.json())
+
+    @app.get("/api/makemoney/symbols")
+    async def mm_symbols():
+        return await mm.bn.top_symbols()
+
+    @app.get("/api/makemoney/projection")
+    async def mm_projection():
+        return await mm.projections()
+
+    @app.get("/api/makemoney/tp")
+    async def mm_tp_state():
+        return mm.tp_state()
+
+    @app.post("/api/makemoney/tp/run")
+    async def mm_tp_run():
+        return mm.start_tp_study()
+
+    @app.get("/api/makemoney/training")
+    async def mm_training_state():
+        return mm.training_state()
+
+    @app.post("/api/makemoney/training/run")
+    async def mm_training_run():
+        return mm.start_training()
+
+    @app.get("/api/makemoney/backtest")
+    async def mm_backtest_state():
+        return mm.backtest_state()
+
+    @app.post("/api/makemoney/backtest/run")
+    async def mm_backtest_run(days: int = Query(60, ge=7, le=180)):
+        return mm.start_backtest(days)
+
+    @app.get("/api/makemoney/analysis")
+    async def mm_analysis(symbol: str = Query("BTC-USDT-PERP")):
+        """5m candles, EMAs, VWAP, RSI, swings, BOS/CHoCH, levels and long/short signals."""
+        return await mm.analysis(symbol)
+
+    @app.get("/api/makemoney/candles")
+    async def mm_candles(
+        symbol: str = Query("BTC-USDT-PERP"), limit: int = Query(288, ge=10, le=1500)
+    ):
+        """Live Binance 5m candles (the last one is still forming)."""
+        raw = await mm.bn.get(
+            "/fapi/v1/klines", symbol=venue_symbol(symbol), interval="5m", limit=limit
+        )
+        return [
+            {
+                "time": int(b[0]) // 1000,
+                "open": float(b[1]),
+                "high": float(b[2]),
+                "low": float(b[3]),
+                "close": float(b[4]),
+                "volume": float(b[5]),
+            }
+            for b in raw
+        ]
+
+    @app.post("/api/makemoney/{action}")
+    async def mm_action(action: str):
+        try:
+            if action == "start":
+                mm.start()
+            elif action == "stop":
+                mm.stop()
+            elif action == "reset":
+                return mm.reset()
+            elif action == "tick":
+                return await mm.tick()
+            else:
+                raise HTTPException(404, "unknown action")
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(400, str(e)) from e
+        return mm.snapshot()
+
     @app.get("/api/meta")
     def meta():
         return svc.meta()
@@ -64,8 +153,8 @@ def create_app(
         lens: str = Query("structure"),
         symbol: str = Query("BTC-USDT-PERP"),
         exchange: str = Query("binance"),
-        tf: str = Query("4h"),
-        days: int = Query(180, ge=2, le=3000),
+        tf: str = Query("1d"),
+        days: int = Query(365, ge=2, le=3000),
         period: str = Query("week"),
         zigzag: str = Query("auto", pattern=r"^(auto|\d{1,2}(\.\d+)?)$"),
     ):

@@ -6,7 +6,12 @@ import {
   createChart,
   createSeriesMarkers,
 } from "lightweight-charts"
-import type { SeriesMarker, Time } from "lightweight-charts"
+import type {
+  IChartApi,
+  ISeriesApi,
+  SeriesMarker,
+  Time,
+} from "lightweight-charts"
 import type { ChartData, ProjectionStats } from "@/lib/api"
 import { api } from "@/lib/api"
 import { RinngOverlay } from "@/lib/overlay"
@@ -15,6 +20,8 @@ import type { SyncGroup } from "@/lib/chart-sync"
 import type { PanelCfg } from "@/lib/workspaces"
 import { live, useBarClose } from "@/lib/live"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ChartTools } from "@/components/chart-tools"
+import { StructureEvents } from "@/components/structure-events"
 
 type Props = {
   cfg: PanelCfg
@@ -46,6 +53,12 @@ export function ChartView({
   const [reload, setReload] = useState(0)
   // Visible time range kept across reloads so a candle close does not reset zoom/scroll.
   const view = useRef<{ from: Time; to: Time } | null>(null)
+  const [drawn, setDrawn] = useState<{
+    chart: IChartApi
+    candles: ISeriesApi<"Candlestick">
+  } | null>(null)
+  // SMC structure and Liquidity open zoomed out with the major-swing Fibonacci (0.618) drawn.
+  const wide = cfg.lens === "structure" || cfg.lens === "liquidity"
   useBarClose(symbol, exchange, cfg.tf, () => setReload((n) => n + 1))
 
   useEffect(() => {
@@ -114,7 +127,10 @@ export function ChartView({
         borderColor: line,
         rightOffset: 8,
       },
-      rightPriceScale: { borderColor: line },
+      rightPriceScale: {
+        borderColor: line,
+        scaleMargins: wide ? { top: 0.08, bottom: 0.06 } : undefined,
+      },
       crosshair: { mode: 0 },
     })
     const candles = chart.addSeries(CandlestickSeries, {
@@ -199,9 +215,16 @@ export function ChartView({
       chart
         .timeScale()
         .setVisibleLogicalRange({ from: n - 3 * h, to: n + h + 4 })
+    } else if (wide) {
+      // whole window plus room on the right for the Fibonacci labels
+      const n = data.candles.length
+      chart
+        .timeScale()
+        .setVisibleLogicalRange({ from: -2, to: n + Math.max(12, n * 0.12) })
     } else {
       chart.timeScale().fitContent()
     }
+    setDrawn({ chart, candles })
     // Running candle from /ws/live, drawn translucent until it closes and the lens reloads.
     const lastClosed = times[times.length - 1] ?? 0
     const offLive = live.on((e) => {
@@ -239,9 +262,10 @@ export function ChartView({
       if (r) view.current = r
       offLive()
       off?.()
+      setDrawn(null)
       chart.remove()
     }
-  }, [data, sync, cfg.id, cfg.tf, symbol, exchange])
+  }, [data, sync, cfg.id, cfg.tf, symbol, exchange, wide])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -263,6 +287,15 @@ export function ChartView({
       ) : null}
       <div className="relative min-h-0 flex-1">
         <div ref={host} className="absolute inset-0" />
+        {drawn && data ? (
+          <ChartTools
+            chart={drawn.chart}
+            series={drawn.candles}
+            candles={data.candles}
+            storageKey={`rinng.drawings.${exchange}.${symbol}.${cfg.tf}`}
+            autoFib={wide}
+          />
+        ) : null}
         {!data && !error ? (
           <Skeleton className="absolute inset-3 rounded-xl" />
         ) : null}
@@ -272,6 +305,9 @@ export function ChartView({
           </div>
         ) : null}
       </div>
+      {cfg.lens === "structure" && data ? (
+        <StructureEvents data={data} />
+      ) : null}
     </div>
   )
 }
