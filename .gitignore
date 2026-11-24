@@ -10,3 +10,8 @@ __pycache__/
 
 # design-tool artifacts (browser profile, screenshots, caches)
 .taste-skill/
+
+# TrustTrade research outputs (runs, forward-test state, LLM cache)
+TrustTrade/runs/
+TrustTrade/live/
+TrustTrade/cache/
