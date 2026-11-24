@@ -19,6 +19,7 @@ from rinng.exchanges.listing import Catalog
 from rinng.makemoney import MakeMoney, venue_symbol
 from rinng.service import NETWORK_ERRORS, TIMEFRAMES, BadRequest, NotFound, Rinng
 from rinng.web import solana
+from rinng.web import trusttrade as tt
 
 if TYPE_CHECKING:
     from rinng.live.hub import LiveHub
@@ -143,6 +144,23 @@ def create_app(
         except (ValueError, RuntimeError) as e:
             raise HTTPException(400, str(e)) from e
         return mm.snapshot()
+
+    # TrustTrade research runs (read-only; see rinng.web.trusttrade)
+    @app.get("/api/trusttrade/runs")
+    def tt_runs():
+        return tt.runs(tt.RUNS)
+
+    @app.get("/api/trusttrade/runs/{name}")
+    def tt_run(name: str):
+        return tt.run(tt.RUNS, name)
+
+    @app.get("/api/trusttrade/runs/{name}/decisions")
+    def tt_decisions(name: str, symbol: str = Query(...), strategy: str = Query("trusttrade")):
+        return tt.decisions(tt.RUNS, name, symbol, strategy)
+
+    @app.get("/api/trusttrade/runs/{name}/day")
+    def tt_day(name: str, symbol: str = Query(...), day: str = Query(...)):
+        return tt.day(tt.RUNS, name, symbol, day)
 
     @app.get("/api/meta")
     def meta():

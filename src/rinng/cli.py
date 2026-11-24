@@ -596,3 +596,190 @@ def mcp(
     if http:
         typer.echo(f"rinng MCP: http://{host}:{port}/mcp", err=True)
     serve(_service(path, offline), http=http, host=host, port=port)
+
+
+# --------------------------------------------------------------------------- TrustTrade research
+
+tt = typer.Typer(no_args_is_help=True, help="TrustTrade paper replication (arXiv 2603.22567)")
+app.add_typer(tt, name="trusttrade")
+
+TT_SYMBOLS = typer.Option("BTC,ETH,SOL", help="Comma-separated coins")
+TT_MODEL = typer.Option("claude-haiku-5-5", "--model", help="Trader and reflection model")
+
+
+def _tt_config(
+    symbols,
+    start,
+    end,
+    model,
+    analyst_models,
+    n_agents,
+    variants,
+    baselines,
+    allocation,
+    fee_bps,
+    blind,
+    analyst_effort,
+    trader_effort,
+    concurrency,
+    path,
+):
+    from datetime import date
+
+    from rinng.trusttrade import run as tr
+
+    svc = _service(path, True)
+    syms = [svc.instrument(s.strip()).id for s in symbols.split(",") if s.strip()]
+    vs = [v.strip() for v in variants.split(",") if v.strip()]
+    bs = [b.strip() for b in baselines.split(",") if b.strip()]
+    bad = [v for v in vs if v not in tr.VARIANTS] + [b for b in bs if b not in tr.BASELINES]
+    if bad:
+        typer.echo(
+            f"error: unknown strategy {', '.join(bad)}; variants: "
+            f"{', '.join(tr.VARIANTS)}; baselines: {', '.join(tr.BASELINES)}",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    cfg = tr.RunConfig(
+        symbols=syms,
+        start=date.fromisoformat(start) if start else date.today(),
+        end=date.fromisoformat(end) if end else date.today(),
+        analyst_models=[m.strip() for m in (analyst_models or model).split(",")],
+        trader_model=model,
+        n_agents=n_agents,
+        variants=vs,
+        baselines=bs,
+        allocation=allocation,
+        fee_bps=fee_bps,
+        blind=blind,
+        analyst_effort=analyst_effort,
+        trader_effort=trader_effort,
+        concurrency=concurrency,
+    )
+    return cfg, svc
+
+
+TT_COMMON = {
+    "model": TT_MODEL,
+    "analyst_models": typer.Option(
+        None, help="Analyst models, comma-separated, cycled over agents (default: --model)"
+    ),
+    "n_agents": typer.Option(3, "--agents", min=1, max=8, help="Analysts per domain (N)"),
+    "allocation": typer.Option("partial", help="partial (25/50/75/100%) or full (100%)"),
+    "fee_bps": typer.Option(10.0, help="Fee per fill, basis points"),
+    "analyst_effort": typer.Option("low", help="Effort for analysts: low|medium|high"),
+    "trader_effort": typer.Option("medium", help="Effort for trader: low|medium|high"),
+    "concurrency": typer.Option(8, min=1, max=32, help="Parallel API calls"),
+}
+
+
+@tt.command("backtest")
+def tt_backtest(
+    start: str = typer.Option(..., help="First decision day, YYYY-MM-DD"),
+    end: str = typer.Option(..., help="Last decision day, YYYY-MM-DD (inclusive)"),
+    symbols: str = TT_SYMBOLS,
+    variants: str = typer.Option(
+        "single,multi,consensus,consensus_temporal,trusttrade", help="LLM variants"
+    ),
+    baselines: str = typer.Option(
+        "buy_hold,sma_cross,macd,kdj_rsi,zmr,temporal_rule", help="Rule baselines"
+    ),
+    blind: bool = typer.Option(False, help="Hide ticker and dates, rebase prices to 100"),
+    name: str = typer.Option("", help="Run folder name (default: timestamp)"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the cost confirmation"),
+    cache_only: bool = typer.Option(False, help="Replay from the LLM cache, no API calls"),
+    model: str = TT_COMMON["model"],
+    analyst_models: str | None = TT_COMMON["analyst_models"],
+    n_agents: int = TT_COMMON["n_agents"],
+    allocation: str = TT_COMMON["allocation"],
+    fee_bps: float = TT_COMMON["fee_bps"],
+    analyst_effort: str = TT_COMMON["analyst_effort"],
+    trader_effort: str = TT_COMMON["trader_effort"],
+    concurrency: int = TT_COMMON["concurrency"],
+    path: Path | None = CONFIG,
+) -> None:
+    """Backtest the TrustTrade ablation and rule baselines on stored daily data."""
+    import json
+    import time
+
+    from rinng.trusttrade import run as tr
+
+    cfg, svc = _tt_config(
+        symbols,
+        start,
+        end,
+        model,
+        analyst_models,
+        n_agents,
+        variants,
+        baselines,
+        allocation,
+        fee_bps,
+        blind,
+        analyst_effort,
+        trader_effort,
+        concurrency,
+        path,
+    )
+    days = len(tr.day_list(cfg.start, cfg.end))
+    est = tr.estimate(cfg, days)
+    typer.echo(
+        f"{len(cfg.symbols)} symbols × {days} days; up to {est['total_calls']} API calls "
+        f"{est['calls']}, ≈ ${est['est_cost_usd']} at list price (cached calls are free)"
+    )
+    if not (yes or cache_only) and est["total_calls"] and not typer.confirm("Run?"):
+        raise typer.Exit()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    out = tr.ROOT / "runs" / (name or time.strftime("%Y%m%d-%H%M%S"))
+    fill = None if cache_only else tr.rest_fill(_service(path, False), cfg.exchange)
+    res = asyncio.run(tr.backtest(cfg, svc.paths, out, cache_only=cache_only, fill=fill))
+    typer.echo((out / "report.md").read_text())
+    typer.echo(f"run folder: {out}")
+    typer.echo(json.dumps(res["usage"]["total"]))
+
+
+@tt.command("live")
+def tt_live(
+    symbols: str = TT_SYMBOLS,
+    variants: str = typer.Option("single,consensus_temporal,trusttrade", help="LLM variants"),
+    baselines: str = typer.Option("buy_hold,temporal_rule", help="Rule baselines"),
+    model: str = TT_COMMON["model"],
+    analyst_models: str | None = TT_COMMON["analyst_models"],
+    n_agents: int = TT_COMMON["n_agents"],
+    allocation: str = TT_COMMON["allocation"],
+    fee_bps: float = TT_COMMON["fee_bps"],
+    analyst_effort: str = TT_COMMON["analyst_effort"],
+    trader_effort: str = TT_COMMON["trader_effort"],
+    concurrency: int = TT_COMMON["concurrency"],
+    path: Path | None = CONFIG,
+) -> None:
+    """Forward test: today's decision per symbol (run once a day after 00:00 UTC)."""
+    import json
+
+    from rinng.service import Rinng
+    from rinng.trusttrade import data as td
+    from rinng.trusttrade import run as tr
+
+    cfg, _ = _tt_config(
+        symbols,
+        None,
+        None,
+        model,
+        analyst_models,
+        n_agents,
+        variants,
+        baselines,
+        allocation,
+        fee_bps,
+        False,
+        analyst_effort,
+        trader_effort,
+        concurrency,
+        path,
+    )
+    cfg.domains = td.DOMAINS_LIVE
+    logging.basicConfig(level=logging.WARNING, format="%(name)s %(message)s")
+    svc = Rinng(load_settings(path))
+    res = asyncio.run(tr.live_step(cfg, svc, tr.ROOT / "live"))
+    typer.echo(json.dumps(res, indent=2))
