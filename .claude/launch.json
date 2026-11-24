@@ -149,6 +149,30 @@
       "env": {
         "RINNG_API": "http://127.0.0.1:8001"
       }
+    },
+    {
+      "name": "rinng-tt-api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "rinng",
+        "web",
+        "--port",
+        "8033"
+      ],
+      "port": 8033
+    },
+    {
+      "name": "rinng-tt-ui",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && exec ./node_modules/.bin/vite dev --port 3033 --strictPort"
+      ],
+      "port": 3033,
+      "env": {
+        "RINNG_API": "http://127.0.0.1:8033"
+      }
     }
   ]
 }

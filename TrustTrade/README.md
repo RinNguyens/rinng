@@ -92,6 +92,19 @@ action counts, how often each variant agrees with the others, and how unanimous 
 Daily bars missing from the local store are fetched from the exchange's public API for the run
 (logged, never written back).
 
+### Viewing runs in the web UI
+
+Run `uv run rinng web` and the web UI (`pnpm --dir web dev`), then open `/trusttrade`. The page
+reads every finished run in `TrustTrade/runs/` (read-only, no model or exchange calls) and shows:
+
+- every run side by side;
+- per-strategy metrics and equity curves (equal-weight average or one coin);
+- trader behaviour and how often the analysts agree;
+- each decision on a price chart. Clicking a day shows the trader's reasoning, the claims the
+  consensus filter kept or dropped, and every analyst's report.
+
+The API lives in `src/rinng/web/trusttrade.py`.
+
 ## Research plan
 
 | # | Question | Run |

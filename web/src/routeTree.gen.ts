@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as MakemoneyRouteImport } from './routes/makemoney'
 import { Route as TerminalRouteImport } from './routes/terminal'
+import { Route as TrusttradeRouteImport } from './routes/trusttrade'
 import { Route as TerminalIndexRouteImport } from './routes/terminal/index'
 import { Route as TerminalCoinRouteImport } from './routes/terminal/coin'
 import { Route as TerminalMarketRouteImport } from './routes/terminal/market'
@@ -37,6 +38,11 @@ const MakemoneyRoute = MakemoneyRouteImport.update({
 const TerminalRoute = TerminalRouteImport.update({
   id: '/terminal',
   path: '/terminal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TrusttradeRoute = TrusttradeRouteImport.update({
+  id: '/trusttrade',
+  path: '/trusttrade',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TerminalIndexRoute = TerminalIndexRouteImport.update({
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/makemoney': typeof MakemoneyRoute
   '/terminal': typeof TerminalRouteWithChildren
+  '/trusttrade': typeof TrusttradeRoute
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
   '/terminal/wallet': typeof TerminalWalletRouteWithChildren
@@ -114,6 +121,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/makemoney': typeof MakemoneyRoute
+  '/trusttrade': typeof TrusttradeRoute
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
   '/terminal': typeof TerminalIndexRoute
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/makemoney': typeof MakemoneyRoute
   '/terminal': typeof TerminalRouteWithChildren
+  '/trusttrade': typeof TrusttradeRoute
   '/terminal/coin': typeof TerminalCoinRoute
   '/terminal/market': typeof TerminalMarketRoute
   '/terminal/wallet': typeof TerminalWalletRouteWithChildren
@@ -148,6 +157,7 @@ export interface FileRouteTypes {
     | '/'
     | '/makemoney'
     | '/terminal'
+    | '/trusttrade'
     | '/terminal/coin'
     | '/terminal/market'
     | '/terminal/wallet'
@@ -163,6 +173,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/makemoney'
+    | '/trusttrade'
     | '/terminal/coin'
     | '/terminal/market'
     | '/terminal'
@@ -178,6 +189,7 @@ export interface FileRouteTypes {
     | '/'
     | '/makemoney'
     | '/terminal'
+    | '/trusttrade'
     | '/terminal/coin'
     | '/terminal/market'
     | '/terminal/wallet'
@@ -195,6 +207,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   MakemoneyRoute: typeof MakemoneyRoute
   TerminalRoute: typeof TerminalRouteWithChildren
+  TrusttradeRoute: typeof TrusttradeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -218,6 +231,13 @@ declare module '@tanstack/react-router' {
       path: '/terminal'
       fullPath: '/terminal'
       preLoaderRoute: typeof TerminalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/trusttrade': {
+      id: '/trusttrade'
+      path: '/trusttrade'
+      fullPath: '/trusttrade'
+      preLoaderRoute: typeof TrusttradeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terminal/': {
@@ -346,6 +366,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   MakemoneyRoute: MakemoneyRoute,
   TerminalRoute: TerminalRouteWithChildren,
+  TrusttradeRoute: TrusttradeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
