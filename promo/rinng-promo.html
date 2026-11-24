@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>rinng promo</title>
+<style>
+@font-face { font-family: "SG"; src: url("fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); font-weight: 300 700; }
+@font-face { font-family: "GM"; src: url("fonts/geist-mono-latin-wght-normal.woff2") format("woff2"); font-weight: 100 900; }
+:root {
+  --ink: #1c1917; --ink2: #292524; --line: rgba(255,255,255,.1);
+  --paper: #f5f2ec; --amber: #fbbf24; --muted: #78716c; --soft: #a8a29e;
+  --up: #2fb8a6; --down: #f0625a; --white: #fafaf9;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: #0c0a09; height: 100%; overflow: hidden; }
+#stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; transform-origin: 0 0; font-family: "SG", sans-serif; color: var(--ink); }
+.scene { position: absolute; inset: 0; background: var(--paper); overflow: hidden; }
+.scene.dark { background: var(--ink); color: var(--white); }
+.grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(28,25,23,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(28,25,23,.045) 1px, transparent 1px); background-size: 60px 60px; }
+.dark .grid { background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px); }
+.mono { font-family: "GM", monospace; }
+
+/* HUD */
+.hud { position: absolute; left: 60px; right: 60px; top: 70px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 16px; font: 600 34px "GM", monospace; letter-spacing: -.5px; }
+.brand svg { width: 56px; height: 56px; }
+.segs { display: flex; gap: 8px; }
+.seg { width: 56px; height: 6px; border-radius: 3px; background: rgba(28,25,23,.14); overflow: hidden; }
+.seg i { display: block; width: 100%; height: 100%; background: var(--ink); transform-origin: 0 50%; }
+.seg.done i { transform: none; }
+.seg.todo i { transform: scaleX(0); }
+
+.label { position: absolute; left: 60px; top: 226px; font: 500 28px "GM", monospace; letter-spacing: 3px; color: var(--muted); }
+.head { position: absolute; left: 56px; top: 276px; font-weight: 700; font-size: 122px; line-height: .96; letter-spacing: -4.5px; text-transform: uppercase; }
+.ln { display: block; overflow: hidden; padding-bottom: 6px; }
+.ln > span { display: inline-block; }
+.card { position: absolute; left: 60px; top: 580px; width: 960px; height: 800px; border-radius: 40px; background: var(--ink); color: var(--white); overflow: hidden; box-shadow: 0 40px 80px -30px rgba(28,25,23,.55); }
+.card svg.full { position: absolute; left: 0; top: 0; width: 960px; height: 800px; }
+.chips { position: absolute; left: 60px; top: 1418px; width: 960px; display: flex; gap: 10px; flex-wrap: wrap; }
+/* */.chip { font: 500 22px "GM", monospace; letter-spacing: 1.5px; padding: 12px 14px; border-radius: 12px; background: rgba(28,25,23,.08); color: #57534e; }
+.cap { position: absolute; left: 60px; top: 1512px; width: 940px; font-weight: 600; font-size: 46px; line-height: 1.28; letter-spacing: -1px; }
+.cap mark { color: inherit; background: linear-gradient(var(--amber), var(--amber)) no-repeat 0 82%; background-size: 0% 46%; padding: 0 4px; margin: 0 -4px; }
+
+/* in-card bits */
+.tag { position: absolute; font: 600 21px "GM", monospace; letter-spacing: 1px; padding: 7px 12px; border-radius: 9px; white-space: nowrap; }
+.tag.a { background: var(--amber); color: var(--ink); }
+.tag.g { background: rgba(255,255,255,.1); color: var(--white); }
+.tag.u { background: var(--up); color: #062b26; }
+.tag.d { background: var(--down); color: #33090a; }
+.node { position: absolute; display: flex; align-items: center; justify-content: center; gap: 12px; border: 1.5px solid rgba(255,255,255,.16); border-radius: 20px; background: var(--ink2); font: 600 30px "GM", monospace; letter-spacing: 1px; }
+.node small { font: 500 20px "GM", monospace; color: var(--soft); letter-spacing: 1px; display: block; }
+.dot { position: absolute; left: 0; top: 0; width: 14px; height: 14px; margin: -7px; border-radius: 50%; background: var(--amber); }
+.tile { position: absolute; border-radius: 22px; background: var(--ink2); border: 1.5px solid var(--line); padding: 22px 24px; }
+.tile b { display: block; font: 600 46px "GM", monospace; letter-spacing: -1.5px; color: var(--white); }
+.tile span { font: 500 19px "GM", monospace; letter-spacing: 1.5px; color: var(--soft); }
+.pane { position: absolute; border-radius: 18px; background: var(--ink2); border: 1.5px solid var(--line); overflow: hidden; }
+.pane h6 { font: 500 19px "GM", monospace; letter-spacing: 1px; color: var(--soft); padding: 14px 16px 0; }
+.pane svg { position: absolute; left: 0; top: 44px; width: 100%; height: calc(100% - 44px); }
+
+/* keyframes */
+@keyframes up { from { opacity: 0; transform: translateY(46px); } }
+@keyframes down { from { opacity: 0; transform: translateY(-46px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pop { from { opacity: 0; transform: scale(.72); } }
+@keyframes rise { from { transform: translateY(112%); } }
+@keyframes slam { from { opacity: 0; transform: scale(1.5); filter: blur(14px); } }
+@keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes wipeL { from { clip-path: inset(0 0 0 100%); } to { clip-path: inset(0 0 0 0); } }
+@keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes growX { from { transform: scaleX(0); } }
+@keyframes growY { from { transform: scaleY(0); } }
+@keyframes candle { from { opacity: 0; transform: scaleY(.15); } }
+@keyframes mark { to { background-size: 100% 46%; } }
+@keyframes chipOn { to { background: var(--amber); color: var(--ink); } }
+@keyframes segOn { to { background: var(--amber); color: var(--ink); border-color: var(--amber); } }
+@keyframes travel { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+@keyframes blink { 50% { opacity: .15; } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(251,191,36,.7); } 100% { box-shadow: 0 0 0 26px rgba(251,191,36,0); } }
+@keyframes sceneOut { to { transform: translateY(-100%); } }
+@keyframes crown { 0% { opacity: 0; transform: translateY(-26px) rotate(-14deg); } 60% { opacity: 1; transform: translateY(3px) rotate(3deg); } 100% { opacity: 1; transform: none; } }
+@keyframes type { from { width: 0; } }
+@keyframes drift { to { transform: translateX(-240px); } }
+@keyframes ring { from { opacity: 0; transform: scale(1.06); } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+const FPS = 30;
+// scene cut points (seconds)
+const T = [0, 3.7, 9.4, 15.9, 21.6, 27.2, 33.0, 38.0];
+const DURATION = T[T.length - 1];
+const stage = document.getElementById('stage');
+const NS = 'http://www.w3.org/2000/svg';
+const EASE = 'cubic-bezier(.16,.84,.24,1)';
+const BACK = 'cubic-bezier(.3,1.5,.5,1)';
+const counters = [];
+
+function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+function h(tag, cls, parent, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; if (parent) parent.appendChild(e); return e; }
+function s(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function A(el, name, t, d = .7, ease = EASE, extra = '') {
+  const v = `${name} ${d}s ${ease} ${t.toFixed(3)}s both ${extra}`;
+  el.style.animation = el.style.animation ? el.style.animation + ', ' + v : v;
+  return el;
+}
+function box(el) { el.style.transformBox = 'fill-box'; return el; }
+function pos(el, x, y, w, hh) { el.style.position = 'absolute'; el.style.left = x + 'px'; el.style.top = y + 'px'; if (w != null) el.style.width = w + 'px'; if (hh != null) el.style.height = hh + 'px'; return el; }
+
+const LOGO = (crownId) => `<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1c1917"/><g ${crownId ? `id="${crownId}"` : ''} fill="#fbbf24" style="transform-box:fill-box;transform-origin:50% 100%"><path d="M18.5 21.5 16.5 11.5 24.6 16.2 32.25 8.5 39.9 16.2 48 11.5 46 21.5Z"/><circle cx="16.5" cy="11" r="1.9"/><circle cx="32.25" cy="8" r="1.9"/><circle cx="48" cy="11" r="1.9"/></g><path fill="#fafaf9" fill-rule="evenodd" d="M19 25H35A9 9 0 0 1 35 43H34.5L45.5 55H37.8L27.2 43H25.5V55H19ZM25.5 31H35A3 3 0 0 1 35 37H25.5Z"/></svg>`;
+
+function scene(i, dark) {
+  const el = h('div', 'scene' + (dark ? ' dark' : ''), stage);
+  el.style.zIndex = 100 - i;
+  h('div', 'grid', el);
+  if (i < T.length - 2) A(el, 'sceneOut', T[i + 1] - .28, .56, 'cubic-bezier(.7,0,.25,1)');
+  return el;
+}
+
+// feature scene scaffold
+function feature(i, label, lines, chips, caption) {
+  const t0 = T[i], el = scene(i, false);
+  const hud = h('div', 'hud', el);
+  h('div', 'brand', hud, LOGO() + '<span>rinng</span>');
+  const segs = h('div', 'segs', hud);
+  for (let k = 1; k <= 5; k++) {
+    const sg = h('div', 'seg ' + (k < i ? 'done' : k > i ? 'todo' : ''), segs), bar = h('i', '', sg);
+    if (k === i) A(bar, 'growX', t0, T[i + 1] - t0, 'linear');
+  }
+  A(h('div', 'label', el, `0${i} / ${label}`), 'fade', t0 + .15, .5);
+  const head = h('div', 'head', el);
+  lines.forEach((ln, k) => A(h('span', '', h('span', 'ln', head), ln), 'rise', t0 + .18 + k * .12, .75));
+  const card = h('div', 'card', el);
+  A(card, 'up', t0 + .3, .8);
+  const cw = h('div', 'chips', el);
+  const chipEls = chips.map((c, k) => A(h('div', 'chip', cw, c), 'up', t0 + .7 + k * .07, .5));
+  const cap = h('div', 'cap', el, caption);
+  A(cap, 'up', t0 + .9, .6);
+  const mk = cap.querySelector('mark'); if (mk) A(mk, 'mark', t0 + 2.4, .7);
+  return { el, card, t0, chipEls };
+}
+function full(card) { return s('svg', { class: 'full', viewBox: '0 0 960 800' }, card); }
+function tag(card, cls, text, x, y, t, anim = 'pop') { const e = pos(h('div', 'tag ' + cls, card, text), x, y); A(e, anim, t, .45, BACK); return e; }
+
+function candles(svg, data, b, t0, stagger) {
+  const lo = Math.min(...data.map(d => d.l)), hi = Math.max(...data.map(d => d.h));
+  const Y = v => b.y + b.h - (v - lo) / (hi - lo) * b.h, step = b.w / data.length, X = i => b.x + step * (i + .5), bw = step * .6;
+  data.forEach((d, i) => {
+    const g = box(s('g', {}, svg)), col = d.c >= d.o ? 'var(--up)' : 'var(--down)';
+    g.style.transformOrigin = '50% 50%';
+    s('line', { x1: X(i), x2: X(i), y1: Y(d.h), y2: Y(d.l), stroke: col, 'stroke-width': Math.max(1.5, bw * .14) }, g);
+    s('rect', { x: X(i) - bw / 2, y: Y(Math.max(d.o, d.c)), width: bw, height: Math.max(2, Math.abs(Y(d.o) - Y(d.c))), rx: 2, fill: col }, g);
+    if (t0 != null) A(g, 'candle', t0 + i * stagger, .4, BACK);
+  });
+  return { X, Y, step };
+}
+function ohlc(closes, seed, wick = 1.5, start) {
+  const r = rng(seed); let prev = start ?? closes[0] - 1.5;
+  return closes.map(c => { const o = prev; prev = c; return { o, c, h: Math.max(o, c) + r() * wick + .2, l: Math.min(o, c) - r() * wick - .2 }; });
+}
+function walk(n, seed, drift, vol, start = 50) { const r = rng(seed); let v = start; const out = []; for (let i = 0; i < n; i++) { v += drift + (r() - .5) * vol; out.push(v); } return out; }
+
+/* ───────── 0 · HOOK ───────── */
+(function () {
+  const el = scene(0, true);
+  // drifting candle backdrop
+  const bg = s('svg', { viewBox: '0 0 1320 1920', style: 'position:absolute;left:0;top:0;width:1320px;height:1920px;opacity:.16' }, el);
+  candles(bg, ohlc(walk(44, 7, .55, 5), 3, 2), { x: 0, y: 700, w: 1320, h: 900 }, .05, .03);
+  A(bg, 'drift', 0, 4.2, 'linear');
+  const w = h('div', '', el); w.style.cssText = 'position:absolute;left:60px;top:520px;font-weight:700;font-size:176px;line-height:.92;letter-spacing:-7px;text-transform:uppercase';
+  [['Stop', .12], ['guessing', .42], ['the market.', .78]].forEach(([tx, t]) => { const d = h('div', '', w, tx); d.style.transformOrigin = '0 50%'; A(d, 'slam', t, .38, 'cubic-bezier(.2,.9,.2,1)'); });
+  w.lastChild.style.fontSize = '138px'; w.lastChild.style.letterSpacing = '-5px';
+  const m = h('div', '', el, '<span>Start measuring it.</span>'); m.style.cssText = 'position:absolute;left:60px;top:1100px;font-weight:700;font-size:92px;letter-spacing:-3px;color:#fbbf24;overflow:hidden;padding-bottom:10px';
+  A(m.firstChild, 'rise', 1.75, .6); m.firstChild.style.display = 'inline-block';
+  const b = h('div', '', el, LOGO('crown0') + '<div><div class="mono" style="font-size:84px;font-weight:600;letter-spacing:-3px;line-height:1">rinng</div><div class="mono" style="font-size:26px;letter-spacing:2px;color:#a8a29e;margin-top:10px">OPEN-SOURCE QUANT TOOLKIT</div></div>');
+  b.style.cssText = 'position:absolute;left:60px;top:1300px;display:flex;align-items:center;gap:30px';
+  b.firstChild.style.cssText = 'width:150px;height:150px;border-radius:34px;box-shadow:0 0 0 2px rgba(255,255,255,.12)';
+  A(b, 'up', 2.15, .6);
+  A(el.querySelector('#crown0'), 'crown', 2.5, .6, 'ease-out');
+})();
+
+/* ───────── 1 · DATA PIPELINE ───────── */
+(function () {
+  const f = feature(1, 'DATA PIPELINE', ['Every bar.', 'Every tick.'], ['WEBSOCKET', 'REST', 'PARQUET', 'DUCKDB'],
+    'Backfill years of history, then collect 24/7. <mark>No API keys.</mark>');
+  const { card, t0 } = f, svg = full(card);
+  f.chipEls.forEach((c, k) => A(c, 'chipOn', t0 + 1.6 + k * .7, .25));
+  const paths = ['M250 150 C250 260 480 230 480 330', 'M710 150 C710 260 480 230 480 330', 'M480 430 L480 540'];
+  paths.forEach((d, k) => A(s('path', { d, fill: 'none', stroke: 'rgba(255,255,255,.22)', 'stroke-width': 3, 'stroke-dasharray': 1, pathLength: 1 }, svg), 'draw', t0 + 1.0 + (k === 2 ? .45 : 0), .6, 'ease-out'));
+  const n1 = pos(h('div', 'node', card, 'BINANCE'), 110, 70, 280, 84), n2 = pos(h('div', 'node', card, 'OKX'), 570, 70, 280, 84);
+  A(n1, 'down', t0 + .7, .5); A(n2, 'down', t0 + .82, .5);
+  const col = pos(h('div', 'node', card, '<div style="text-align:center">collector<small>24/7 · VALIDATED</small></div>'), 290, 330, 380, 104);
+  col.style.borderColor = 'var(--amber)'; A(col, 'pop', t0 + 1.25, .5, BACK);
+  const st = pos(h('div', 'node', card, '<div style="text-align:center">local store<small>PARQUET + DUCKDB</small></div>'), 290, 540, 380, 104);
+  A(st, 'pop', t0 + 1.7, .5, BACK);
+  paths.forEach((d, k) => { for (let j = 0; j < 3; j++) { const dt = h('div', 'dot', card); dt.style.offsetPath = `path('${d}')`; dt.style.offsetRotate = '0deg'; const dur = k === 2 ? .6 : .9; A(dt, 'fade', t0 + 1.6 + (k === 2 ? .5 : 0), .2); A(dt, 'travel', t0 + 1.6 + (k === 2 ? .5 : 0) + j * dur / 3, dur, 'linear', 'infinite'); } });
+  // counter + timeframes
+  const c = pos(h('div', '', card, '<b class="mono" style="font-size:66px;font-weight:600;letter-spacing:-2px;color:#fbbf24">0</b><div class="mono" style="font-size:19px;letter-spacing:1.5px;color:#a8a29e">USDT PERPS</div>'), 60, 345);
+  A(c, 'fade', t0 + 1.9, .4); counters.push({ el: c.firstChild, to: 790, t: t0 + 1.9, d: 1.4 });
+  const c2 = pos(h('div', '', card, '<b class="mono" style="font-size:66px;font-weight:600;letter-spacing:-2px;color:#fbbf24">2</b><div class="mono" style="font-size:19px;letter-spacing:1.5px;color:#a8a29e">EXCHANGES</div>'), 730, 345);
+  A(c2, 'fade', t0 + 2.1, .4);
+  const tf = pos(h('div', '', card), 60, 690, 840); tf.style.cssText += 'display:flex;gap:12px;justify-content:space-between';
+  ['1m', '15m', '1h', '4h', '1d', '1w'].forEach((x, k) => { const e = h('div', 'mono', tf, x); e.style.cssText = 'flex:1;text-align:center;font-size:28px;font-weight:600;padding:14px 0;border-radius:14px;border:1.5px solid rgba(255,255,255,.14);color:#d6d3d1'; A(e, 'up', t0 + 2.3 + k * .07, .4); A(e, 'segOn', t0 + 3.0 + k * .28, .25); });
+})();
+
+/* ───────── 2 · ANALYSIS (SMC) ───────── */
+(function () {
+  const f = feature(2, 'ANALYSIS MODULES', ['Track the', 'smart money.'], ['STRUCTURE', 'ORDER BLOCKS', 'FVG', 'LIQUIDITY', 'PROFILE', 'WYCKOFF'],
+    'Order blocks, FVGs, BOS / CHoCH, liquidity pools and <mark>volume profile.</mark>');
+  const { card, t0, chipEls } = f, svg = full(card);
+  const closes = [50, 52, 51, 54, 57, 55, 58, 62, 60, 59, 56, 53, 51, 48, 46, 49, 47, 44, 42, 45, 50, 56, 61, 63, 62, 66, 70, 69, 73, 76, 74, 78, 81, 80];
+  const data = ohlc(closes, 11, 1.4, 48.5), b = { x: 40, y: 110, w: 720, h: 600 };
+  const under = s('g', {}, svg);
+  const { X, Y, step } = candles(svg, data, b, t0 + .55, .042);
+  const tt = k => t0 + 2.2 + k * .62;
+  const line = (x1, x2, y, col, t, dash) => A(s('line', { x1, x2, y1: y, y2: y, stroke: col, 'stroke-width': 2.5, 'stroke-dasharray': dash || '1', pathLength: dash ? null : 1 }, under), dash ? 'fade' : 'draw', t, .45, 'ease-out');
+  // CHoCH: break of lower high (idx 15)
+  line(X(15), X(20) + step / 2, Y(data[15].h), '#fafaf9', tt(0));
+  tag(card, 'g', 'CHoCH', X(16), Y(data[15].h) - 46, tt(0) + .15);
+  // order block: last down candle before the rally (idx 18)
+  const ob = s('rect', { x: X(18) - step / 2, y: Y(data[18].o), width: X(33) - X(18) + step, height: Y(data[18].l) - Y(data[18].o), fill: 'rgba(251,191,36,.2)', stroke: '#fbbf24', 'stroke-width': 2, rx: 4 }, under);
+  box(ob).style.transformOrigin = '0 50%'; A(ob, 'growX', tt(1), .6);
+  tag(card, 'a', 'ORDER BLOCK', X(22), Y(data[18].l) + 10, tt(1) + .2);
+  // FVG between high[20] and low[22]
+  const fv = s('rect', { x: X(21) - step / 2, y: Y(data[22].l), width: X(33) - X(21) + step, height: Y(data[20].h) - Y(data[22].l), fill: 'rgba(47,184,166,.22)', stroke: 'var(--up)', 'stroke-width': 2, 'stroke-dasharray': '8 6', rx: 4 }, under);
+  box(fv).style.transformOrigin = '0 50%'; A(fv, 'growX', tt(2), .6);
+  tag(card, 'u', 'FVG', X(27), Y(data[22].l) + 6, tt(2) + .2);
+  // BOS: break of swing high idx 7
+  line(X(7), X(23) + step / 2, Y(data[7].h), '#fafaf9', tt(3));
+  tag(card, 'g', 'BOS', X(12), Y(data[7].h) - 46, tt(3) + .15);
+  // liquidity
+  line(40, 760, Y(data[32].h) - 6, '#fbbf24', tt(4), '4 8');
+  tag(card, 'a', 'BUY-SIDE LIQUIDITY', 50, Y(data[32].h) - 54, tt(4) + .1);
+  // volume profile
+  const r = rng(5), n = 20, bh = b.h / n;
+  for (let k = 0; k < n; k++) { const w = 30 + 120 * Math.exp(-Math.pow((k - 11) / 5, 2)) * (0.75 + r() * .5), poc = k === 11; const e = s('rect', { x: 920 - w, y: b.y + k * bh + 3, width: w, height: bh - 6, rx: 3, fill: poc ? '#fbbf24' : 'rgba(255,255,255,.22)' }, svg); box(e).style.transformOrigin = '100% 50%'; A(e, 'growX', tt(5) + k * .025, .5); }
+  tag(card, 'a', 'POC', 800, b.y + 11 * bh - 46, tt(5) + .5);
+  pos(h('div', 'mono', card, 'BTCUSDT · 4H'), 40, 742).style.cssText += 'font-size:24px;letter-spacing:1.5px;color:#a8a29e';
+  [0, 1, 2, 3, 4].forEach(k => A(chipEls[[0, 1, 2, 0, 3][k]], 'chipOn', tt(k), .25));
+  A(chipEls[4], 'chipOn', tt(5), .25);
+})();
+
+/* ───────── 3 · FORECAST ───────── */
+(function () {
+  const f = feature(3, 'FORECASTING', ['Odds,', 'not guesses.'], ['PROBABILITY CONE', 'LEVEL TOUCH', 'WALK-FORWARD'],
+    'A probability cone for the next bars, <mark>walk-forward validated.</mark>');
+  const { card, t0, chipEls } = f, svg = full(card);
+  const data = ohlc(walk(22, 23, .5, 4.2, 50), 9, 1.3), b = { x: 40, y: 170, w: 440, h: 460 };
+  const { X, Y } = candles(svg, data, b, t0 + .55, .045);
+  const x0 = X(21) + 10, y0 = Y(data[21].c), x1 = 900, N = 30;
+  const cone = s('svg', { class: 'full', viewBox: '0 0 960 800' }, card);
+  [[2.7, .14], [1.8, .2], [1, .3]].forEach(([m, op]) => {
+    let top = '', bot = '';
+    for (let k = 0; k <= N; k++) { const x = x0 + (x1 - x0) * k / N, sp = 92 * m * Math.sqrt(k / N), mid = y0 - 46 * k / N; top += `${x},${mid - sp} `; bot = `${x},${mid + sp} ` + bot; }
+    s('polygon', { points: top + bot, fill: `rgba(251,191,36,${op})` }, cone);
+  });
+  s('line', { x1: x0, y1: y0, x2: x1, y2: y0 - 46, stroke: '#fbbf24', 'stroke-width': 3, 'stroke-dasharray': '10 8' }, cone);
+  A(cone, 'wipe', t0 + 1.7, 1.5, 'cubic-bezier(.3,0,.2,1)');
+  A(s('circle', { cx: x0, cy: y0, r: 9, fill: '#fbbf24' }, svg), 'fade', t0 + 1.6, .3);
+  A(s('line', { x1: x0, x2: x0, y1: 110, y2: 700, stroke: 'rgba(255,255,255,.25)', 'stroke-width': 2, 'stroke-dasharray': '4 8' }, svg), 'fade', t0 + 1.5, .4);
+  pos(h('div', 'mono', card, 'NOW'), x0 - 28, 720).style.cssText += 'font-size:20px;letter-spacing:2px;color:#a8a29e';
+  pos(h('div', 'mono', card, 'NEXT 30 BARS →'), 660, 720).style.cssText += 'font-size:20px;letter-spacing:2px;color:#a8a29e';
+  pos(h('div', 'mono', card, 'PROJECTION LENS'), 40, 40).style.cssText += 'font-size:24px;letter-spacing:1.5px;color:#a8a29e';
+  [['95%', -2.7], ['80%', -1.8], ['50%', -1]].forEach(([tx, m], k) => { const e = pos(h('div', 'mono', card, tx), 905, y0 - 46 + 92 * m - 13); e.style.cssText += 'font-size:20px;color:#fbbf24;font-weight:600'; A(e, 'fade', t0 + 3.0 + k * .1, .3); });
+  // level-touch probabilities
+  const lv = (y, lbl, pct, cls, t) => {
+    A(s('line', { x1: 40, x2: 890, y1: y, y2: y, stroke: cls === 'u' ? 'var(--up)' : 'var(--down)', 'stroke-width': 2.5, 'stroke-dasharray': 1, pathLength: 1 }, svg), 'draw', t, .7, 'ease-out');
+    const e = tag(card, cls, `${lbl} · <b>0</b>%`, 50, y - 46, t + .3);
+    counters.push({ el: e.querySelector('b'), to: pct, t: t + .3, d: 1.0 });
+  };
+  lv(y0 - 150, 'TOUCH RESISTANCE', 64, 'u', t0 + 3.2);
+  lv(y0 + 150, 'TOUCH SUPPORT', 21, 'd', t0 + 3.7);
+  A(chipEls[0], 'chipOn', t0 + 1.8, .25); A(chipEls[1], 'chipOn', t0 + 3.3, .25); A(chipEls[2], 'chipOn', t0 + 4.3, .25);
+})();
+
+/* ───────── 4 · BACKTEST ───────── */
+(function () {
+  const f = feature(4, 'BACKTESTING', ['Prove it', 'on history.'], ['EVENT-DRIVEN', 'FEES', 'SLIPPAGE', 'METRICS'],
+    'An event-driven engine with fees, slippage and <mark>train / test splits.</mark>');
+  const { card, t0, chipEls } = f, svg = full(card);
+  const v = walk(110, 41, .42, 3.4, 20), lo = Math.min(...v), hi = Math.max(...v);
+  const b = { x: 50, y: 130, w: 860, h: 400 }, X = i => b.x + b.w * i / (v.length - 1), Y = q => b.y + b.h - (q - lo) / (hi - lo) * b.h;
+  for (let k = 0; k < 4; k++) s('line', { x1: b.x, x2: b.x + b.w, y1: b.y + b.h * k / 3, y2: b.y + b.h * k / 3, stroke: 'rgba(255,255,255,.07)', 'stroke-width': 1.5 }, svg);
+  const pts = v.map((q, i) => `${X(i)},${Y(q)}`).join(' '), D = 2.4, ts = t0 + .8;
+  const grad = s('linearGradient', { id: 'eq', x1: 0, y1: 0, x2: 0, y2: 1 }, s('defs', {}, svg));
+  s('stop', { offset: 0, 'stop-color': 'rgba(251,191,36,.35)' }, grad); s('stop', { offset: 1, 'stop-color': 'rgba(251,191,36,0)' }, grad);
+  const lay = s('svg', { class: 'full', viewBox: '0 0 960 800' }, card);
+  s('polygon', { points: `${b.x},${b.y + b.h} ${pts} ${b.x + b.w},${b.y + b.h}`, fill: 'url(#eq)' }, lay);
+  s('polyline', { points: pts, fill: 'none', stroke: '#fbbf24', 'stroke-width': 5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, lay);
+  lay.style.clipPath = 'inset(0 0 0 0)'; A(lay, 'wipe', ts, D, 'linear');
+  const r = rng(77);
+  for (let i = 6; i < v.length - 2; i += 7) { const win = v[i + 2] > v[i]; const e = s('circle', { cx: X(i), cy: Y(v[i]), r: 8, fill: win ? 'var(--up)' : 'var(--down)', stroke: '#1c1917', 'stroke-width': 3 }, svg); box(e).style.transformOrigin = '50% 50%'; A(e, 'pop', ts + D * (X(i) - 0) / 960 + .05, .3, BACK); r(); }
+  const sx = X(72);
+  A(s('line', { x1: sx, x2: sx, y1: 96, y2: b.y + b.h + 10, stroke: '#fafaf9', 'stroke-width': 2.5, 'stroke-dasharray': '6 8' }, svg), 'fade', t0 + 1.2, .4);
+  tag(card, 'g', 'TRAIN', sx - 112, 76, t0 + 1.2); tag(card, 'a', 'TEST', sx + 16, 76, t0 + 2.6);
+  pos(h('div', 'mono', card, 'EQUITY CURVE'), 50, 40).style.cssText += 'font-size:24px;letter-spacing:1.5px;color:#a8a29e';
+  const tiles = [['<b>0</b><span>BARS REPLAYED</span>', 13140], ['<b>0</b><span>TRADES SIMULATED</span>', 1284], ['<b>2025-01-01</b><span>SPLIT DATE</span>', null]];
+  tiles.forEach(([html, to], k) => { const e = pos(h('div', 'tile', card, html), 50 + k * 292, 600, 276, 150); if (k === 2) e.firstChild.style.cssText = 'font-size:34px;line-height:55px;letter-spacing:-1px'; A(e, 'up', t0 + 1.5 + k * .12, .5); if (to) counters.push({ el: e.firstChild, to, t: ts, d: D + .3, fmt: true }); });
+  chipEls.forEach((c, k) => A(c, 'chipOn', t0 + 1.6 + k * .6, .25));
+})();
+
+/* ───────── 5 · LIVE DASHBOARD ───────── */
+let ticker;
+(function () {
+  const f = feature(5, 'WEB APP', ['One screen.', 'All live.'], ['1–6 PANES', 'DRAG & DROP', '7 COMBOS', 'LIVE DESK', 'NEWS'],
+    'Drag charts into multi-pane tabs. <mark>Streamed over WebSocket.</mark>');
+  const { card, t0, chipEls } = f;
+  const bar = pos(h('div', '', card), 0, 0, 960, 96); bar.style.cssText += 'position:absolute;display:flex;align-items:center;gap:18px;padding:0 28px;border-bottom:1.5px solid rgba(255,255,255,.1)';
+  bar.innerHTML = `<span style="width:16px;height:16px;border-radius:50%;background:var(--up)" id="live"></span><span class="mono" style="font-size:26px;font-weight:600;letter-spacing:1px">BTCUSDT</span><span class="mono" id="px" style="font-size:26px;font-weight:600;color:var(--up)">0</span><span style="flex:1"></span><span class="mono" style="font-size:22px;color:#a8a29e;border:1.5px solid rgba(255,255,255,.16);border-radius:12px;padding:10px 16px;display:flex;gap:10px"><b style="color:#fafaf9">⌘K</b><span id="q" style="display:inline-block;overflow:hidden;white-space:nowrap;width:17ch">Search 790 perps_</span></span>`;
+  A(bar, 'fade', t0 + .6, .4); A(bar.querySelector('#live'), 'blink', t0, 1, 'steps(2,jump-none)', 'infinite');
+  A(bar.querySelector('#q'), 'type', t0 + 1.0, .9, 'steps(17,end)');
+  ticker = { el: bar.querySelector('#px'), t0 };
+  const names = ['STRUCTURE · 4H', 'VOLUME PROFILE', 'FUNDING', 'OPEN INTEREST', 'LIQUIDITY', 'WYCKOFF'];
+  const PW = 444, PH = 212, gx = 24, gy = 112;
+  names.forEach((nm, k) => {
+    const p = pos(h('div', 'pane', card), gx + (k % 2) * (PW + 24), gy + Math.floor(k / 2) * (PH + 16), PW, PH);
+    h('h6', '', p, nm);
+    const v = s('svg', { viewBox: `0 0 ${PW} ${PH - 44}`, preserveAspectRatio: 'none' }, p), H = PH - 44, tp = t0 + .9 + k * .16;
+    A(p, 'pop', tp, .5, BACK);
+    const r = rng(100 + k);
+    if (k === 0) candles(v, ohlc(walk(26, 31, .4, 4, 50), 4, 1.2), { x: 12, y: 10, w: PW - 24, h: H - 24 }, tp + .2, .025);
+    if (k === 1) for (let j = 0; j < 11; j++) { const w = 60 + 300 * Math.exp(-Math.pow((j - 5) / 2.6, 2)) * (.7 + r() * .4); const e = s('rect', { x: 16, y: 8 + j * 13.4, width: w, height: 10, rx: 3, fill: j === 5 ? '#fbbf24' : 'rgba(255,255,255,.25)' }, v); box(e).style.transformOrigin = '0 50%'; A(e, 'growX', tp + .2 + j * .03, .5); }
+    if (k === 2) for (let j = 0; j < 30; j++) { const q = (r() - .38) * 110, e = s('rect', { x: 16 + j * 13.9, y: q > 0 ? H / 2 - q : H / 2, width: 9, height: Math.abs(q) + 2, rx: 2, fill: q > 0 ? 'var(--up)' : 'var(--down)' }, v); box(e).style.transformOrigin = q > 0 ? '50% 100%' : '50% 0'; A(e, 'growY', tp + .2 + j * .02, .4); }
+    if (k === 3 || k === 5) { const w = walk(40, 60 + k, k === 3 ? .5 : .1, k === 3 ? 4 : 7, 30), lo = Math.min(...w), hi = Math.max(...w); const pt = w.map((q, i) => `${14 + (PW - 28) * i / 39},${H - 14 - (q - lo) / (hi - lo) * (H - 30)}`).join(' '); A(s('polyline', { points: pt, fill: 'none', stroke: k === 3 ? '#fbbf24' : '#fafaf9', 'stroke-width': 3.5, 'stroke-linejoin': 'round', 'stroke-dasharray': 1, pathLength: 1, 'vector-effect': 'non-scaling-stroke' }, v), 'draw', tp + .2, 1.2, 'ease-out'); if (k === 5) ['ACC', 'MARKUP', 'DIST'].forEach((x, j) => { const e = s('rect', { x: 14 + j * 140, y: 6, width: 132, height: H - 12, rx: 8, fill: ['rgba(47,184,166,.14)', 'rgba(251,191,36,.14)', 'rgba(240,98,90,.14)'][j] }, v); A(e, 'fade', tp + .5 + j * .2, .4); }); }
+    if (k === 4) for (let j = 0; j < 7; j++) { const y = 14 + j * 22 + r() * 8, w = 120 + r() * 290, e = s('rect', { x: PW - 14 - w, y, width: w, height: 6 + r() * 8, rx: 3, fill: `rgba(251,191,36,${.25 + r() * .6})` }, v); box(e).style.transformOrigin = '100% 50%'; A(e, 'growX', tp + .2 + j * .05, .5); }
+  });
+  // maximize highlight on pane 1
+  const ring = pos(h('div', '', card), gx - 4, gy - 4, PW + 8, PH + 8); ring.style.cssText += 'position:absolute;border:3px solid var(--amber);border-radius:22px';
+  A(ring, 'ring', t0 + 3.2, .4); A(ring, 'pulse', t0 + 3.3, 1.1, 'ease-out', 'infinite');
+  chipEls.forEach((c, k) => A(c, 'chipOn', t0 + 1.4 + k * .55, .25));
+})();
+
+/* ───────── 6 · OUTRO ───────── */
+(function () {
+  const t0 = T[6], el = scene(6, true);
+  const lg = h('div', '', el, LOGO('crown1')); lg.style.cssText = 'position:absolute;left:390px;top:440px;width:300px;height:300px'; lg.firstChild.style.cssText = 'width:300px;height:300px;border-radius:66px;box-shadow:0 0 0 3px rgba(255,255,255,.12)';
+  A(lg, 'pop', t0 + .25, .7, BACK); A(el.querySelector('#crown1'), 'crown', t0 + .7, .6, 'ease-out');
+  const nm = h('div', 'mono', el, 'rinng'); nm.style.cssText = 'position:absolute;left:0;right:0;top:790px;text-align:center;font-size:170px;font-weight:600;letter-spacing:-8px;line-height:1';
+  A(nm, 'up', t0 + .5, .7);
+  const sub = h('div', '', el, 'Quant analysis for crypto perps.'); sub.style.cssText = 'position:absolute;left:0;right:0;top:1000px;text-align:center;font-size:52px;font-weight:600;letter-spacing:-1.5px;color:#d6d3d1';
+  A(sub, 'up', t0 + .75, .6);
+  const row = h('div', '', el); row.style.cssText = 'position:absolute;left:0;right:0;top:1110px;display:flex;gap:14px;justify-content:center';
+  ['OPEN SOURCE', 'MIT', 'NO API KEYS'].forEach((x, k) => { const c = h('div', 'chip', row, x); c.style.cssText = 'background:rgba(255,255,255,.1);color:#fafaf9;font-size:26px'; A(c, 'pop', t0 + 1.1 + k * .1, .45, BACK); });
+  const cmd = h('div', 'mono', el, '<span style="color:#fbbf24">$</span> <span id="cmd" style="display:inline-block;overflow:hidden;white-space:nowrap;vertical-align:bottom;width:17ch">uv run rinng live</span><i style="display:inline-block;width:18px;height:44px;background:#fbbf24;vertical-align:bottom;margin-left:4px"></i>');
+  cmd.style.cssText = 'position:absolute;left:150px;width:780px;top:1250px;padding:34px 40px;border-radius:26px;background:#0c0a09;border:1.5px solid rgba(255,255,255,.14);font-size:44px;font-weight:500';
+  A(cmd, 'up', t0 + 1.4, .6); A(cmd.querySelector('#cmd'), 'type', t0 + 1.9, 1.0, 'steps(17,end)'); A(cmd.querySelector('i'), 'blink', t0, .9, 'steps(2,jump-none)', 'infinite');
+  const url = h('div', 'mono', el, 'github.com/RinNguyens/rinng'); url.style.cssText = 'position:absolute;left:0;right:0;top:1440px;text-align:center;font-size:38px;font-weight:600;color:#fbbf24;letter-spacing:-.5px';
+  A(url, 'up', t0 + 2.6, .6);
+  const dis = h('div', 'mono', el, 'ANALYSIS AND BACKTESTING ONLY · NOT INVESTMENT ADVICE'); dis.style.cssText = 'position:absolute;left:0;right:0;top:1560px;text-align:center;font-size:20px;letter-spacing:1.5px;color:#78716c';
+  A(dis, 'fade', t0 + 3.0, .6);
+})();
+
+/* ───────── timeline driver ───────── */
+const easeOut = x => 1 - Math.pow(1 - x, 3);
+function update(sec) {
+  for (const c of counters) { const p = Math.min(1, Math.max(0, (sec - c.t) / c.d)), n = Math.round(c.to * easeOut(p)); c.el.textContent = c.fmt ? n.toLocaleString('en-US') : n; }
+  if (ticker) { const u = Math.max(0, sec - ticker.t0), step = Math.floor(u * 5); const r = rng(900 + step); ticker.el.textContent = (97412.5 + step * 1.9 + (r() - .5) * 22).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' ▲'; }
+}
+let anims = [];
+window.__duration = DURATION; window.__fps = FPS;
+window.__seek = sec => { for (const a of anims) a.currentTime = sec * 1000; update(sec); };
+document.fonts.ready.then(() => {
+  anims = document.getAnimations(); anims.forEach(a => a.pause());
+  const capture = new URLSearchParams(location.search).has('capture');
+  window.__seek(0); window.__ready = true;
+  if (capture) return;
+  const fit = () => { const k = Math.min(innerWidth / 1080, innerHeight / 1920); stage.style.transform = `translate(${(innerWidth - 1080 * k) / 2}px,0) scale(${k})`; };
+  fit(); addEventListener('resize', fit);
+  const start = performance.now(), at = parseFloat(new URLSearchParams(location.search).get('t'));
+  if (!isNaN(at)) return window.__seek(at);
+  (function loop(now) { window.__seek(((now - start) / 1000) % DURATION); requestAnimationFrame(loop); })(start);
+});
+</script>
+</body>
+</html>
