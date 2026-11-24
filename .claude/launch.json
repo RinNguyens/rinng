@@ -136,6 +136,19 @@
       "env": {
         "RINNG_API": "http://127.0.0.1:8001"
       }
+    },
+    {
+      "name": "rinng-ui-8001",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "web",
+        "dev"
+      ],
+      "port": 3000,
+      "env": {
+        "RINNG_API": "http://127.0.0.1:8001"
+      }
     }
   ]
 }
